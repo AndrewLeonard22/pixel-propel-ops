@@ -12,6 +12,7 @@ import TeamPerformance from "./pages/TeamPerformance";
 import SettingsPage from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
+
 const queryClient = new QueryClient();
 
 const App = () => (
