@@ -4,7 +4,7 @@ import { ConfigBanner, ErrorBanner } from '@/components/common/Banners';
 import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
-import { formatCurrency, formatNumber, formatPercent, getPerformance, buildAccountSummaries } from '@/lib/dataService';
+import { formatCurrency, formatNumber, formatPercent, buildAccountSummaries } from '@/lib/dataService';
 import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import type { AccountSummary, CampaignSummary, PerformanceLevel } from '@/lib/types';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
@@ -88,29 +88,25 @@ function CPLBadge({ value }: { value: number }) {
   return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
 }
 
-function getAccountPerformance(account: AccountSummary): PerformanceLevel | null {
-  const mappings = loadAccountMappings();
-  const { program, status } = getAccountMapping(account.accountName, mappings);
-
-  if (status === 'Paused' || status === 'Churned') return null;
-
+function getPerfByProgram(program: string, cpl: number, costPerAppt: number, appointments: number): PerformanceLevel | null {
   if (program === 'Done With You') {
-    if (account.cpl === 0) return null;
-    if (account.cpl < 30) return 'good';
-    if (account.cpl <= 50) return 'fair';
+    if (cpl === 0) return null;
+    if (cpl < 30) return 'good';
+    if (cpl <= 50) return 'fair';
     return 'poor';
   }
-
   // Done For You (default)
-  if (account.costPerAppt === 0 || account.appointments === 0) return null;
-  if (account.costPerAppt < 200) return 'good';
-  if (account.costPerAppt <= 350) return 'fair';
+  if (costPerAppt === 0 || appointments === 0) return null;
+  if (costPerAppt < 200) return 'good';
+  if (costPerAppt <= 350) return 'fair';
   return 'poor';
 }
 
 function AccountRow({ account }: { account: AccountSummary }) {
   const [expanded, setExpanded] = useState(false);
-  const perf = getAccountPerformance(account);
+  const mappings = loadAccountMappings();
+  const { program, status } = getAccountMapping(account.accountName, mappings);
+  const perf = (status === 'Paused' || status === 'Churned') ? null : getPerfByProgram(program, account.cpl, account.costPerAppt, account.appointments);
 
   return (
     <>
@@ -139,14 +135,15 @@ function AccountRow({ account }: { account: AccountSummary }) {
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.revenue)}</td>
       </tr>
       {expanded && account.campaigns.map(c => (
-        <CampaignRow key={c.campaignId} campaign={c} />
+        <CampaignRow key={c.campaignId} campaign={c} program={program} />
       ))}
     </>
   );
 }
 
-function CampaignRow({ campaign }: { campaign: CampaignSummary }) {
+function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program: string }) {
   const [expanded, setExpanded] = useState(false);
+  const perf = getPerfByProgram(program, campaign.cpl, campaign.costPerAppt, campaign.appointments);
 
   return (
     <>
@@ -160,7 +157,7 @@ function CampaignRow({ campaign }: { campaign: CampaignSummary }) {
         <td className="py-2.5 pl-6 pr-3">
           <div className="flex items-center gap-2">
             <span className="text-sm truncate">{campaign.campaignName}</span>
-            <PerformanceBadge level={campaign.performance} />
+            {perf ? <PerformanceBadge level={perf} /> : null}
             <span className="text-xs text-muted-foreground">{campaign.adSets.length} ad sets</span>
           </div>
         </td>
@@ -173,13 +170,15 @@ function CampaignRow({ campaign }: { campaign: CampaignSummary }) {
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.revenue)}</td>
       </tr>
-      {expanded && campaign.adSets.map(as => (
+      {expanded && campaign.adSets.map(as => {
+        const asPerf = getPerfByProgram(program, as.cpl, as.costPerAppt, as.appointments);
+        return (
         <tr key={as.adSetId} className="bg-accent/10 border-t border-border/50">
           <td />
           <td className="py-2 pl-10 pr-3">
             <div className="flex items-center gap-2">
               <span className="text-xs truncate text-muted-foreground">{as.adSetName}</span>
-              <PerformanceBadge level={as.performance} />
+              {asPerf ? <PerformanceBadge level={asPerf} /> : null}
               <span className="text-xs text-muted-foreground">{as.adCount} ads</span>
             </div>
           </td>
@@ -192,7 +191,8 @@ function CampaignRow({ campaign }: { campaign: CampaignSummary }) {
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.closed)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.revenue)}</td>
         </tr>
-      ))}
+        );
+      })}
     </>
   );
 }
@@ -259,7 +259,9 @@ export default function Dashboard() {
       if (search && !a.accountName.toLowerCase().includes(search.toLowerCase())) return false;
       if (accountFilter !== 'all' && a.accountName !== accountFilter) return false;
       if (perfFilter !== 'all') {
-        const perf = getPerformance(a.cpl, a.leadPercent);
+        const mappings = loadAccountMappings();
+        const { program, status } = getAccountMapping(a.accountName, mappings);
+        const perf = (status === 'Paused' || status === 'Churned') ? null : getPerfByProgram(program, a.cpl, a.costPerAppt, a.appointments);
         if (perf !== perfFilter) return false;
       }
       return true;
