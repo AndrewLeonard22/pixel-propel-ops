@@ -400,7 +400,7 @@ export default function Dashboard() {
               <col style={{ width: '70px' }} />
               <col style={{ width: '110px' }} />
             </colgroup>
-            <thead>
+            <thead className="sticky top-0 z-10 bg-background">
               <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border">
                 <th className="py-2" />
                 <th className="text-left py-2 pl-2">Account</th>
