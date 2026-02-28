@@ -1,6 +1,7 @@
 import { Home, Users, BarChart2, TrendingUp, Settings, Menu, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';
+import logo from '@/assets/logo.jpg';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: Home },
@@ -18,13 +19,7 @@ export default function AppSidebar() {
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
       {/* Logo */}
       <div className="p-5 flex items-center gap-3">
-        <div className="w-7 h-7 rounded-lg bg-success flex items-center justify-center text-success-foreground font-bold text-sm">
-          SW
-        </div>
-        <div className="flex flex-col">
-          <span className="font-bold text-sm leading-tight">SocialWorks</span>
-          <span className="text-xs text-sidebar-muted leading-tight">Ads Analytics</span>
-        </div>
+        <img src={logo} alt="SocialWorks Growth Partners" className="h-8 w-auto" />
       </div>
 
       {/* Nav */}
