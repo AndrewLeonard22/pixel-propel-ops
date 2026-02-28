@@ -401,17 +401,17 @@ export default function Dashboard() {
               <col style={{ width: '110px' }} />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-background">
-              <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border">
-                <th className="py-2" />
-                <th className="text-left py-2 pl-2">Account</th>
-                <th className="text-right py-2 px-3">Spend</th>
-                <th className="text-right py-2 px-3">Leads</th>
-                <th className="text-right py-2 px-3">CPL</th>
-                <th className="text-right py-2 px-3">Appts</th>
-                <th className="text-right py-2 px-3">Lead %</th>
-                <th className="text-right py-2 px-3">Cost/Appt</th>
-                <th className="text-right py-2 px-3">Closed</th>
-                <th className="text-right py-2 px-3">Revenue</th>
+              <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border h-10">
+                <th className="py-3" />
+                <th className="text-left py-3 pl-2">Account</th>
+                <th className="text-right py-3 px-3">Spend</th>
+                <th className="text-right py-3 px-3">Leads</th>
+                <th className="text-right py-3 px-3">CPL</th>
+                <th className="text-right py-3 px-3">Appts</th>
+                <th className="text-right py-3 px-3">Lead %</th>
+                <th className="text-right py-3 px-3">Cost/Appt</th>
+                <th className="text-right py-3 px-3">Closed</th>
+                <th className="text-right py-3 px-3">Revenue</th>
               </tr>
             </thead>
             <tbody>
