@@ -53,16 +53,12 @@ function parseNumber(val: string | undefined): number {
 }
 
 function resolveAccountName(sheetAccountName: string): string {
-  const aliases = JSON.parse(localStorage.getItem('accountAliases') || '[]');
-  const match = aliases.find(
-    (a: { sheetName: string; airtableName: string }) =>
-      a.sheetName.trim().toLowerCase() === sheetAccountName.trim().toLowerCase()
+  const mappings = JSON.parse(localStorage.getItem('accountMappings') || '[]');
+  const match = mappings.find(
+    (m: { sheetName: string; airtableName: string }) =>
+      m.sheetName.trim().toLowerCase() === sheetAccountName.trim().toLowerCase()
   );
-  if (match) {
-    console.log(`Alias resolved: "${sheetAccountName}" → "${match.airtableName}"`);
-    return match.airtableName;
-  }
-  return sheetAccountName;
+  return match ? match.airtableName.trim() : sheetAccountName.trim();
 }
 
 export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpendRow[]> {
@@ -168,22 +164,15 @@ export function buildAccountSummaries(
   settings?: AppSettings,
 ): AccountSummary[] {
   const accountMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[], originalName: string }>();
-  const resolvedNameToSheetAccounts = new Map<string, Set<string>>();
   
   for (const row of adSpend) {
     const name = row.accountName || 'Unknown';
     const normalizedName = name.trim().toLowerCase();
     if (!accountMap.has(normalizedName)) accountMap.set(normalizedName, { spendRows: [], appts: [], originalName: name });
     accountMap.get(normalizedName)!.spendRows.push(row);
-
-    const resolvedName = resolveAccountName(name).trim().toLowerCase();
-    if (!resolvedNameToSheetAccounts.has(resolvedName)) {
-      resolvedNameToSheetAccounts.set(resolvedName, new Set());
-    }
-    resolvedNameToSheetAccounts.get(resolvedName)!.add(normalizedName);
   }
   
-  // Match appointments: campaign ID → campaign name → alias/normalized client name
+  // Match appointments: campaign ID → campaign name → normalized client name
   for (const appt of appointments) {
     let matched = false;
     // 1. Try by campaign ID
@@ -205,22 +194,7 @@ export function buildAccountSummaries(
       }
     }
     if (!matched) {
-      // 3. Check aliases first: resolve Sheet Account Name -> Airtable Client Name
-      const normalizedClient = appt.client.trim().toLowerCase();
-      const aliasedAccounts = resolvedNameToSheetAccounts.get(normalizedClient);
-      if (aliasedAccounts) {
-        for (const accountKey of aliasedAccounts) {
-          const data = accountMap.get(accountKey);
-          if (data) {
-            data.appts.push(appt);
-            matched = true;
-            break;
-          }
-        }
-      }
-    }
-    if (!matched) {
-      // 4. Fallback: normalized name match (lowercase + trim)
+      // 3. Fallback: normalized name match (lowercase + trim)
       const normalizedClient = appt.client.trim().toLowerCase();
       if (accountMap.has(normalizedClient)) {
         accountMap.get(normalizedClient)!.appts.push(appt);
@@ -228,7 +202,7 @@ export function buildAccountSummaries(
     }
   }
   
-  // Final pass: for accounts with no matched appointments, try direct client name match using aliases
+  // Final pass: for accounts with no matched appointments, try resolved mapping name
   for (const [normalizedName, data] of accountMap) {
     if (data.appts.length === 0) {
       const resolvedName = resolveAccountName(data.originalName).trim().toLowerCase();
@@ -237,7 +211,7 @@ export function buildAccountSummaries(
           appt => appt.client.trim().toLowerCase() === resolvedName
         );
         if (matched.length > 0) {
-          console.log(`Alias final pass: "${data.originalName}" matched ${matched.length} appointments via "${resolvedName}"`);
+          console.log(`Mapping final pass: "${data.originalName}" matched ${matched.length} appointments via "${resolvedName}"`);
           data.appts.push(...matched);
         }
       }
