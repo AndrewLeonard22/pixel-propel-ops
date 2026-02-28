@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
 import { saveSettings, saveAccountMappings, loadAccountMappings } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData } from '@/lib/dataService';
@@ -30,6 +30,8 @@ export default function SettingsPage() {
   const [airtableError, setAirtableError] = useState('');
   const [saved, setSaved] = useState(false);
   const [accountMappings, setAccountMappings] = useState<AccountMapping[]>(loadAccountMappings);
+  const isFirstRender = useRef(true);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Derive unique account names from loaded adSpend data
   const uniqueSheetAccounts = useMemo(() => {
@@ -52,6 +54,29 @@ export default function SettingsPage() {
       return updated;
     });
   }, [uniqueSheetAccounts]);
+
+  // Autosave: debounce form + accountMappings changes
+  const performSave = useCallback(async (formToSave: AppSettings, mappingsToSave: AccountMapping[]) => {
+    await Promise.all([
+      saveSettings(formToSave),
+      saveAccountMappings(mappingsToSave),
+    ]);
+    setSettings(formToSave);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }, [setSettings]);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      performSave(form, accountMappings);
+    }, 800);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [form, accountMappings, performSave]);
 
   const updateForm = (patch: Partial<AppSettings>) => {
     setForm(prev => ({ ...prev, ...patch }));
@@ -98,18 +123,12 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSave = async () => {
-    await saveSettings(form);
-    setSettings(form);
-    await saveAccountMappings(accountMappings);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    refresh();
-  };
-
   return (
     <div className="space-y-8 max-w-3xl">
-      <h1 className="text-xl font-bold">Settings</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-xl font-bold">Settings</h1>
+        {saved && <span className="text-success text-sm flex items-center gap-1 animate-in fade-in"><CheckCircle className="w-4 h-4" /> Saved</span>}
+      </div>
 
       {/* Section 1: Google Sheets */}
       <section className="card-elevated p-6 space-y-4">
@@ -318,15 +337,6 @@ export default function SettingsPage() {
           />
         </div>
       </section>
-
-      {/* Save */}
-      <div className="flex items-center gap-3">
-        <button onClick={handleSave}
-          className="px-6 py-2.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
-          Save Settings
-        </button>
-        {saved && <span className="text-success text-sm flex items-center gap-1"><CheckCircle className="w-4 h-4" /> Saved!</span>}
-      </div>
     </div>
   );
 }
