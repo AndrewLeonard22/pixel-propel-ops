@@ -46,25 +46,25 @@ function AccountSection({ group }: { group: AccountGroup }) {
   if (group.accounts.length === 0) return null;
 
   return (
-    <div>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 mb-2 mt-4"
-      >
-        <span className="text-muted-foreground">
-          {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        </span>
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</span>
-        <span className="text-xs px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">{group.accounts.length}</span>
-      </button>
-      {open && (
-        <div className="space-y-3">
-          {group.accounts.map(a => (
-            <AccountRow key={a.accountName} account={a} />
-          ))}
-        </div>
-      )}
-    </div>
+    <>
+      <tr>
+        <td colSpan={10} className="pt-4 pb-2">
+          <button
+            onClick={() => setOpen(!open)}
+            className="flex items-center gap-2"
+          >
+            <span className="text-muted-foreground">
+              {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</span>
+            <span className="text-xs px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">{group.accounts.length}</span>
+          </button>
+        </td>
+      </tr>
+      {open && group.accounts.map(a => (
+        <AccountRow key={a.accountName} account={a} />
+      ))}
+    </>
   );
 }
 
@@ -91,135 +91,89 @@ function CPLBadge({ value }: { value: number }) {
 function AccountRow({ account }: { account: AccountSummary }) {
   const [expanded, setExpanded] = useState(false);
   const perf = getPerformance(account.cpl, account.leadPercent);
-  const isDWY = account.program === 'Done With You';
 
   return (
-    <div className="card-elevated overflow-hidden">
-      <button
+    <>
+      <tr
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-4 p-4 text-left hover:bg-accent/30 transition-colors"
+        className="cursor-pointer hover:bg-accent/30 transition-colors"
       >
-        <span className="text-muted-foreground">
-          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        </span>
-        <div className="flex-1 min-w-[280px]">
-         <div className="flex items-center gap-2">
+        <td className="w-10 px-2 py-3 text-center text-muted-foreground">
+          {expanded ? <ChevronDown className="w-4 h-4 inline" /> : <ChevronRight className="w-4 h-4 inline" />}
+        </td>
+        <td className="py-3 pr-4">
+          <div className="flex items-center gap-2">
             <span className="font-semibold text-sm truncate">{account.accountName}</span>
             <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
             {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
             <PerformanceBadge level={perf} />
           </div>
-        </div>
-        <div className="hidden md:flex items-center gap-6 text-xs font-mono-tabular shrink-0">
-          <span className="w-20 text-right">{formatCurrency(account.spend)}</span>
-          <span className="w-12 text-right">{formatNumber(account.leads)}</span>
-          <span className="w-16 text-right"><CPLBadge value={account.cpl} /></span>
-          {isDWY ? (
-            <span className="w-[252px] text-right text-muted-foreground text-xs italic">Ads only</span>
-          ) : (
-            <>
-              <span className="w-12 text-right">{formatNumber(account.appointments)}</span>
-              <span className="w-14 text-right">{formatPercent(account.leadPercent)}</span>
-              <span className="w-20 text-right">{formatCurrency(account.costPerAppt)}</span>
-              <span className="w-12 text-right">{formatNumber(account.closed)}</span>
-              <span className="w-20 text-right">{formatCurrency(account.revenue)}</span>
-            </>
-          )}
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t bg-accent/20">
-          <div className="hidden md:flex items-center gap-4 px-4 py-2 text-xs text-muted-foreground font-medium border-b">
-            <span className="w-4" />
-            <span className="flex-1 pl-6">Campaign</span>
-            <span className="w-20 text-right">Spend</span>
-            <span className="w-12 text-right">Leads</span>
-            <span className="w-16 text-right">CPL</span>
-            {!isDWY && (
-              <>
-                <span className="w-12 text-right">Appts</span>
-                <span className="w-14 text-right">Lead %</span>
-                <span className="w-16 text-right">Cost/A</span>
-                <span className="w-12 text-right">Closed</span>
-                <span className="w-20 text-right">Revenue</span>
-              </>
-            )}
-          </div>
-          {account.campaigns.map(c => (
-            <CampaignRow key={c.campaignId} campaign={c} isDWY={isDWY} />
-          ))}
-        </div>
-      )}
-    </div>
+        </td>
+        <td className="w-20 text-right font-mono-tabular text-xs py-3">{formatCurrency(account.spend)}</td>
+        <td className="w-12 text-right font-mono-tabular text-xs py-3">{formatNumber(account.leads)}</td>
+        <td className="w-16 text-right font-mono-tabular text-xs py-3"><CPLBadge value={account.cpl} /></td>
+        <td className="w-12 text-right font-mono-tabular text-xs py-3">{formatNumber(account.appointments)}</td>
+        <td className="w-14 text-right font-mono-tabular text-xs py-3">{formatPercent(account.leadPercent)}</td>
+        <td className="w-20 text-right font-mono-tabular text-xs py-3">{formatCurrency(account.costPerAppt)}</td>
+        <td className="w-12 text-right font-mono-tabular text-xs py-3">{formatNumber(account.closed)}</td>
+        <td className="w-20 text-right font-mono-tabular text-xs py-3">{formatCurrency(account.revenue)}</td>
+      </tr>
+      {expanded && account.campaigns.map(c => (
+        <CampaignRow key={c.campaignId} campaign={c} />
+      ))}
+    </>
   );
 }
 
-function CampaignRow({ campaign, isDWY }: { campaign: CampaignSummary; isDWY: boolean }) {
+function CampaignRow({ campaign }: { campaign: CampaignSummary }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div>
-      <button
+    <>
+      <tr
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-accent/30 transition-colors"
+        className="cursor-pointer hover:bg-accent/30 transition-colors bg-accent/20 border-t"
       >
-        <span className="text-muted-foreground">
-          {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        </span>
-        <div className="flex-1 min-w-0 pl-2">
+        <td className="w-10 px-2 py-2.5 text-center text-muted-foreground">
+          {expanded ? <ChevronDown className="w-3.5 h-3.5 inline" /> : <ChevronRight className="w-3.5 h-3.5 inline" />}
+        </td>
+        <td className="py-2.5 pr-4 pl-4">
           <div className="flex items-center gap-2">
             <span className="text-sm truncate">{campaign.campaignName}</span>
             <PerformanceBadge level={campaign.performance} />
             <span className="text-xs text-muted-foreground">{campaign.adSets.length} ad sets</span>
           </div>
-        </div>
-        <div className="hidden md:flex items-center gap-6 text-xs font-mono-tabular shrink-0">
-          <span className="w-20 text-right">{formatCurrency(campaign.spend)}</span>
-          <span className="w-12 text-right">{formatNumber(campaign.leads)}</span>
-          <span className="w-16 text-right"><CPLBadge value={campaign.cpl} /></span>
-          {!isDWY && (
-            <>
-              <span className="w-12 text-right">{formatNumber(campaign.appointments)}</span>
-              <span className="w-14 text-right">{formatPercent(campaign.leadPercent)}</span>
-              <span className="w-16 text-right">{formatCurrency(campaign.costPerAppt)}</span>
-              <span className="w-12 text-right">{formatNumber(campaign.closed)}</span>
-              <span className="w-20 text-right">{formatCurrency(campaign.revenue)}</span>
-            </>
-          )}
-        </div>
-      </button>
-
-      {expanded && campaign.adSets.length > 0 && (
-        <div className="bg-accent/10">
-          {campaign.adSets.map(as => (
-            <div key={as.adSetId} className="flex items-center gap-4 px-4 py-2.5 pl-14 text-xs border-t border-border/50">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-muted-foreground">{as.adSetName}</span>
-                  <PerformanceBadge level={as.performance} />
-                  <span className="text-muted-foreground">{as.adCount} ads</span>
-                </div>
-              </div>
-              <div className="hidden md:flex items-center gap-6 font-mono-tabular shrink-0">
-                <span className="w-20 text-right">{formatCurrency(as.spend)}</span>
-                <span className="w-12 text-right">{formatNumber(as.leads)}</span>
-                <span className="w-16 text-right"><CPLBadge value={as.cpl} /></span>
-                {!isDWY && (
-                  <>
-                    <span className="w-12 text-right">{formatNumber(as.appointments)}</span>
-                    <span className="w-14 text-right">{formatPercent(as.leadPercent)}</span>
-                    <span className="w-16 text-right">{formatCurrency(as.costPerAppt)}</span>
-                    <span className="w-12 text-right">{formatNumber(as.closed)}</span>
-                    <span className="w-20 text-right">{formatCurrency(as.revenue)}</span>
-                  </>
-                )}
-              </div>
+        </td>
+        <td className="w-20 text-right font-mono-tabular text-xs py-2.5">{formatCurrency(campaign.spend)}</td>
+        <td className="w-12 text-right font-mono-tabular text-xs py-2.5">{formatNumber(campaign.leads)}</td>
+        <td className="w-16 text-right font-mono-tabular text-xs py-2.5"><CPLBadge value={campaign.cpl} /></td>
+        <td className="w-12 text-right font-mono-tabular text-xs py-2.5">{formatNumber(campaign.appointments)}</td>
+        <td className="w-14 text-right font-mono-tabular text-xs py-2.5">{formatPercent(campaign.leadPercent)}</td>
+        <td className="w-16 text-right font-mono-tabular text-xs py-2.5">{formatCurrency(campaign.costPerAppt)}</td>
+        <td className="w-12 text-right font-mono-tabular text-xs py-2.5">{formatNumber(campaign.closed)}</td>
+        <td className="w-20 text-right font-mono-tabular text-xs py-2.5">{formatCurrency(campaign.revenue)}</td>
+      </tr>
+      {expanded && campaign.adSets.map(as => (
+        <tr key={as.adSetId} className="bg-accent/10 border-t border-border/50">
+          <td className="w-10" />
+          <td className="py-2 pr-4 pl-10">
+            <div className="flex items-center gap-2">
+              <span className="text-xs truncate text-muted-foreground">{as.adSetName}</span>
+              <PerformanceBadge level={as.performance} />
+              <span className="text-xs text-muted-foreground">{as.adCount} ads</span>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          </td>
+          <td className="w-20 text-right font-mono-tabular text-xs py-2">{formatCurrency(as.spend)}</td>
+          <td className="w-12 text-right font-mono-tabular text-xs py-2">{formatNumber(as.leads)}</td>
+          <td className="w-16 text-right font-mono-tabular text-xs py-2"><CPLBadge value={as.cpl} /></td>
+          <td className="w-12 text-right font-mono-tabular text-xs py-2">{formatNumber(as.appointments)}</td>
+          <td className="w-14 text-right font-mono-tabular text-xs py-2">{formatPercent(as.leadPercent)}</td>
+          <td className="w-16 text-right font-mono-tabular text-xs py-2">{formatCurrency(as.costPerAppt)}</td>
+          <td className="w-12 text-right font-mono-tabular text-xs py-2">{formatNumber(as.closed)}</td>
+          <td className="w-20 text-right font-mono-tabular text-xs py-2">{formatCurrency(as.revenue)}</td>
+        </tr>
+      ))}
+    </>
   );
 }
 
@@ -432,26 +386,27 @@ export default function Dashboard() {
       ) : filteredAccounts.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="space-y-1">
-          {/* Column headers */}
-          <div className="hidden md:flex items-center gap-4 px-4 text-xs text-muted-foreground font-medium">
-            <span className="w-4" />
-            <span className="flex-1 min-w-[280px]">Account</span>
-            <div className="flex items-center gap-6 shrink-0">
-              <span className="w-20 text-right">Spend</span>
-              <span className="w-12 text-right">Leads</span>
-              <span className="w-16 text-right">CPL</span>
-              <span className="w-12 text-right">Appts</span>
-              <span className="w-14 text-right">Lead %</span>
-              <span className="w-20 text-right">Cost/Appt</span>
-              <span className="w-12 text-right">Closed</span>
-              <span className="w-20 text-right">Revenue</span>
-            </div>
-          </div>
-          {accountGroups.map(g => (
-            <AccountSection key={g.label} group={g} />
-          ))}
-        </div>
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="text-xs text-muted-foreground font-medium">
+              <th className="w-10" />
+              <th className="text-left py-2">Account</th>
+              <th className="w-20 text-right py-2">Spend</th>
+              <th className="w-12 text-right py-2">Leads</th>
+              <th className="w-16 text-right py-2">CPL</th>
+              <th className="w-12 text-right py-2">Appts</th>
+              <th className="w-14 text-right py-2">Lead %</th>
+              <th className="w-20 text-right py-2">Cost/Appt</th>
+              <th className="w-12 text-right py-2">Closed</th>
+              <th className="w-20 text-right py-2">Revenue</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accountGroups.map(g => (
+              <AccountSection key={g.label} group={g} />
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
