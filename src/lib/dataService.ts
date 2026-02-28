@@ -154,11 +154,14 @@ export function buildAccountSummaries(
   appointments: AppointmentRow[],
   settings?: AppSettings,
 ): AccountSummary[] {
-  // Build alias lookup: normalized airtable name → sheet name
-  const aliasMap = new Map<string, string>();
+  // Build alias lookup: normalized sheet name → normalized airtable name
+  // Key = sheet account name (lowercase/trimmed), Value = airtable client name (lowercase/trimmed)
+  const sheetToAirtableAlias = new Map<string, string>();
   if (settings?.accountAliases) {
     for (const alias of settings.accountAliases) {
-      aliasMap.set(alias.airtableName.trim().toLowerCase(), alias.sheetName.trim().toLowerCase());
+      if (alias.sheetName.trim() && alias.airtableName.trim()) {
+        sheetToAirtableAlias.set(alias.sheetName.trim().toLowerCase(), alias.airtableName.trim().toLowerCase());
+      }
     }
   }
 
@@ -171,20 +174,21 @@ export function buildAccountSummaries(
     accountMap.get(normalizedName)!.spendRows.push(row);
   }
   
-  // Match appointments by campaign ID first, then by normalized client name
+  // Match appointments: campaign ID → campaign name → alias/normalized client name
   for (const appt of appointments) {
     let matched = false;
-    for (const [name, data] of accountMap) {
-      if (data.spendRows.some(r => r.campaignId === appt.campaignId)) {
+    // 1. Try by campaign ID
+    for (const [, data] of accountMap) {
+      if (data.spendRows.some(r => r.campaignId && appt.campaignId && r.campaignId === appt.campaignId)) {
         data.appts.push(appt);
         matched = true;
         break;
       }
     }
     if (!matched) {
-      // Try by campaign name
-      for (const [name, data] of accountMap) {
-        if (data.spendRows.some(r => r.campaign === appt.campaignName)) {
+      // 2. Try by campaign name
+      for (const [, data] of accountMap) {
+        if (data.spendRows.some(r => r.campaign && appt.campaignName && r.campaign === appt.campaignName)) {
           data.appts.push(appt);
           matched = true;
           break;
@@ -192,11 +196,22 @@ export function buildAccountSummaries(
       }
     }
     if (!matched) {
-      // Try by normalized client name with alias support
+      // 3. Check aliases first: for each account, see if its alias maps to this client
       const normalizedClient = appt.client.trim().toLowerCase();
-      const aliasedName = aliasMap.get(normalizedClient) || normalizedClient;
-      if (accountMap.has(aliasedName)) {
-        accountMap.get(aliasedName)!.appts.push(appt);
+      for (const [sheetKey, data] of accountMap) {
+        const aliasTarget = sheetToAirtableAlias.get(sheetKey);
+        if (aliasTarget && aliasTarget === normalizedClient) {
+          data.appts.push(appt);
+          matched = true;
+          break;
+        }
+      }
+    }
+    if (!matched) {
+      // 4. Fallback: normalized name match (lowercase + trim)
+      const normalizedClient = appt.client.trim().toLowerCase();
+      if (accountMap.has(normalizedClient)) {
+        accountMap.get(normalizedClient)!.appts.push(appt);
       }
     }
   }

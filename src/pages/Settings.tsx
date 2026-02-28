@@ -211,7 +211,13 @@ export default function SettingsPage() {
       {/* Section 4: Account Name Aliases */}
       <section className="card-elevated p-6 space-y-4">
         <h2 className="font-semibold text-base">Account Name Aliases</h2>
-        <p className="text-xs text-muted-foreground">Map Google Sheet account names to Airtable client names when they don't match exactly.</p>
+        <p className="text-xs text-muted-foreground">Map Google Sheet account names to Airtable client names when they don't match exactly. The left side is the name as it appears in Google Sheets, the right side is the name as it appears in Airtable.</p>
+        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <span className="flex-1">Google Sheet Account Name</span>
+          <span className="w-6" />
+          <span className="flex-1">Airtable Client Name</span>
+          <span className="w-8" />
+        </div>
         {(form.accountAliases || []).map((alias, i) => (
           <div key={i} className="flex items-center gap-2">
             <input
@@ -222,7 +228,7 @@ export default function SettingsPage() {
                 updated[i] = { ...updated[i], sheetName: e.target.value };
                 updateForm({ accountAliases: updated });
               }}
-              placeholder="Sheet Name"
+              placeholder="e.g. BACKYARD PARADISO"
               className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
             />
             <span className="text-muted-foreground text-sm">→</span>
@@ -234,7 +240,7 @@ export default function SettingsPage() {
                 updated[i] = { ...updated[i], airtableName: e.target.value };
                 updateForm({ accountAliases: updated });
               }}
-              placeholder="Airtable Name"
+              placeholder="e.g. Backyard Paradiso"
               className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
             />
             <button
