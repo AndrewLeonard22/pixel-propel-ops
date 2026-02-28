@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   showPausedAccounts: true,
   showChurnedAccounts: true,
   pausedThresholdDays: 1,
+  accountAliases: [],
 };
 
 export function loadSettings(): AppSettings {

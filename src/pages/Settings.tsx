@@ -208,7 +208,55 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {/* Section 4: Account Groups */}
+      {/* Section 4: Account Name Aliases */}
+      <section className="card-elevated p-6 space-y-4">
+        <h2 className="font-semibold text-base">Account Name Aliases</h2>
+        <p className="text-xs text-muted-foreground">Map Google Sheet account names to Airtable client names when they don't match exactly.</p>
+        {(form.accountAliases || []).map((alias, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              type="text"
+              value={alias.sheetName}
+              onChange={e => {
+                const updated = [...(form.accountAliases || [])];
+                updated[i] = { ...updated[i], sheetName: e.target.value };
+                updateForm({ accountAliases: updated });
+              }}
+              placeholder="Sheet Name"
+              className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+            />
+            <span className="text-muted-foreground text-sm">→</span>
+            <input
+              type="text"
+              value={alias.airtableName}
+              onChange={e => {
+                const updated = [...(form.accountAliases || [])];
+                updated[i] = { ...updated[i], airtableName: e.target.value };
+                updateForm({ accountAliases: updated });
+              }}
+              placeholder="Airtable Name"
+              className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+            />
+            <button
+              onClick={() => {
+                const updated = (form.accountAliases || []).filter((_, j) => j !== i);
+                updateForm({ accountAliases: updated });
+              }}
+              className="px-2 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={() => updateForm({ accountAliases: [...(form.accountAliases || []), { sheetName: '', airtableName: '' }] })}
+          className="px-4 py-2 text-sm font-medium rounded-lg border border-dashed border-border hover:bg-accent/30 transition-colors"
+        >
+          + Add Alias
+        </button>
+      </section>
+
+      {/* Section 5: Account Groups */}
       <section className="card-elevated p-6 space-y-4">
         <h2 className="font-semibold text-base">Account Groups</h2>
         <label className="flex items-center gap-3 cursor-pointer">

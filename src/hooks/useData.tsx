@@ -43,7 +43,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setAdSpend(sheetData);
       setAppointments(airtableResult.records);
       setAirtableFields(airtableResult.fields);
-      const summaries = buildAccountSummaries(sheetData, airtableResult.records);
+      const summaries = buildAccountSummaries(sheetData, airtableResult.records, settings);
       setAccounts(summaries);
       setLastUpdated(new Date());
     } catch (e: any) {

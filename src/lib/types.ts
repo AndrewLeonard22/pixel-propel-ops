@@ -8,6 +8,7 @@ export interface AppSettings {
   showPausedAccounts: boolean;
   showChurnedAccounts: boolean;
   pausedThresholdDays: number;
+  accountAliases: { sheetName: string; airtableName: string }[];
 }
 
 export interface AdSpendRow {
