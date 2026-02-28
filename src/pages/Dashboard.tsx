@@ -423,7 +423,7 @@ export default function Dashboard() {
                 <col style={{ width: '70px' }} />
                 <col style={{ width: '110px' }} />
               </colgroup>
-              <thead className="sticky top-0 z-10 bg-background">
+              <thead className="sticky top-0 z-20 bg-background shadow-sm">
                 <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '40px' }}>
                   <th className="align-middle" />
                   <th className="text-left pl-2 align-middle">Account</th>

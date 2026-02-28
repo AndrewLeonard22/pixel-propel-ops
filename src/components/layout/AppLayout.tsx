@@ -12,7 +12,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen w-full bg-background">
       <AppSidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <header className="h-14 border-b flex items-center justify-between px-6 bg-card shrink-0">
           <div className="lg:hidden w-10" /> {/* spacer for mobile hamburger */}
           <div className="hidden lg:block" />
@@ -30,7 +30,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header>
-        <main className="flex-1 p-6 fade-in">
+        <main className="flex-1 overflow-y-auto p-6 fade-in">
           {children}
         </main>
       </div>
