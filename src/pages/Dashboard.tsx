@@ -11,6 +11,63 @@ import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
 
+interface AccountMapping {
+  sheetName: string;
+  airtableName: string;
+  program: 'Done For You' | 'Done With You' | 'Other';
+  status: 'Active' | 'Paused' | 'Churned';
+}
+
+function loadAccountMappings(): AccountMapping[] {
+  try {
+    const stored = localStorage.getItem('accountMappings');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getAccountMapping(accountName: string, mappings: AccountMapping[]): { program: string; status: string } {
+  const match = mappings.find(m => m.sheetName.trim().toLowerCase() === accountName.trim().toLowerCase());
+  return {
+    program: match?.program || 'Done For You',
+    status: match?.status || 'Active',
+  };
+}
+
+interface AccountGroup {
+  label: string;
+  accounts: AccountSummary[];
+  defaultOpen: boolean;
+}
+
+function AccountSection({ group }: { group: AccountGroup }) {
+  const [open, setOpen] = useState(group.defaultOpen);
+  if (group.accounts.length === 0) return null;
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 mb-2 mt-4"
+      >
+        <span className="text-muted-foreground">
+          {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</span>
+        <span className="text-xs px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">{group.accounts.length}</span>
+      </button>
+      {open && (
+        <div className="space-y-3">
+          {group.accounts.map(a => (
+            <AccountRow key={a.accountName} account={a} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function parseDateSafe(dateStr: string): Date | null {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -254,6 +311,29 @@ export default function Dashboard() {
     };
   }, [filteredAccounts]);
 
+  const accountGroups = useMemo((): AccountGroup[] => {
+    const mappings = loadAccountMappings();
+    const dfy: AccountSummary[] = [];
+    const dwy: AccountSummary[] = [];
+    const paused: AccountSummary[] = [];
+    const churned: AccountSummary[] = [];
+
+    for (const a of filteredAccounts) {
+      const { program, status } = getAccountMapping(a.accountName, mappings);
+      if (status === 'Paused') { paused.push(a); continue; }
+      if (status === 'Churned') { churned.push(a); continue; }
+      if (program === 'Done With You') { dwy.push(a); continue; }
+      dfy.push(a);
+    }
+
+    return [
+      { label: 'Done For You — Active', accounts: dfy, defaultOpen: true },
+      { label: 'Done With You — Active', accounts: dwy, defaultOpen: true },
+      { label: 'Paused', accounts: paused, defaultOpen: false },
+      { label: 'Churned', accounts: churned, defaultOpen: false },
+    ];
+  }, [filteredAccounts]);
+
   if (!configured) {
     return (
       <div className="max-w-2xl mx-auto mt-20">
@@ -352,7 +432,7 @@ export default function Dashboard() {
       ) : filteredAccounts.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-1">
           {/* Column headers */}
           <div className="hidden md:flex items-center gap-4 px-4 text-xs text-muted-foreground font-medium">
             <span className="w-4" />
@@ -368,8 +448,8 @@ export default function Dashboard() {
               <span className="w-20 text-right">Revenue</span>
             </div>
           </div>
-          {filteredAccounts.map(a => (
-            <AccountRow key={a.accountName} account={a} />
+          {accountGroups.map(g => (
+            <AccountSection key={g.label} group={g} />
           ))}
         </div>
       )}
