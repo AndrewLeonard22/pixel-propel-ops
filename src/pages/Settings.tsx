@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
 import { loadSettings, saveSettings, convertSheetUrlToCsv } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData } from '@/lib/dataService';
@@ -11,8 +11,26 @@ const REQUIRED_MAPPINGS = [
   'Closed Revenue', 'Amount Charged', 'Project Value',
 ];
 
+interface AccountMapping {
+  sheetName: string;
+  airtableName: string;
+}
+
+function loadAccountMappings(): AccountMapping[] {
+  try {
+    const stored = localStorage.getItem('accountMappings');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveAccountMappings(mappings: AccountMapping[]): void {
+  localStorage.setItem('accountMappings', JSON.stringify(mappings));
+}
+
 export default function SettingsPage() {
-  const { settings, setSettings, refresh } = useData();
+  const { settings, setSettings, adSpend, refresh } = useData();
   const [form, setForm] = useState<AppSettings>(settings);
   const [showToken, setShowToken] = useState(false);
   const [sheetStatus, setSheetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -22,6 +40,29 @@ export default function SettingsPage() {
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
   const [airtableError, setAirtableError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [accountMappings, setAccountMappings] = useState<AccountMapping[]>(loadAccountMappings);
+
+  // Derive unique account names from loaded adSpend data
+  const uniqueSheetAccounts = useMemo(() => {
+    const names = new Set<string>();
+    for (const row of adSpend) {
+      if (row.accountName) names.add(row.accountName);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [adSpend]);
+
+  // When unique accounts change, ensure all have a mapping entry
+  useEffect(() => {
+    if (uniqueSheetAccounts.length === 0) return;
+    setAccountMappings(prev => {
+      const existing = new Map(prev.map(m => [m.sheetName.trim().toLowerCase(), m]));
+      const updated: AccountMapping[] = uniqueSheetAccounts.map(name => {
+        const key = name.trim().toLowerCase();
+        return existing.get(key) || { sheetName: name, airtableName: name };
+      });
+      return updated;
+    });
+  }, [uniqueSheetAccounts]);
 
   const updateForm = (patch: Partial<AppSettings>) => {
     setForm(prev => ({ ...prev, ...patch }));
@@ -32,6 +73,14 @@ export default function SettingsPage() {
       ...prev,
       columnMappings: { ...prev.columnMappings, [key]: value },
     }));
+  };
+
+  const updateAccountMapping = (index: number, airtableName: string) => {
+    setAccountMappings(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], airtableName };
+      return updated;
+    });
   };
 
   const testSheet = async () => {
@@ -63,6 +112,7 @@ export default function SettingsPage() {
   const handleSave = () => {
     saveSettings(form);
     setSettings(form);
+    saveAccountMappings(accountMappings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     refresh();
@@ -208,59 +258,32 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {/* Section 4: Account Name Aliases */}
-      <section className="card-elevated p-6 space-y-4">
-        <h2 className="font-semibold text-base">Account Name Aliases</h2>
-        <p className="text-xs text-muted-foreground">Map Google Sheet account names to Airtable client names when they don't match exactly. The left side is the name as it appears in Google Sheets, the right side is the name as it appears in Airtable.</p>
-        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-          <span className="flex-1">Google Sheet Account Name</span>
-          <span className="w-6" />
-          <span className="flex-1">Airtable Client Name</span>
-          <span className="w-8" />
-        </div>
-        {(form.accountAliases || []).map((alias, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <input
-              type="text"
-              value={alias.sheetName}
-              onChange={e => {
-                const updated = [...(form.accountAliases || [])];
-                updated[i] = { ...updated[i], sheetName: e.target.value };
-                updateForm({ accountAliases: updated });
-              }}
-              placeholder="e.g. BACKYARD PARADISO"
-              className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-            <span className="text-muted-foreground text-sm">→</span>
-            <input
-              type="text"
-              value={alias.airtableName}
-              onChange={e => {
-                const updated = [...(form.accountAliases || [])];
-                updated[i] = { ...updated[i], airtableName: e.target.value };
-                updateForm({ accountAliases: updated });
-              }}
-              placeholder="e.g. Backyard Paradiso"
-              className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-            <button
-              onClick={() => {
-                const updated = (form.accountAliases || []).filter((_, j) => j !== i);
-                updateForm({ accountAliases: updated });
-              }}
-              className="px-2 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
-            >
-              ✕
-            </button>
+      {/* Section 4: Account Mappings */}
+      {uniqueSheetAccounts.length > 0 && (
+        <section className="card-elevated p-6 space-y-4">
+          <h2 className="font-semibold text-base">Account Mappings</h2>
+          <p className="text-xs text-muted-foreground">
+            Map each Google Sheet Account Name to the exact Airtable Client Name. Edit the right column if names differ between sources.
+          </p>
+          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <span className="flex-1">Google Sheet Account Name</span>
+            <span className="flex-1">Airtable Client Name</span>
           </div>
-        ))}
-        <button
-          onClick={() => updateForm({ accountAliases: [...(form.accountAliases || []), { sheetName: '', airtableName: '' }] })}
-          className="px-4 py-2 text-sm font-medium rounded-lg border border-dashed border-border hover:bg-accent/30 transition-colors"
-        >
-          + Add Alias
-        </button>
-      </section>
+          {accountMappings.map((mapping, i) => (
+            <div key={mapping.sheetName} className="flex items-center gap-2">
+              <span className="flex-1 px-3 py-2 text-sm rounded-lg border bg-muted/50 truncate">
+                {mapping.sheetName}
+              </span>
+              <input
+                type="text"
+                value={mapping.airtableName}
+                onChange={e => updateAccountMapping(i, e.target.value)}
+                className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+              />
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Section 5: Account Groups */}
       <section className="card-elevated p-6 space-y-4">
