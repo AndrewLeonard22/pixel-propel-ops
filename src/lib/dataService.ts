@@ -279,10 +279,76 @@ export function buildAccountSummaries(
       if (!campaignMap.has(key)) campaignMap.set(key, { spendRows: [], appts: [] });
       campaignMap.get(key)!.spendRows.push(r);
     }
+
+    // Match appointments to campaigns/ad sets using strict priority waterfall
     for (const a of data.appts) {
-      const key = a.campaignId || a.campaignName;
-      if (campaignMap.has(key)) {
-        campaignMap.get(key)!.appts.push(a);
+      let matchedCampaignKey: string | null = null;
+
+      // Step 1 — Ad ID: find which campaign contains this ad
+      if (!matchedCampaignKey && !isBlank(a.adId)) {
+        for (const [cKey, cData] of campaignMap) {
+          if (cData.spendRows.some(r => r.adId && r.adId === a.adId)) {
+            matchedCampaignKey = cKey;
+            break;
+          }
+        }
+      }
+
+      // Step 2 — Ad Name (case-insensitive)
+      if (!matchedCampaignKey && !isBlank(a.adName)) {
+        const norm = a.adName.trim().toLowerCase();
+        for (const [cKey, cData] of campaignMap) {
+          if (cData.spendRows.some(r => r.adName && r.adName.trim().toLowerCase() === norm)) {
+            matchedCampaignKey = cKey;
+            break;
+          }
+        }
+      }
+
+      // Step 3 — Ad Set ID
+      if (!matchedCampaignKey && !isBlank(a.adSetId)) {
+        for (const [cKey, cData] of campaignMap) {
+          if (cData.spendRows.some(r => r.adsetId && r.adsetId === a.adSetId)) {
+            matchedCampaignKey = cKey;
+            break;
+          }
+        }
+      }
+
+      // Step 4 — Ad Set Name (case-insensitive)
+      if (!matchedCampaignKey && !isBlank(a.adSetName)) {
+        const norm = a.adSetName.trim().toLowerCase();
+        for (const [cKey, cData] of campaignMap) {
+          if (cData.spendRows.some(r => r.adsetName && r.adsetName.trim().toLowerCase() === norm)) {
+            matchedCampaignKey = cKey;
+            break;
+          }
+        }
+      }
+
+      // Step 5 — Campaign ID
+      if (!matchedCampaignKey && !isBlank(a.campaignId)) {
+        for (const [cKey, cData] of campaignMap) {
+          if (cData.spendRows.some(r => r.campaignId && r.campaignId === a.campaignId)) {
+            matchedCampaignKey = cKey;
+            break;
+          }
+        }
+      }
+
+      // Step 6 — Campaign Name (case-insensitive)
+      if (!matchedCampaignKey && !isBlank(a.campaignName)) {
+        const norm = a.campaignName.trim().toLowerCase();
+        for (const [cKey, cData] of campaignMap) {
+          if (cData.spendRows.some(r => r.campaign && r.campaign.trim().toLowerCase() === norm)) {
+            matchedCampaignKey = cKey;
+            break;
+          }
+        }
+      }
+
+      if (matchedCampaignKey && campaignMap.has(matchedCampaignKey)) {
+        campaignMap.get(matchedCampaignKey)!.appts.push(a);
       }
     }
     
@@ -304,9 +370,55 @@ export function buildAccountSummaries(
         if (!adSetMap.has(key)) adSetMap.set(key, { spendRows: [], appts: [] });
         adSetMap.get(key)!.spendRows.push(r);
       }
+      // Match appointments to ad sets using priority waterfall
       for (const a of cData.appts) {
-        const key = a.adSetId || a.adSetName;
-        if (adSetMap.has(key)) adSetMap.get(key)!.appts.push(a);
+        let matchedAdSetKey: string | null = null;
+
+        // Ad ID
+        if (!matchedAdSetKey && !isBlank(a.adId)) {
+          for (const [asKey, asData] of adSetMap) {
+            if (asData.spendRows.some(r => r.adId && r.adId === a.adId)) {
+              matchedAdSetKey = asKey;
+              break;
+            }
+          }
+        }
+
+        // Ad Name (case-insensitive)
+        if (!matchedAdSetKey && !isBlank(a.adName)) {
+          const norm = a.adName.trim().toLowerCase();
+          for (const [asKey, asData] of adSetMap) {
+            if (asData.spendRows.some(r => r.adName && r.adName.trim().toLowerCase() === norm)) {
+              matchedAdSetKey = asKey;
+              break;
+            }
+          }
+        }
+
+        // Ad Set ID
+        if (!matchedAdSetKey && !isBlank(a.adSetId)) {
+          for (const [asKey, asData] of adSetMap) {
+            if (asData.spendRows.some(r => r.adsetId && r.adsetId === a.adSetId)) {
+              matchedAdSetKey = asKey;
+              break;
+            }
+          }
+        }
+
+        // Ad Set Name (case-insensitive)
+        if (!matchedAdSetKey && !isBlank(a.adSetName)) {
+          const norm = a.adSetName.trim().toLowerCase();
+          for (const [asKey, asData] of adSetMap) {
+            if (asData.spendRows.some(r => r.adsetName && r.adsetName.trim().toLowerCase() === norm)) {
+              matchedAdSetKey = asKey;
+              break;
+            }
+          }
+        }
+
+        if (matchedAdSetKey && adSetMap.has(matchedAdSetKey)) {
+          adSetMap.get(matchedAdSetKey)!.appts.push(a);
+        }
       }
       
       const adSets: AdSetSummary[] = [];
