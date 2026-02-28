@@ -17,7 +17,21 @@ interface DataContextType {
   refresh: () => Promise<void>;
 }
 
-const DataContext = createContext<DataContextType | null>(null);
+const defaultDataContext: DataContextType = {
+  settings: loadSettings(),
+  setSettings: () => {},
+  adSpend: [],
+  appointments: [],
+  accounts: [],
+  airtableFields: [],
+  loading: false,
+  error: null,
+  lastUpdated: null,
+  configured: false,
+  refresh: async () => {},
+};
+
+const DataContext = createContext<DataContextType>(defaultDataContext);
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
@@ -70,7 +84,5 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useData() {
-  const ctx = useContext(DataContext);
-  if (!ctx) throw new Error('useData must be used within DataProvider');
-  return ctx;
+  return useContext(DataContext);
 }
