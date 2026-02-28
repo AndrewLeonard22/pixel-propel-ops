@@ -402,17 +402,17 @@ export default function Dashboard() {
                 <col style={{ width: '110px' }} />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-background">
-                <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border h-10">
-                  <th className="py-3 align-middle" />
-                  <th className="text-left py-3 pl-2 align-middle">Account</th>
-                  <th className="text-right py-3 px-3 align-middle">Spend</th>
-                  <th className="text-right py-3 px-3 align-middle">Leads</th>
-                  <th className="text-right py-3 px-3 align-middle">CPL</th>
-                  <th className="text-right py-3 px-3 align-middle">Appts</th>
-                  <th className="text-right py-3 px-3 align-middle">Lead %</th>
-                  <th className="text-right py-3 px-3 align-middle">Cost/Appt</th>
-                  <th className="text-right py-3 px-3 align-middle">Closed</th>
-                  <th className="text-right py-3 px-3 align-middle">Revenue</th>
+                <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '40px' }}>
+                  <th className="align-middle" />
+                  <th className="text-left pl-2 align-middle">Account</th>
+                  <th className="text-right px-3 align-middle">Spend</th>
+                  <th className="text-right px-3 align-middle">Leads</th>
+                  <th className="text-right px-3 align-middle">CPL</th>
+                  <th className="text-right px-3 align-middle">Appts</th>
+                  <th className="text-right px-3 align-middle">Lead %</th>
+                  <th className="text-right px-3 align-middle">Cost/Appt</th>
+                  <th className="text-right px-3 align-middle">Closed</th>
+                  <th className="text-right px-3 align-middle">Revenue</th>
                 </tr>
               </thead>
               <tbody>
