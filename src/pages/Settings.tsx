@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
-import { loadSettings, saveSettings, convertSheetUrlToCsv } from '@/lib/config';
+import { saveSettings, saveAccountMappings, loadAccountMappings } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData } from '@/lib/dataService';
 import type { AppSettings } from '@/lib/types';
 import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
@@ -16,19 +16,6 @@ interface AccountMapping {
   airtableName: string;
   program: 'Done For You' | 'Done With You' | 'Other';
   status: 'Active' | 'Paused' | 'Churned';
-}
-
-function loadAccountMappings(): AccountMapping[] {
-  try {
-    const stored = localStorage.getItem('accountMappings');
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveAccountMappings(mappings: AccountMapping[]): void {
-  localStorage.setItem('accountMappings', JSON.stringify(mappings));
 }
 
 export default function SettingsPage() {
@@ -111,10 +98,10 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSave = () => {
-    saveSettings(form);
+  const handleSave = async () => {
+    await saveSettings(form);
     setSettings(form);
-    saveAccountMappings(accountMappings);
+    await saveAccountMappings(accountMappings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     refresh();

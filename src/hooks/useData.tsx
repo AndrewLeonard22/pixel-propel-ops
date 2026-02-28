@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary } from '@/lib/types';
-import { loadSettings, isConfigured } from '@/lib/config';
+import { loadSettings, loadSettingsAsync, isConfigured } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, buildAccountSummaries } from '@/lib/dataService';
 
 interface DataContextType {
@@ -67,11 +67,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [settings]);
 
+  // Load settings from DB on mount, then fetch data
   useEffect(() => {
-    if (configured) {
-      refresh();
-    }
-  }, [configured]);
+    let cancelled = false;
+    loadSettingsAsync().then(dbSettings => {
+      if (cancelled) return;
+      setSettings(dbSettings);
+      if (isConfigured(dbSettings)) {
+        refresh();
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <DataContext.Provider value={{
