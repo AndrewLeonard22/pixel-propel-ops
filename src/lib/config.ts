@@ -40,9 +40,16 @@ const DEFAULT_SETTINGS: AppSettings = {
 export function loadSettings(): AppSettings {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY);
-    if (stored) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
-    }
+    const parsedSettings = stored ? JSON.parse(stored) : {};
+
+    const aliasStored = localStorage.getItem('accountAliases');
+    const parsedAliases = aliasStored ? JSON.parse(aliasStored) : parsedSettings.accountAliases;
+
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsedSettings,
+      accountAliases: Array.isArray(parsedAliases) ? parsedAliases : DEFAULT_SETTINGS.accountAliases,
+    };
   } catch {
     // ignore parse errors
   }
@@ -51,6 +58,7 @@ export function loadSettings(): AppSettings {
 
 export function saveSettings(settings: AppSettings): void {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem('accountAliases', JSON.stringify(settings.accountAliases || []));
 }
 
 export function isConfigured(settings: AppSettings): boolean {
