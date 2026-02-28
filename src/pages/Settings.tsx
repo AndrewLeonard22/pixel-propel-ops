@@ -14,6 +14,8 @@ const REQUIRED_MAPPINGS = [
 interface AccountMapping {
   sheetName: string;
   airtableName: string;
+  program: 'Done For You' | 'Done With You' | 'Other';
+  status: 'Active' | 'Paused' | 'Churned';
 }
 
 function loadAccountMappings(): AccountMapping[] {
@@ -58,7 +60,7 @@ export default function SettingsPage() {
       const existing = new Map(prev.map(m => [m.sheetName.trim().toLowerCase(), m]));
       const updated: AccountMapping[] = uniqueSheetAccounts.map(name => {
         const key = name.trim().toLowerCase();
-        return existing.get(key) || { sheetName: name, airtableName: name };
+        return existing.get(key) || { sheetName: name, airtableName: name, program: 'Done For You' as const, status: 'Active' as const };
       });
       return updated;
     });
@@ -75,10 +77,10 @@ export default function SettingsPage() {
     }));
   };
 
-  const updateAccountMapping = (index: number, airtableName: string) => {
+  const updateAccountMapping = (index: number, patch: Partial<AccountMapping>) => {
     setAccountMappings(prev => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], airtableName };
+      updated[index] = { ...updated[index], ...patch };
       return updated;
     });
   };
@@ -263,11 +265,13 @@ export default function SettingsPage() {
         <section className="card-elevated p-6 space-y-4">
           <h2 className="font-semibold text-base">Account Mappings</h2>
           <p className="text-xs text-muted-foreground">
-            Map each Google Sheet Account Name to the exact Airtable Client Name. Edit the right column if names differ between sources.
+            Map each Google Sheet Account Name to the exact Airtable Client Name. Set program and status for Dashboard grouping.
           </p>
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <span className="flex-1">Google Sheet Account Name</span>
             <span className="flex-1">Airtable Client Name</span>
+            <span className="w-36">Program</span>
+            <span className="w-28">Status</span>
           </div>
           {accountMappings.map((mapping, i) => (
             <div key={mapping.sheetName} className="flex items-center gap-2">
@@ -277,9 +281,27 @@ export default function SettingsPage() {
               <input
                 type="text"
                 value={mapping.airtableName}
-                onChange={e => updateAccountMapping(i, e.target.value)}
+                onChange={e => updateAccountMapping(i, { airtableName: e.target.value })}
                 className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
               />
+              <select
+                value={mapping.program || 'Done For You'}
+                onChange={e => updateAccountMapping(i, { program: e.target.value as AccountMapping['program'] })}
+                className="w-36 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
+              >
+                <option value="Done For You">Done For You</option>
+                <option value="Done With You">Done With You</option>
+                <option value="Other">Other</option>
+              </select>
+              <select
+                value={mapping.status || 'Active'}
+                onChange={e => updateAccountMapping(i, { status: e.target.value as AccountMapping['status'] })}
+                className="w-28 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
+              >
+                <option value="Active">Active</option>
+                <option value="Paused">Paused</option>
+                <option value="Churned">Churned</option>
+              </select>
             </div>
           ))}
         </section>
