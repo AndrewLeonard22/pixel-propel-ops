@@ -52,6 +52,19 @@ function parseNumber(val: string | undefined): number {
   return isNaN(num) ? 0 : num;
 }
 
+function resolveAccountName(sheetAccountName: string): string {
+  const aliases = JSON.parse(localStorage.getItem('accountAliases') || '[]');
+  const match = aliases.find(
+    (a: { sheetName: string; airtableName: string }) =>
+      a.sheetName.trim().toLowerCase() === sheetAccountName.trim().toLowerCase()
+  );
+  if (match) {
+    console.log(`Alias resolved: "${sheetAccountName}" → "${match.airtableName}"`);
+    return match.airtableName;
+  }
+  return sheetAccountName;
+}
+
 export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpendRow[]> {
   const csvUrl = convertSheetUrlToCsv(settings.googleSheetUrl, settings.googleSheetTab);
   if (!csvUrl) throw new Error('Invalid Google Sheet URL');
@@ -154,42 +167,20 @@ export function buildAccountSummaries(
   appointments: AppointmentRow[],
   settings?: AppSettings,
 ): AccountSummary[] {
-  // Build alias lookup: always read fresh from localStorage to ensure latest aliases
-  const sheetToAirtableAlias = new Map<string, string>();
-  try {
-    const stored = localStorage.getItem('socialworks_settings');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed.accountAliases)) {
-        for (const alias of parsed.accountAliases) {
-          if (alias.sheetName?.trim() && alias.airtableName?.trim()) {
-            sheetToAirtableAlias.set(alias.sheetName.trim().toLowerCase(), alias.airtableName.trim().toLowerCase());
-          }
-        }
-      }
-    }
-  } catch {
-    // fall through with empty alias map
-  }
-  // Also merge aliases from settings parameter as fallback
-  if (settings?.accountAliases) {
-    for (const alias of settings.accountAliases) {
-      if (alias.sheetName?.trim() && alias.airtableName?.trim()) {
-        const key = alias.sheetName.trim().toLowerCase();
-        if (!sheetToAirtableAlias.has(key)) {
-          sheetToAirtableAlias.set(key, alias.airtableName.trim().toLowerCase());
-        }
-      }
-    }
-  }
-
   const accountMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[], originalName: string }>();
+  const resolvedNameToSheetAccounts = new Map<string, Set<string>>();
   
   for (const row of adSpend) {
     const name = row.accountName || 'Unknown';
     const normalizedName = name.trim().toLowerCase();
     if (!accountMap.has(normalizedName)) accountMap.set(normalizedName, { spendRows: [], appts: [], originalName: name });
     accountMap.get(normalizedName)!.spendRows.push(row);
+
+    const resolvedName = resolveAccountName(name).trim().toLowerCase();
+    if (!resolvedNameToSheetAccounts.has(resolvedName)) {
+      resolvedNameToSheetAccounts.set(resolvedName, new Set());
+    }
+    resolvedNameToSheetAccounts.get(resolvedName)!.add(normalizedName);
   }
   
   // Match appointments: campaign ID → campaign name → alias/normalized client name
@@ -214,14 +205,17 @@ export function buildAccountSummaries(
       }
     }
     if (!matched) {
-      // 3. Check aliases first: for each account, see if its alias maps to this client
+      // 3. Check aliases first: resolve Sheet Account Name -> Airtable Client Name
       const normalizedClient = appt.client.trim().toLowerCase();
-      for (const [sheetKey, data] of accountMap) {
-        const aliasTarget = sheetToAirtableAlias.get(sheetKey);
-        if (aliasTarget && aliasTarget === normalizedClient) {
-          data.appts.push(appt);
-          matched = true;
-          break;
+      const aliasedAccounts = resolvedNameToSheetAccounts.get(normalizedClient);
+      if (aliasedAccounts) {
+        for (const accountKey of aliasedAccounts) {
+          const data = accountMap.get(accountKey);
+          if (data) {
+            data.appts.push(appt);
+            matched = true;
+            break;
+          }
         }
       }
     }
