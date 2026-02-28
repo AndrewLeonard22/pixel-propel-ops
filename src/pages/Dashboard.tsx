@@ -386,40 +386,42 @@ export default function Dashboard() {
       ) : filteredAccounts.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '40px' }} />
-              <col />
-              <col style={{ width: '110px' }} />
-              <col style={{ width: '70px' }} />
-              <col style={{ width: '90px' }} />
-              <col style={{ width: '70px' }} />
-              <col style={{ width: '75px' }} />
-              <col style={{ width: '100px' }} />
-              <col style={{ width: '70px' }} />
-              <col style={{ width: '110px' }} />
-            </colgroup>
-            <thead className="sticky top-0 z-10 bg-background">
-              <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border h-10">
-                <th className="py-3 align-middle" />
-                <th className="text-left py-3 pl-2 align-middle">Account</th>
-                <th className="text-right py-3 px-3 align-middle">Spend</th>
-                <th className="text-right py-3 px-3 align-middle">Leads</th>
-                <th className="text-right py-3 px-3 align-middle">CPL</th>
-                <th className="text-right py-3 px-3 align-middle">Appts</th>
-                <th className="text-right py-3 px-3 align-middle">Lead %</th>
-                <th className="text-right py-3 px-3 align-middle">Cost/Appt</th>
-                <th className="text-right py-3 px-3 align-middle">Closed</th>
-                <th className="text-right py-3 px-3 align-middle">Revenue</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accountGroups.map(g => (
-                <AccountSection key={g.label} group={g} />
-              ))}
-            </tbody>
-          </table>
+        <div className="overflow-y-auto max-h-[70vh]">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '40px' }} />
+                <col />
+                <col style={{ width: '110px' }} />
+                <col style={{ width: '70px' }} />
+                <col style={{ width: '90px' }} />
+                <col style={{ width: '70px' }} />
+                <col style={{ width: '75px' }} />
+                <col style={{ width: '100px' }} />
+                <col style={{ width: '70px' }} />
+                <col style={{ width: '110px' }} />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-background">
+                <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border h-10">
+                  <th className="py-3 align-middle" />
+                  <th className="text-left py-3 pl-2 align-middle">Account</th>
+                  <th className="text-right py-3 px-3 align-middle">Spend</th>
+                  <th className="text-right py-3 px-3 align-middle">Leads</th>
+                  <th className="text-right py-3 px-3 align-middle">CPL</th>
+                  <th className="text-right py-3 px-3 align-middle">Appts</th>
+                  <th className="text-right py-3 px-3 align-middle">Lead %</th>
+                  <th className="text-right py-3 px-3 align-middle">Cost/Appt</th>
+                  <th className="text-right py-3 px-3 align-middle">Closed</th>
+                  <th className="text-right py-3 px-3 align-middle">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accountGroups.map(g => (
+                  <AccountSection key={g.label} group={g} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
