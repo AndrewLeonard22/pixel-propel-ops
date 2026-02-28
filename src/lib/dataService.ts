@@ -228,6 +228,22 @@ export function buildAccountSummaries(
     }
   }
   
+  // Final pass: for accounts with no matched appointments, try direct client name match using aliases
+  for (const [normalizedName, data] of accountMap) {
+    if (data.appts.length === 0) {
+      const resolvedName = resolveAccountName(data.originalName).trim().toLowerCase();
+      if (resolvedName !== normalizedName) {
+        const matched = appointments.filter(
+          appt => appt.client.trim().toLowerCase() === resolvedName
+        );
+        if (matched.length > 0) {
+          console.log(`Alias final pass: "${data.originalName}" matched ${matched.length} appointments via "${resolvedName}"`);
+          data.appts.push(...matched);
+        }
+      }
+    }
+  }
+
   const summaries: AccountSummary[] = [];
   
   for (const [normalizedKey, data] of accountMap) {
