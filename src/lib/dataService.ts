@@ -172,50 +172,88 @@ export function buildAccountSummaries(
     accountMap.get(normalizedName)!.spendRows.push(row);
   }
   
-  // Match appointments: campaign ID → campaign name → normalized client name
+  // Match each appointment to an account using prioritized strategies
+  const mappings: { sheetName: string; airtableName: string }[] = JSON.parse(localStorage.getItem('accountMappings') || '[]');
+
   for (const appt of appointments) {
     let matched = false;
-    // 1. Try by campaign ID
-    for (const [, data] of accountMap) {
-      if (data.spendRows.some(r => r.campaignId && appt.campaignId && r.campaignId === appt.campaignId)) {
-        data.appts.push(appt);
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      // 2. Try by campaign name
+
+    // Step 1 — Campaign ID (most reliable)
+    if (!matched && appt.campaignId) {
       for (const [, data] of accountMap) {
-        if (data.spendRows.some(r => r.campaign && appt.campaignName && r.campaign === appt.campaignName)) {
+        if (data.spendRows.some(r => r.campaignId && r.campaignId === appt.campaignId)) {
           data.appts.push(appt);
+          console.log(`Match step 1 (Campaign ID): "${appt.client}" → "${data.originalName}"`);
           matched = true;
           break;
         }
       }
     }
-    if (!matched) {
-      // 3. Fallback: normalized name match (lowercase + trim)
-      const normalizedClient = appt.client.trim().toLowerCase();
-      if (accountMap.has(normalizedClient)) {
-        accountMap.get(normalizedClient)!.appts.push(appt);
-      }
-    }
-  }
-  
-  // Final pass: for accounts with no matched appointments, try resolved mapping name
-  for (const [normalizedName, data] of accountMap) {
-    if (data.appts.length === 0) {
-      const resolvedName = resolveAccountName(data.originalName).trim().toLowerCase();
-      if (resolvedName !== normalizedName) {
-        const matched = appointments.filter(
-          appt => appt.client.trim().toLowerCase() === resolvedName
-        );
-        if (matched.length > 0) {
-          console.log(`Mapping final pass: "${data.originalName}" matched ${matched.length} appointments via "${resolvedName}"`);
-          data.appts.push(...matched);
+
+    // Step 2 — Campaign Name
+    if (!matched && appt.campaignName) {
+      const norm = appt.campaignName.trim().toLowerCase();
+      for (const [, data] of accountMap) {
+        if (data.spendRows.some(r => r.campaign && r.campaign.trim().toLowerCase() === norm)) {
+          data.appts.push(appt);
+          console.log(`Match step 2 (Campaign Name): "${appt.client}" → "${data.originalName}"`);
+          matched = true;
+          break;
         }
       }
     }
+
+    // Step 3 — Ad Set Name
+    if (!matched && appt.adSetName) {
+      const norm = appt.adSetName.trim().toLowerCase();
+      for (const [, data] of accountMap) {
+        if (data.spendRows.some(r => r.adsetName && r.adsetName.trim().toLowerCase() === norm)) {
+          data.appts.push(appt);
+          console.log(`Match step 3 (Ad Set Name): "${appt.client}" → "${data.originalName}"`);
+          matched = true;
+          break;
+        }
+      }
+    }
+
+    // Step 4 — Ad Name
+    if (!matched && appt.adName) {
+      const norm = appt.adName.trim().toLowerCase();
+      for (const [, data] of accountMap) {
+        if (data.spendRows.some(r => r.adName && r.adName.trim().toLowerCase() === norm)) {
+          data.appts.push(appt);
+          console.log(`Match step 4 (Ad Name): "${appt.client}" → "${data.originalName}"`);
+          matched = true;
+          break;
+        }
+      }
+    }
+
+    // Step 5 — Account mapping (manual override)
+    if (!matched && appt.client) {
+      const normClient = appt.client.trim().toLowerCase();
+      const mapping = mappings.find(m => m.airtableName.trim().toLowerCase() === normClient);
+      if (mapping) {
+        const targetKey = mapping.sheetName.trim().toLowerCase();
+        if (accountMap.has(targetKey)) {
+          accountMap.get(targetKey)!.appts.push(appt);
+          console.log(`Match step 5 (Account Mapping): "${appt.client}" → "${accountMap.get(targetKey)!.originalName}"`);
+          matched = true;
+        }
+      }
+    }
+
+    // Step 6 — Direct client name match (fuzzy fallback)
+    if (!matched && appt.client) {
+      const normClient = appt.client.trim().toLowerCase();
+      if (accountMap.has(normClient)) {
+        accountMap.get(normClient)!.appts.push(appt);
+        console.log(`Match step 6 (Client Name): "${appt.client}" → "${accountMap.get(normClient)!.originalName}"`);
+        matched = true;
+      }
+    }
+
+    // Step 7 — No match: skip silently
   }
 
   const summaries: AccountSummary[] = [];
