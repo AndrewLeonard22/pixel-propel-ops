@@ -45,7 +45,7 @@ function AccountRow({ account }: { account: AccountSummary }) {
         <span className="text-muted-foreground">
           {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </span>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-[280px]">
          <div className="flex items-center gap-2">
             <span className="font-semibold text-sm truncate">{account.accountName}</span>
             <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
@@ -356,15 +356,17 @@ export default function Dashboard() {
           {/* Column headers */}
           <div className="hidden md:flex items-center gap-4 px-4 text-xs text-muted-foreground font-medium">
             <span className="w-4" />
-            <span className="flex-1">Account</span>
-            <span className="w-20 text-right">Spend</span>
-            <span className="w-12 text-right">Leads</span>
-            <span className="w-16 text-right">CPL</span>
-            <span className="w-12 text-right">Appts</span>
-            <span className="w-14 text-right">Lead %</span>
-            <span className="w-20 text-right">Cost/Appt</span>
-            <span className="w-12 text-right">Closed</span>
-            <span className="w-20 text-right">Revenue</span>
+            <span className="flex-1 min-w-[280px]">Account</span>
+            <div className="flex items-center gap-6 shrink-0">
+              <span className="w-20 text-right">Spend</span>
+              <span className="w-12 text-right">Leads</span>
+              <span className="w-16 text-right">CPL</span>
+              <span className="w-12 text-right">Appts</span>
+              <span className="w-14 text-right">Lead %</span>
+              <span className="w-20 text-right">Cost/Appt</span>
+              <span className="w-12 text-right">Closed</span>
+              <span className="w-20 text-right">Revenue</span>
+            </div>
           </div>
           {filteredAccounts.map(a => (
             <AccountRow key={a.accountName} account={a} />
