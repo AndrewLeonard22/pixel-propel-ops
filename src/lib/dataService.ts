@@ -152,16 +152,26 @@ export function getPerformance(cpl: number, leadPercent: number): PerformanceLev
 export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],
+  settings?: AppSettings,
 ): AccountSummary[] {
-  const accountMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[] }>();
+  // Build alias lookup: normalized airtable name → sheet name
+  const aliasMap = new Map<string, string>();
+  if (settings?.accountAliases) {
+    for (const alias of settings.accountAliases) {
+      aliasMap.set(alias.airtableName.trim().toLowerCase(), alias.sheetName.trim().toLowerCase());
+    }
+  }
+
+  const accountMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[], originalName: string }>();
   
   for (const row of adSpend) {
     const name = row.accountName || 'Unknown';
-    if (!accountMap.has(name)) accountMap.set(name, { spendRows: [], appts: [] });
-    accountMap.get(name)!.spendRows.push(row);
+    const normalizedName = name.trim().toLowerCase();
+    if (!accountMap.has(normalizedName)) accountMap.set(normalizedName, { spendRows: [], appts: [], originalName: name });
+    accountMap.get(normalizedName)!.spendRows.push(row);
   }
   
-  // Match appointments by campaign ID
+  // Match appointments by campaign ID first, then by normalized client name
   for (const appt of appointments) {
     let matched = false;
     for (const [name, data] of accountMap) {
@@ -172,19 +182,29 @@ export function buildAccountSummaries(
       }
     }
     if (!matched) {
-      // Try to find by campaign name
+      // Try by campaign name
       for (const [name, data] of accountMap) {
         if (data.spendRows.some(r => r.campaign === appt.campaignName)) {
           data.appts.push(appt);
+          matched = true;
           break;
         }
+      }
+    }
+    if (!matched) {
+      // Try by normalized client name with alias support
+      const normalizedClient = appt.client.trim().toLowerCase();
+      const aliasedName = aliasMap.get(normalizedClient) || normalizedClient;
+      if (accountMap.has(aliasedName)) {
+        accountMap.get(aliasedName)!.appts.push(appt);
       }
     }
   }
   
   const summaries: AccountSummary[] = [];
   
-  for (const [accountName, data] of accountMap) {
+  for (const [normalizedKey, data] of accountMap) {
+    const accountName = data.originalName;
     const totalSpend = data.spendRows.reduce((s, r) => s + r.spent, 0);
     const totalLeads = data.spendRows.reduce((s, r) => s + r.leads, 0);
     const totalAppts = data.appts.length;
@@ -279,9 +299,8 @@ export function buildAccountSummaries(
     const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
     const leadPct = totalLeads > 0 ? (totalAppts / totalLeads) * 100 : 0;
     
-    // Determine setter/media buyer
-    const setters = data.appts.map(a => a.setter).filter(Boolean);
-    const mediaBuyer = setters.length > 0 ? mode(setters) : '';
+    // Media buyer: no longer derived from setter field
+    const mediaBuyer = '';
     
     summaries.push({
       accountName,
