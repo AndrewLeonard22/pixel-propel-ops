@@ -5,8 +5,7 @@ import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton'
 import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
 import { formatCurrency, formatNumber, formatPercent, getPerformance, buildAccountSummaries } from '@/lib/dataService';
-import { ChevronDown, ChevronRight, Search, AlertTriangle } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import type { AccountSummary, CampaignSummary, PerformanceLevel } from '@/lib/types';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
@@ -49,18 +48,6 @@ function AccountRow({ account }: { account: AccountSummary }) {
         <div className="flex-1 min-w-0">
          <div className="flex items-center gap-2">
             <span className="font-semibold text-sm truncate">{account.accountName}</span>
-            {account.appointments === 0 && account.revenue === 0 && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">No Airtable match found — check aliases in Settings.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
             <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
             {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
             <PerformanceBadge level={perf} />

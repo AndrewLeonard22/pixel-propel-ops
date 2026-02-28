@@ -154,13 +154,31 @@ export function buildAccountSummaries(
   appointments: AppointmentRow[],
   settings?: AppSettings,
 ): AccountSummary[] {
-  // Build alias lookup: normalized sheet name → normalized airtable name
-  // Key = sheet account name (lowercase/trimmed), Value = airtable client name (lowercase/trimmed)
+  // Build alias lookup: always read fresh from localStorage to ensure latest aliases
   const sheetToAirtableAlias = new Map<string, string>();
+  try {
+    const stored = localStorage.getItem('socialworks_settings');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed.accountAliases)) {
+        for (const alias of parsed.accountAliases) {
+          if (alias.sheetName?.trim() && alias.airtableName?.trim()) {
+            sheetToAirtableAlias.set(alias.sheetName.trim().toLowerCase(), alias.airtableName.trim().toLowerCase());
+          }
+        }
+      }
+    }
+  } catch {
+    // fall through with empty alias map
+  }
+  // Also merge aliases from settings parameter as fallback
   if (settings?.accountAliases) {
     for (const alias of settings.accountAliases) {
-      if (alias.sheetName.trim() && alias.airtableName.trim()) {
-        sheetToAirtableAlias.set(alias.sheetName.trim().toLowerCase(), alias.airtableName.trim().toLowerCase());
+      if (alias.sheetName?.trim() && alias.airtableName?.trim()) {
+        const key = alias.sheetName.trim().toLowerCase();
+        if (!sheetToAirtableAlias.has(key)) {
+          sheetToAirtableAlias.set(key, alias.airtableName.trim().toLowerCase());
+        }
       }
     }
   }
