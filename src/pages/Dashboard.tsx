@@ -88,9 +88,29 @@ function CPLBadge({ value }: { value: number }) {
   return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
 }
 
+function getAccountPerformance(account: AccountSummary): PerformanceLevel | null {
+  const mappings = loadAccountMappings();
+  const { program, status } = getAccountMapping(account.accountName, mappings);
+
+  if (status === 'Paused' || status === 'Churned') return null;
+
+  if (program === 'Done With You') {
+    if (account.cpl === 0) return null;
+    if (account.cpl < 30) return 'good';
+    if (account.cpl <= 50) return 'fair';
+    return 'poor';
+  }
+
+  // Done For You (default)
+  if (account.costPerAppt === 0 || account.appointments === 0) return null;
+  if (account.costPerAppt < 200) return 'good';
+  if (account.costPerAppt <= 350) return 'fair';
+  return 'poor';
+}
+
 function AccountRow({ account }: { account: AccountSummary }) {
   const [expanded, setExpanded] = useState(false);
-  const perf = getPerformance(account.cpl, account.leadPercent);
+  const perf = getAccountPerformance(account);
 
   return (
     <>
@@ -106,7 +126,7 @@ function AccountRow({ account }: { account: AccountSummary }) {
             <span className="font-semibold text-sm truncate">{account.accountName}</span>
             <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
             {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
-            <PerformanceBadge level={perf} />
+            {perf ? <PerformanceBadge level={perf} /> : null}
           </div>
         </td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.spend)}</td>
