@@ -152,6 +152,10 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
   return { records: allRecords, fields };
 }
 
+function isBlank(val: string | null | undefined): boolean {
+  return val == null || val.trim() === '';
+}
+
 export function getPerformance(cpl: number, leadPercent: number): PerformanceLevel {
   if (cpl < 25 && leadPercent > 5) return 'good';
   if (cpl > 50 || leadPercent < 2) return 'poor';
@@ -179,7 +183,7 @@ export function buildAccountSummaries(
     let matched = false;
 
     // Step 1 — Campaign ID (most reliable)
-    if (!matched && appt.campaignId) {
+    if (!matched && !isBlank(appt.campaignId)) {
       for (const [, data] of accountMap) {
         if (data.spendRows.some(r => r.campaignId && r.campaignId === appt.campaignId)) {
           data.appts.push(appt);
@@ -191,7 +195,7 @@ export function buildAccountSummaries(
     }
 
     // Step 2 — Campaign Name
-    if (!matched && appt.campaignName) {
+    if (!matched && !isBlank(appt.campaignName)) {
       const norm = appt.campaignName.trim().toLowerCase();
       for (const [, data] of accountMap) {
         if (data.spendRows.some(r => r.campaign && r.campaign.trim().toLowerCase() === norm)) {
@@ -204,7 +208,7 @@ export function buildAccountSummaries(
     }
 
     // Step 3 — Ad Set Name
-    if (!matched && appt.adSetName) {
+    if (!matched && !isBlank(appt.adSetName)) {
       const norm = appt.adSetName.trim().toLowerCase();
       for (const [, data] of accountMap) {
         if (data.spendRows.some(r => r.adsetName && r.adsetName.trim().toLowerCase() === norm)) {
@@ -217,7 +221,7 @@ export function buildAccountSummaries(
     }
 
     // Step 4 — Ad Name
-    if (!matched && appt.adName) {
+    if (!matched && !isBlank(appt.adName)) {
       const norm = appt.adName.trim().toLowerCase();
       for (const [, data] of accountMap) {
         if (data.spendRows.some(r => r.adName && r.adName.trim().toLowerCase() === norm)) {
