@@ -45,8 +45,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const configured = isConfigured(settings);
 
+  // Ref to always have the latest settings available
+  const settingsRef = useRef<AppSettings>(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   const refresh = useCallback(async (overrideSettings?: AppSettings) => {
-    const s = overrideSettings || settings;
+    // Always use the ref — it's always the latest value, never stale
+    const s = overrideSettings || settingsRef.current;
     if (!isConfigured(s)) return;
     setLoading(true);
     setError(null);
@@ -66,7 +73,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [settings]);
+  }, []);
 
   // Load settings from DB on mount, then fetch data
   useEffect(() => {

@@ -58,16 +58,17 @@ export default function SettingsPage() {
 
   // Autosave: debounce form + accountMappings changes
   const performSave = useCallback(async (formToSave: AppSettings, mappingsToSave: AccountMapping[]) => {
-    // Sync accountAliases into settings so buildAccountSummaries can use them
     const settingsWithAliases = { ...formToSave, accountAliases: mappingsToSave };
     await Promise.all([
       saveSettings(settingsWithAliases),
       saveAccountMappings(mappingsToSave),
     ]);
     setSettings(settingsWithAliases);
+    // Now refresh will always use the latest settings via the ref
+    await refresh(settingsWithAliases);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-  }, [setSettings]);
+  }, [setSettings, refresh]);
 
   useEffect(() => {
     if (isFirstRender.current) {
