@@ -15,6 +15,7 @@ interface AccountMapping {
   sheetName: string;
   airtableName: string;
   program: 'Done For You' | 'Done With You' | 'Other';
+  mediaBuyer: string;
   status: 'Active' | 'Paused' | 'Churned';
 }
 
