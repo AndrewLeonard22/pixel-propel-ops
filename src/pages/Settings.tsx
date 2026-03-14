@@ -58,11 +58,13 @@ export default function SettingsPage() {
 
   // Autosave: debounce form + accountMappings changes
   const performSave = useCallback(async (formToSave: AppSettings, mappingsToSave: AccountMapping[]) => {
+    // Sync accountAliases into settings so buildAccountSummaries can use them
+    const settingsWithAliases = { ...formToSave, accountAliases: mappingsToSave };
     await Promise.all([
-      saveSettings(formToSave),
+      saveSettings(settingsWithAliases),
       saveAccountMappings(mappingsToSave),
     ]);
-    setSettings(formToSave);
+    setSettings(settingsWithAliases);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }, [setSettings]);
