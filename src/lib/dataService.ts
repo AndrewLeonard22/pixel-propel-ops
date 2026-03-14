@@ -52,14 +52,7 @@ function parseNumber(val: string | undefined): number {
   return isNaN(num) ? 0 : num;
 }
 
-function resolveAccountName(sheetAccountName: string): string {
-  const mappings = JSON.parse(localStorage.getItem('accountMappings') || '[]');
-  const match = mappings.find(
-    (m: { sheetName: string; airtableName: string }) =>
-      m.sheetName.trim().toLowerCase() === sheetAccountName.trim().toLowerCase()
-  );
-  return match ? match.airtableName.trim() : sheetAccountName.trim();
-}
+// resolveAccountName removed — matching now uses settings.accountAliases directly
 
 export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpendRow[]> {
   const csvUrl = convertSheetUrlToCsv(settings.googleSheetUrl, settings.googleSheetTab);
