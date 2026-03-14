@@ -280,6 +280,7 @@ export default function SettingsPage() {
             <span className="flex-1">Google Sheet Account Name</span>
             <span className="flex-1">Airtable Client Name</span>
             <span className="w-36">Program</span>
+            <span className="w-32">Media Buyer</span>
             <span className="w-28">Status</span>
           </div>
           {accountMappings.map((mapping, i) => (
@@ -302,6 +303,13 @@ export default function SettingsPage() {
                 <option value="Done With You">Done With You</option>
                 <option value="Other">Other</option>
               </select>
+              <input
+                type="text"
+                value={mapping.mediaBuyer || ''}
+                onChange={e => updateAccountMapping(i, { mediaBuyer: e.target.value })}
+                placeholder="Unassigned"
+                className="w-32 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+              />
               <select
                 value={mapping.status || 'Active'}
                 onChange={e => updateAccountMapping(i, { status: e.target.value as AccountMapping['status'] })}
