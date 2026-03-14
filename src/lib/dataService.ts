@@ -177,39 +177,47 @@ export function buildAccountSummaries(
     accountMap.get(normalizedName)!.spendRows.push(row);
   }
 
-  // 2. Create lookup maps for efficient O(1) matching
+  // 2. Build lookup maps — Campaign ID only (globally unique, zero false-match risk)
   const campaignIdToAccount = new Map<string, string>();
-  const campaignNameToAccount = new Map<string, string>();
-  const adSetNameToAccount = new Map<string, string>();
-  const adNameToAccount = new Map<string, string>();
   for (const [normalizedName, data] of accountMap.entries()) {
     for (const row of data.spendRows) {
       if (row.campaignId) campaignIdToAccount.set(row.campaignId, normalizedName);
-      if (row.campaign) campaignNameToAccount.set(row.campaign.trim().toLowerCase(), normalizedName);
-      if (row.adsetName) adSetNameToAccount.set(row.adsetName.trim().toLowerCase(), normalizedName);
-      if (row.adName) adNameToAccount.set(row.adName.trim().toLowerCase(), normalizedName);
     }
   }
+
+  // Build manual alias map from user-configured account aliases in Settings
   const manualMappingToAccount = new Map<string, string>();
   for (const mapping of settings?.accountAliases || []) {
-    if (mapping.airtableName) manualMappingToAccount.set(mapping.airtableName.trim().toLowerCase(), mapping.sheetName.trim().toLowerCase());
+    if (mapping.airtableName) {
+      manualMappingToAccount.set(
+        mapping.airtableName.trim().toLowerCase(),
+        mapping.sheetName.trim().toLowerCase()
+      );
+    }
   }
 
-  // 3. Match appointments to accounts using a strict, performant waterfall
+  // 3. Match appointments — two steps only, no name-based guessing
   for (const appt of appointments) {
     let matchedAccountKey: string | undefined;
-    const clientLower = appt.client?.trim().toLowerCase();
 
-    if (!isBlank(appt.campaignId)) matchedAccountKey = campaignIdToAccount.get(appt.campaignId);
-    if (!matchedAccountKey && !isBlank(appt.campaignName)) matchedAccountKey = campaignNameToAccount.get(appt.campaignName.trim().toLowerCase());
-    if (!matchedAccountKey && !isBlank(appt.adSetName)) matchedAccountKey = adSetNameToAccount.get(appt.adSetName.trim().toLowerCase());
-    if (!matchedAccountKey && !isBlank(appt.adName)) matchedAccountKey = adNameToAccount.get(appt.adName.trim().toLowerCase());
-    if (!matchedAccountKey && clientLower) matchedAccountKey = manualMappingToAccount.get(clientLower);
+    // Step 1: Campaign ID — the only globally unique Meta identifier
+    if (!isBlank(appt.campaignId)) {
+      matchedAccountKey = campaignIdToAccount.get(appt.campaignId);
+    }
 
+    // Step 2: Manual alias — explicit user-configured override in Settings
+    if (!matchedAccountKey && appt.client) {
+      matchedAccountKey = manualMappingToAccount.get(appt.client.trim().toLowerCase());
+    }
+
+    // Only assign if a valid match was found. No match = appointment is dropped silently.
+    // This is correct behavior — it means the Airtable record has no Campaign ID
+    // and no manual alias exists. Do NOT fall back to name guessing.
     if (matchedAccountKey && accountMap.has(matchedAccountKey)) {
       accountMap.get(matchedAccountKey)!.appts.push(appt);
     }
   }
+
 
   // 4. Build final summaries
   const summaries: AccountSummary[] = [];
