@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary } from '@/lib/types';
 import { loadSettings, loadSettingsAsync, isConfigured } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, buildAccountSummaries } from '@/lib/dataService';
