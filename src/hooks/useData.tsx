@@ -45,19 +45,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const configured = isConfigured(settings);
 
-  const refresh = useCallback(async () => {
-    if (!isConfigured(settings)) return;
+  const refresh = useCallback(async (overrideSettings?: AppSettings) => {
+    const s = overrideSettings || settings;
+    if (!isConfigured(s)) return;
     setLoading(true);
     setError(null);
     try {
       const [sheetData, airtableResult] = await Promise.all([
-        fetchGoogleSheetData(settings),
-        fetchAirtableData(settings),
+        fetchGoogleSheetData(s),
+        fetchAirtableData(s),
       ]);
       setAdSpend(sheetData);
       setAppointments(airtableResult.records);
       setAirtableFields(airtableResult.fields);
-      const summaries = buildAccountSummaries(sheetData, airtableResult.records, settings);
+      const summaries = buildAccountSummaries(sheetData, airtableResult.records, s);
       setAccounts(summaries);
       setLastUpdated(new Date());
     } catch (e: any) {
@@ -74,7 +75,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
       setSettings(dbSettings);
       if (isConfigured(dbSettings)) {
-        refresh();
+        // Pass dbSettings directly to avoid stale closure
+        refresh(dbSettings);
       }
     });
     return () => { cancelled = true; };
