@@ -149,9 +149,14 @@ function isBlank(val: string | null | undefined): boolean {
   return val == null || val.trim() === '';
 }
 
-export function getPerformance(cpl: number, leadPercent: number): PerformanceLevel {
-  if (cpl < 25 && leadPercent > 5) return 'good';
-  if (cpl > 50 || leadPercent < 2) return 'poor';
+export function getPerformance(
+  cpl: number, 
+  leadPercent: number, 
+  thresholds?: AppSettings["perfThresholds"]
+): PerformanceLevel {
+  const t = thresholds || { goodCpl: 25, goodLeadPercent: 5, poorCpl: 50, poorLeadPercent: 2 };
+  if (cpl < t.goodCpl && leadPercent > t.goodLeadPercent) return 'good';
+  if (cpl > t.poorCpl || leadPercent < t.poorLeadPercent) return 'poor';
   return 'fair';
 }
 
