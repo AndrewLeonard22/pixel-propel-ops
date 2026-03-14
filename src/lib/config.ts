@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   airtableTableName: 'Appointments',
   airtableToken: '',
   columnMappings: {
-    'Client Name': 'Client',
+    'Client Name': 'Client Name',
     'Campaign Name': 'Campaign Name',
     'Campaign ID': 'Campaign ID',
     'Ad Set Name': 'Ad Set Name',
@@ -51,12 +51,20 @@ function loadSettingsFromLocal(): AppSettings {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY);
     const parsedSettings = stored ? JSON.parse(stored) : {};
+    
+    // Always prefer the dedicated accountMappings key — it's what Settings.tsx writes to
+    const mappingsStored = localStorage.getItem(ACCOUNT_MAPPINGS_KEY);
     const aliasStored = localStorage.getItem('accountAliases');
-    const parsedAliases = aliasStored ? JSON.parse(aliasStored) : parsedSettings.accountAliases;
+    const parsedMappings = mappingsStored 
+      ? JSON.parse(mappingsStored) 
+      : aliasStored 
+        ? JSON.parse(aliasStored) 
+        : parsedSettings.accountAliases;
+
     return {
       ...DEFAULT_SETTINGS,
       ...parsedSettings,
-      accountAliases: Array.isArray(parsedAliases) ? parsedAliases : DEFAULT_SETTINGS.accountAliases,
+      accountAliases: Array.isArray(parsedMappings) ? parsedMappings : DEFAULT_SETTINGS.accountAliases,
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -113,11 +121,21 @@ export function loadSettings(): AppSettings {
 /** Async load: tries DB first, falls back to localStorage, caches result */
 export async function loadSettingsAsync(): Promise<AppSettings> {
   try {
-    const dbSettings = await fetchSetting<AppSettings>('app_settings');
+    const [dbSettings, dbMappings] = await Promise.all([
+      fetchSetting<AppSettings>('app_settings'),
+      fetchSetting<any[]>('account_mappings'),
+    ]);
+
     if (dbSettings && typeof dbSettings === 'object' && dbSettings.googleSheetUrl !== undefined) {
-      // Merge with defaults for any new keys
       const merged = { ...DEFAULT_SETTINGS, ...dbSettings };
-      saveSettingsToLocal(merged); // cache locally
+      // Always override accountAliases with the dedicated account_mappings from DB if available
+      if (Array.isArray(dbMappings) && dbMappings.length > 0) {
+        merged.accountAliases = dbMappings;
+      }
+      saveSettingsToLocal(merged);
+      if (Array.isArray(dbMappings) && dbMappings.length > 0) {
+        saveAccountMappingsToLocal(dbMappings);
+      }
       return merged;
     }
   } catch {
