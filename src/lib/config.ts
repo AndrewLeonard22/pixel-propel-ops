@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   airtableTableName: 'Appointments',
   airtableToken: '',
   columnMappings: {
-    'Client Name': 'Client',
+    'Client Name': 'Client Name',
     'Campaign Name': 'Campaign Name',
     'Campaign ID': 'Campaign ID',
     'Ad Set Name': 'Ad Set Name',
