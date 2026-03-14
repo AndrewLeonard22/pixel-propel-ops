@@ -127,8 +127,16 @@ export async function loadSettingsAsync(): Promise<AppSettings> {
     ]);
 
     if (dbSettings && typeof dbSettings === 'object' && dbSettings.googleSheetUrl !== undefined) {
-      const merged = { ...DEFAULT_SETTINGS, ...dbSettings };
-      // Always override accountAliases with the dedicated account_mappings from DB if available
+      const merged = {
+        ...DEFAULT_SETTINGS,
+        ...dbSettings,
+        // Always use the latest default column mappings merged with any user customizations
+        // This prevents stale column mappings from persisting in the DB
+        columnMappings: {
+          ...DEFAULT_SETTINGS.columnMappings,
+          ...(dbSettings.columnMappings || {}),
+        },
+      };
       if (Array.isArray(dbMappings) && dbMappings.length > 0) {
         merged.accountAliases = dbMappings;
       }
