@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary } from '@/lib/types';
 import { loadSettings, loadSettingsAsync, isConfigured } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, buildAccountSummaries } from '@/lib/dataService';
@@ -14,7 +14,7 @@ interface DataContextType {
   error: string | null;
   lastUpdated: Date | null;
   configured: boolean;
-  refresh: () => Promise<void>;
+  refresh: (overrideSettings?: AppSettings) => Promise<void>;
 }
 
 const defaultDataContext: DataContextType = {
@@ -45,8 +45,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const configured = isConfigured(settings);
 
+  // Ref to always have the latest settings available
+  const settingsRef = useRef<AppSettings>(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   const refresh = useCallback(async (overrideSettings?: AppSettings) => {
-    const s = overrideSettings || settings;
+    // Always use the ref — it's always the latest value, never stale
+    const s = overrideSettings || settingsRef.current;
     if (!isConfigured(s)) return;
     setLoading(true);
     setError(null);
@@ -66,7 +73,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [settings]);
+  }, []);
 
   // Load settings from DB on mount, then fetch data
   useEffect(() => {
