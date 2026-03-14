@@ -121,11 +121,21 @@ export function loadSettings(): AppSettings {
 /** Async load: tries DB first, falls back to localStorage, caches result */
 export async function loadSettingsAsync(): Promise<AppSettings> {
   try {
-    const dbSettings = await fetchSetting<AppSettings>('app_settings');
+    const [dbSettings, dbMappings] = await Promise.all([
+      fetchSetting<AppSettings>('app_settings'),
+      fetchSetting<any[]>('account_mappings'),
+    ]);
+
     if (dbSettings && typeof dbSettings === 'object' && dbSettings.googleSheetUrl !== undefined) {
-      // Merge with defaults for any new keys
       const merged = { ...DEFAULT_SETTINGS, ...dbSettings };
-      saveSettingsToLocal(merged); // cache locally
+      // Always override accountAliases with the dedicated account_mappings from DB if available
+      if (Array.isArray(dbMappings) && dbMappings.length > 0) {
+        merged.accountAliases = dbMappings;
+      }
+      saveSettingsToLocal(merged);
+      if (Array.isArray(dbMappings) && dbMappings.length > 0) {
+        saveAccountMappingsToLocal(dbMappings);
+      }
       return merged;
     }
   } catch {
