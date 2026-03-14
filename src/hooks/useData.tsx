@@ -14,7 +14,7 @@ interface DataContextType {
   error: string | null;
   lastUpdated: Date | null;
   configured: boolean;
-  refresh: () => Promise<void>;
+  refresh: (overrideSettings?: AppSettings) => Promise<void>;
 }
 
 const defaultDataContext: DataContextType = {
