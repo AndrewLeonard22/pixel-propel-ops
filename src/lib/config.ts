@@ -51,12 +51,20 @@ function loadSettingsFromLocal(): AppSettings {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY);
     const parsedSettings = stored ? JSON.parse(stored) : {};
+    
+    // Always prefer the dedicated accountMappings key — it's what Settings.tsx writes to
+    const mappingsStored = localStorage.getItem(ACCOUNT_MAPPINGS_KEY);
     const aliasStored = localStorage.getItem('accountAliases');
-    const parsedAliases = aliasStored ? JSON.parse(aliasStored) : parsedSettings.accountAliases;
+    const parsedMappings = mappingsStored 
+      ? JSON.parse(mappingsStored) 
+      : aliasStored 
+        ? JSON.parse(aliasStored) 
+        : parsedSettings.accountAliases;
+
     return {
       ...DEFAULT_SETTINGS,
       ...parsedSettings,
-      accountAliases: Array.isArray(parsedAliases) ? parsedAliases : DEFAULT_SETTINGS.accountAliases,
+      accountAliases: Array.isArray(parsedMappings) ? parsedMappings : DEFAULT_SETTINGS.accountAliases,
     };
   } catch {
     return DEFAULT_SETTINGS;
