@@ -43,18 +43,27 @@ export default function SettingsPage() {
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }, [adSpend]);
 
-  // When unique accounts change, ensure all have a mapping entry
-  useEffect(() => {
-    if (uniqueSheetAccounts.length === 0) return;
-    setAccountMappings(prev => {
-      const existing = new Map(prev.map(m => [m.sheetName.trim().toLowerCase(), m]));
-      const updated: AccountMapping[] = uniqueSheetAccounts.map(name => {
-        const key = name.trim().toLowerCase();
-        return existing.get(key) || { sheetName: name, airtableName: name, program: 'Done For You' as const, mediaBuyer: '', status: 'Active' as const };
-      });
-      return updated;
-    });
-  }, [uniqueSheetAccounts]);
+// When unique accounts change, only ADD new accounts — never overwrite existing user-configured entries
+useEffect(() => {
+  if (uniqueSheetAccounts.length === 0) return;
+  setAccountMappings(prev => {
+    const existing = new Map(prev.map(m => [m.sheetName.trim().toLowerCase(), m]));
+    let changed = false;
+    const updated = [...prev];
+
+    for (const name of uniqueSheetAccounts) {
+      const key = name.trim().toLowerCase();
+      if (!existing.has(key)) {
+        // Only add accounts that don't already exist — never touch existing ones
+        updated.push({ sheetName: name, airtableName: name, program: 'Done For You' as const, mediaBuyer: '', status: 'Active' as const });
+        changed = true;
+      }
+    }
+
+    // Return the same reference if nothing changed — prevents unnecessary re-renders and saves
+    return changed ? updated : prev;
+  });
+}, [uniqueSheetAccounts]);
 
   // Autosave: debounce form + accountMappings changes
   const performSave = useCallback(async (formToSave: AppSettings, mappingsToSave: AccountMapping[]) => {
