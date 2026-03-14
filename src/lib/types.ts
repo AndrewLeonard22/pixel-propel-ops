@@ -8,7 +8,19 @@ export interface AppSettings {
   showPausedAccounts: boolean;
   showChurnedAccounts: boolean;
   pausedThresholdDays: number;
-  accountAliases: { sheetName: string; airtableName: string }[];
+  accountAliases: { 
+    sheetName: string; 
+    airtableName: string; 
+    program: string; 
+    mediaBuyer: string; 
+    status: string; 
+  }[];
+  perfThresholds: {
+    goodCpl: number;
+    goodLeadPercent: number;
+    poorCpl: number;
+    poorLeadPercent: number;
+  };
 }
 
 export interface AdSpendRow {

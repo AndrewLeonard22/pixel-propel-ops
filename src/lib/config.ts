@@ -37,6 +37,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   showChurnedAccounts: true,
   pausedThresholdDays: 1,
   accountAliases: [],
+  perfThresholds: {
+    goodCpl: 25,
+    goodLeadPercent: 5,
+    poorCpl: 50,
+    poorLeadPercent: 2,
+  },
 };
 
 // --- localStorage helpers (fallback/cache) ---

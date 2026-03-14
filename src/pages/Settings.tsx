@@ -15,6 +15,7 @@ interface AccountMapping {
   sheetName: string;
   airtableName: string;
   program: 'Done For You' | 'Done With You' | 'Other';
+  mediaBuyer: string;
   status: 'Active' | 'Paused' | 'Churned';
 }
 
@@ -49,7 +50,7 @@ export default function SettingsPage() {
       const existing = new Map(prev.map(m => [m.sheetName.trim().toLowerCase(), m]));
       const updated: AccountMapping[] = uniqueSheetAccounts.map(name => {
         const key = name.trim().toLowerCase();
-        return existing.get(key) || { sheetName: name, airtableName: name, program: 'Done For You' as const, status: 'Active' as const };
+        return existing.get(key) || { sheetName: name, airtableName: name, program: 'Done For You' as const, mediaBuyer: '', status: 'Active' as const };
       });
       return updated;
     });
@@ -57,11 +58,13 @@ export default function SettingsPage() {
 
   // Autosave: debounce form + accountMappings changes
   const performSave = useCallback(async (formToSave: AppSettings, mappingsToSave: AccountMapping[]) => {
+    // Sync accountAliases into settings so buildAccountSummaries can use them
+    const settingsWithAliases = { ...formToSave, accountAliases: mappingsToSave };
     await Promise.all([
-      saveSettings(formToSave),
+      saveSettings(settingsWithAliases),
       saveAccountMappings(mappingsToSave),
     ]);
-    setSettings(formToSave);
+    setSettings(settingsWithAliases);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }, [setSettings]);
@@ -277,6 +280,7 @@ export default function SettingsPage() {
             <span className="flex-1">Google Sheet Account Name</span>
             <span className="flex-1">Airtable Client Name</span>
             <span className="w-36">Program</span>
+            <span className="w-32">Media Buyer</span>
             <span className="w-28">Status</span>
           </div>
           {accountMappings.map((mapping, i) => (
@@ -299,6 +303,13 @@ export default function SettingsPage() {
                 <option value="Done With You">Done With You</option>
                 <option value="Other">Other</option>
               </select>
+              <input
+                type="text"
+                value={mapping.mediaBuyer || ''}
+                onChange={e => updateAccountMapping(i, { mediaBuyer: e.target.value })}
+                placeholder="Unassigned"
+                className="w-32 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+              />
               <select
                 value={mapping.status || 'Active'}
                 onChange={e => updateAccountMapping(i, { status: e.target.value as AccountMapping['status'] })}
