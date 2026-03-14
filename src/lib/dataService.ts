@@ -188,9 +188,10 @@ export function buildAccountSummaries(
   // Build manual alias map from user-configured account aliases in Settings
   const manualMappingToAccount = new Map<string, string>();
   for (const mapping of settings?.accountAliases || []) {
-    if (mapping.airtableName) {
+    const airtableName = (mapping.airtableName || mapping.sheetName || '').trim();
+    if (airtableName) {
       manualMappingToAccount.set(
-        mapping.airtableName.trim().toLowerCase(),
+        airtableName.toLowerCase(),
         mapping.sheetName.trim().toLowerCase()
       );
     }
