@@ -390,51 +390,36 @@ export function buildAccountSummaries(
   return summaries.sort((a, b) => b.spend - a.spend);
 }
 
-function mode(arr: string[]): string {
-  const freq = new Map<string, number>();
-  for (const v of arr) freq.set(v, (freq.get(v) || 0) + 1);
-  let max = 0, result = '';
-  for (const [k, v] of freq) {
-    if (v > max) { max = v; result = k; }
-  }
-  return result;
-}
-
 export function buildTeamPerformance(accounts: AccountSummary[]): TeamMember[] {
-  const teamMap = new Map<string, TeamMember>();
-  
+  const teamMap = new Map<string, { name: string; accounts: AccountSummary[] }>();
+
   for (const account of accounts) {
     const buyer = account.mediaBuyer || 'Unassigned';
     if (!teamMap.has(buyer)) {
-      teamMap.set(buyer, {
-        name: buyer,
-        accountsManaged: 0,
-        totalSpend: 0,
-        totalLeads: 0,
-        totalAppointments: 0,
-        avgCPL: 0,
-        avgLeadPercent: 0,
-        closedDeals: 0,
-        revenueGenerated: 0,
-      });
+      teamMap.set(buyer, { name: buyer, accounts: [] });
     }
-    const tm = teamMap.get(buyer)!;
-    tm.accountsManaged++;
-    tm.totalSpend += account.spend;
-    tm.totalLeads += account.leads;
-    tm.totalAppointments += account.appointments;
-    tm.closedDeals += account.closed;
-    tm.revenueGenerated += account.revenue;
+    teamMap.get(buyer)!.accounts.push(account);
   }
-  
-  const result: TeamMember[] = [];
-  for (const tm of teamMap.values()) {
-    tm.avgCPL = tm.totalLeads > 0 ? tm.totalSpend / tm.totalLeads : 0;
-    tm.avgLeadPercent = tm.totalLeads > 0 ? (tm.totalAppointments / tm.totalLeads) * 100 : 0;
-    result.push(tm);
-  }
-  
-  return result.sort((a, b) => b.totalAppointments - a.totalAppointments);
+
+  return Array.from(teamMap.values()).map(tm => {
+    const totalSpend = tm.accounts.reduce((s, a) => s + a.spend, 0);
+    const totalLeads = tm.accounts.reduce((s, a) => s + a.leads, 0);
+    const totalAppointments = tm.accounts.reduce((s, a) => s + a.appointments, 0);
+    const closedDeals = tm.accounts.reduce((s, a) => s + a.closed, 0);
+    const revenueGenerated = tm.accounts.reduce((s, a) => s + a.revenue, 0);
+
+    return {
+      name: tm.name,
+      accountsManaged: tm.accounts.length,
+      totalSpend,
+      totalLeads,
+      totalAppointments,
+      closedDeals,
+      revenueGenerated,
+      avgCPL: totalLeads > 0 ? totalSpend / totalLeads : 0,
+      avgLeadPercent: totalLeads > 0 ? (totalAppointments / totalLeads) * 100 : 0,
+    };
+  }).sort((a, b) => b.totalAppointments - a.totalAppointments);
 }
 
 export function formatCurrency(val: number): string {

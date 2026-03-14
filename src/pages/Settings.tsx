@@ -50,7 +50,7 @@ export default function SettingsPage() {
       const existing = new Map(prev.map(m => [m.sheetName.trim().toLowerCase(), m]));
       const updated: AccountMapping[] = uniqueSheetAccounts.map(name => {
         const key = name.trim().toLowerCase();
-        return existing.get(key) || { sheetName: name, airtableName: name, program: 'Done For You' as const, status: 'Active' as const };
+        return existing.get(key) || { sheetName: name, airtableName: name, program: 'Done For You' as const, mediaBuyer: '', status: 'Active' as const };
       });
       return updated;
     });
