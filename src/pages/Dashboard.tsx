@@ -70,8 +70,17 @@ function AccountSection({ group }: { group: AccountGroup }) {
 
 function parseDateSafe(dateStr: string): Date | null {
   if (!dateStr) return null;
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? null : d;
+  // Try direct parse first (handles ISO and most formats)
+  let d = new Date(dateStr);
+  if (!isNaN(d.getTime())) return d;
+  // Handle Airtable cellFormat=string dates like "3/20/2026 6:00pm" or "March 20, 2026"
+  // Strip time portion for date-only comparison
+  const dateOnly = dateStr.split(/\s+\d+:/)[0].trim();
+  if (dateOnly !== dateStr) {
+    d = new Date(dateOnly);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
 }
 
 function KPICard({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
