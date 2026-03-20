@@ -268,15 +268,15 @@ export default function Dashboard() {
 
     const filteredSpend = adSpend.filter(row => {
       const d = parseDateSafe(row.date);
-      if (!d) return true; // keep rows with unparseable dates
+      if (!d) return false; // exclude rows with unparseable dates when filtering by date
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
     });
 
     const filteredAppts = appointments.filter(row => {
-      const d = parseDateSafe(row.appointmentDate);
-      if (!d) return true;
+      const d = parseDateSafe(row.dateAdded || row.appointmentDate);
+      if (!d) return false; // exclude rows with unparseable dates when filtering by date
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
