@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
-import { saveSettings, saveAccountMappings, loadAccountMappings } from '@/lib/config';
+import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData } from '@/lib/dataService';
 import type { AppSettings } from '@/lib/types';
 import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
