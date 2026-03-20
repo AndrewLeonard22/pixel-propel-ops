@@ -92,6 +92,8 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
     const url = new URL(`https://api.airtable.com/v0/${airtableBaseId}/${encodeURIComponent(airtableTableName)}`);
     url.searchParams.set('pageSize', '100');
     url.searchParams.set('cellFormat', 'string');
+    url.searchParams.set('timeZone', 'America/New_York');
+    url.searchParams.set('userLocale', 'en-us');
     if (offset) url.searchParams.set('offset', offset);
     
     const response = await fetch(url.toString(), {
