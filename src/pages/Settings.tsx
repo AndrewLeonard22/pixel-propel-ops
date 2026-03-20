@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
-import { saveSettings, saveAccountMappings, loadAccountMappings } from '@/lib/config';
+import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData } from '@/lib/dataService';
 import type { AppSettings } from '@/lib/types';
 import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
@@ -32,6 +32,15 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [accountMappings, setAccountMappings] = useState<AccountMapping[]>(loadAccountMappings);
   const isFirstRender = useRef(true);
+
+  // On mount, load the latest account mappings from the DB to ensure we have the most up-to-date aliases
+  useEffect(() => {
+    loadAccountMappingsAsync().then(dbMappings => {
+      if (dbMappings && dbMappings.length > 0) {
+        setAccountMappings(dbMappings);
+      }
+    });
+  }, []);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Derive unique account names from loaded adSpend data
