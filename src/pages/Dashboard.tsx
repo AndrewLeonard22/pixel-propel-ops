@@ -70,16 +70,22 @@ function AccountSection({ group }: { group: AccountGroup }) {
 
 function parseDateSafe(dateStr: string): Date | null {
   if (!dateStr) return null;
-  // Try direct parse first (handles ISO and most formats)
-  let d = new Date(dateStr);
+  
+  // Normalize Airtable cellFormat=string times: "3/18/2026 10:05am" → "3/18/2026 10:05 AM"
+  // JS Date needs space before AM/PM in some engines
+  const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
+  
+  let d = new Date(normalized);
   if (!isNaN(d.getTime())) return d;
-  // Handle Airtable cellFormat=string dates like "3/20/2026 6:00pm" or "March 20, 2026"
-  // Strip time portion for date-only comparison
-  const dateOnly = dateStr.split(/\s+\d+:/)[0].trim();
-  if (dateOnly !== dateStr) {
+  
+  // Fallback: strip time portion entirely for date-only comparison
+  // Matches patterns like " 8:30 AM", " 2:00pm", " 10:05am"
+  const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
+  if (dateOnly && dateOnly !== dateStr) {
     d = new Date(dateOnly);
     if (!isNaN(d.getTime())) return d;
   }
+  
   return null;
 }
 
