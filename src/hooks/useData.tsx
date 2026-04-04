@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary } from '@/lib/types';
+import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CallRow } from '@/lib/types';
 import { loadSettings, loadSettingsAsync, isConfigured } from '@/lib/config';
-import { fetchGoogleSheetData, fetchAirtableData, buildAccountSummaries } from '@/lib/dataService';
+import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries } from '@/lib/dataService';
 
 interface DataContextType {
   settings: AppSettings;
