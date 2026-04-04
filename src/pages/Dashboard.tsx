@@ -436,6 +436,21 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Unmatched Appointments */}
+      {unmatchedAppointments.length > 0 && (
+        <UnmatchedSection
+          appointments={unmatchedAppointments}
+          accounts={accounts}
+          settings={settings}
+          setSettings={setSettings}
+          refresh={refresh}
+          assignedClients={assignedClients}
+          setAssignedClients={setAssignedClients}
+          recentlyAssigned={recentlyAssigned}
+          setRecentlyAssigned={setRecentlyAssigned}
+        />
+      )}
+
       {/* Account Cards */}
       {loading ? (
         <TableSkeleton rows={5} />
