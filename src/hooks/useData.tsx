@@ -95,7 +95,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DataContext.Provider value={{
-      settings, setSettings, adSpend, appointments, accounts, airtableFields,
+      settings, setSettings, adSpend, appointments, accounts, unmatchedAppointments, airtableFields,
       loading, error, lastUpdated, configured, refresh,
     }}>
       {children}

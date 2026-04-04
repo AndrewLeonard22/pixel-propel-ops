@@ -282,7 +282,7 @@ export default function Dashboard() {
       return true;
     });
 
-    return buildAccountSummaries(filteredSpend, filteredAppts, settings);
+    return buildAccountSummaries(filteredSpend, filteredAppts, settings).accounts;
   }, [accounts, adSpend, appointments, settings, dateRange]);
 
   const filteredAccounts = useMemo(() => {
