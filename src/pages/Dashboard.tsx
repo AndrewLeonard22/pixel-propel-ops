@@ -253,16 +253,25 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
           {/* Section 2 — Funnel Visualization */}
           <div>
             <h3 className="text-sm font-semibold text-foreground mb-3">Conversion Funnel</h3>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {funnelStages.map((stage, i) => {
                 const widthPct = maxFunnel > 0 ? (stage.value / maxFunnel) * 100 : 0;
                 const nextStage = funnelStages[i + 1];
-                const conversionPct = nextStage && stage.value > 0 ? ((nextStage.value / stage.value) * 100).toFixed(1) : null;
+                const isLeadsToDials = stage.label === 'Leads' && nextStage?.label === 'Dials';
+                let conversionLabel: string | null = null;
+                if (nextStage && stage.value > 0) {
+                  if (isLeadsToDials) {
+                    conversionLabel = `→ ${(nextStage.value / stage.value).toFixed(1)} dials per lead`;
+                  } else {
+                    const pct = (nextStage.value / stage.value) * 100;
+                    if (pct <= 100) conversionLabel = `→ ${pct.toFixed(1)}% conversion`;
+                  }
+                }
                 return (
                   <div key={stage.label}>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium text-foreground w-28 shrink-0">{stage.label}</span>
-                      <div className="flex-1 h-7 rounded-md bg-muted/30 relative overflow-hidden">
+                      <div className="flex-1 h-5 rounded-md bg-muted/30 relative overflow-hidden">
                         <div
                           className="h-full rounded-md transition-all duration-500"
                           style={{ width: `${Math.max(widthPct, 0)}%`, backgroundColor: stage.color }}
@@ -270,8 +279,8 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                       </div>
                       <span className="font-mono-tabular font-semibold text-sm text-foreground w-14 text-right">{formatNumber(stage.value)}</span>
                     </div>
-                    {conversionPct && (
-                      <p className="text-[10px] text-muted-foreground ml-28 pl-3 mt-0.5">→ {conversionPct}% conversion</p>
+                    {conversionLabel && (
+                      <p className="text-[10px] text-muted-foreground ml-28 pl-3 mt-0.5">{conversionLabel}</p>
                     )}
                   </div>
                 );
@@ -292,19 +301,19 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                       className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
                       onClick={() => toggleCampaign(c.campaignId)}
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-                          <span className="text-sm font-medium truncate">{c.campaignName}</span>
-                          {cPerf && <PerformanceBadge level={cPerf} />}
+                          <span className="text-sm font-medium truncate max-w-[300px]">{c.campaignName}</span>
                         </div>
-                        <div className="flex items-center gap-4 text-xs font-mono-tabular text-muted-foreground shrink-0">
-                          <span>{formatCurrency(c.spend)}</span>
-                          <span>{c.leads}L</span>
-                          <span><CPLBadge value={c.cpl} /></span>
-                          <span>{c.appointments}A</span>
-                          <span><CostPerApptBadge value={c.costPerAppt} /></span>
-                        </div>
+                        {cPerf && <PerformanceBadge level={cPerf} />}
+                      </div>
+                      <div className="flex flex-wrap gap-3 mt-1.5 ml-5">
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-xs font-mono-tabular font-semibold">{formatCurrency(c.spend)}</span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-xs font-mono-tabular font-semibold">{c.leads}</span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-xs font-mono-tabular font-semibold"><CPLBadge value={c.cpl} /></span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-xs font-mono-tabular font-semibold">{c.appointments}</span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-xs font-mono-tabular font-semibold"><CostPerApptBadge value={c.costPerAppt} /></span></span>
                       </div>
                     </div>
                     {isExpanded && c.adSets && c.adSets.length > 0 && (
@@ -312,18 +321,18 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                         {c.adSets.map((as, idx) => {
                           const asPerf = getPerfByProgram(program, as.cpl, as.costPerAppt, as.appointments);
                           return (
-                            <div key={as.adSetId || idx} className={`pl-4 pr-3 py-2 flex items-start justify-between gap-3 ${idx > 0 ? 'border-t border-border/50' : ''}`}>
+                            <div key={as.adSetId || idx} className={`pl-4 pr-3 py-2 ${idx > 0 ? 'border-t border-border/50' : ''}`}>
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className="text-xs text-foreground truncate">{as.adSetName}</span>
                                 {asPerf && <PerformanceBadge level={asPerf} />}
                                 <span className="text-[10px] text-muted-foreground">{as.adCount} ads</span>
                               </div>
-                              <div className="flex items-center gap-3 text-xs font-mono-tabular text-muted-foreground shrink-0">
-                                <span>{formatCurrency(as.spend)}</span>
-                                <span>{as.leads}L</span>
-                                <span><CPLBadge value={as.cpl} /></span>
-                                <span>{as.appointments}A</span>
-                                <span><CostPerApptBadge value={as.costPerAppt} /></span>
+                              <div className="flex flex-wrap gap-3 mt-1 pl-0">
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[11px] font-mono-tabular font-semibold">{formatCurrency(as.spend)}</span></span>
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.leads}</span></span>
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} /></span></span>
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.appointments}</span></span>
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} /></span></span>
                               </div>
                             </div>
                           );
@@ -346,7 +355,7 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '32px' }}>
-                      <th className="text-left pl-2 align-middle">Lead Name</th>
+                      <th className="text-left pl-2 align-middle">Setter</th>
                       <th className="text-left px-2 align-middle">Date</th>
                       <th className="text-left px-2 align-middle">Show Status</th>
                       <th className="text-left px-2 align-middle">Lead Valid</th>
@@ -356,7 +365,7 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                   <tbody>
                     {recentAppts.map((appt, i) => (
                       <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
-                        <td className="pl-2 py-1.5 text-foreground">{appt.client || '—'}</td>
+                        <td className="pl-2 py-1.5 text-foreground">{appt.setter || '—'}</td>
                         <td className="px-2 py-1.5 text-muted-foreground font-mono-tabular">{formatDate(appt.dateAdded || appt.appointmentDate)}</td>
                         <td className="px-2 py-1.5 text-muted-foreground">{appt.showStatus || '—'}</td>
                         <td className="px-2 py-1.5 text-muted-foreground">{appt.leadValid || '—'}</td>
