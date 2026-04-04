@@ -520,11 +520,11 @@ export default function Dashboard() {
           <KPICard label="Total Spend" value={formatCurrency(totals.spend)} />
           <KPICard label="Total Leads" value={formatNumber(totals.leads)} />
           <KPICard label="Avg CPL" value={formatCurrency(totals.cpl)} />
-          <KPICard label="Total Appointments" value={formatNumber(totals.appts)} />
           <KPICard label="Total Dials" value={formatNumber(totals.dials)} />
-          <KPICard label="Dial-to-Appt %" value={formatPercent(totals.dialToAppt)} />
+          <KPICard label="Total Appts" value={formatNumber(totals.appts)} />
           <KPICard label="Avg Cost/Appt" value={formatCurrency(totals.costPerAppt)} />
           <KPICard label="Closed Deals" value={formatNumber(totals.closed)} />
+          <KPICard label="Total Revenue" value={formatCurrency(totals.revenue)} />
         </div>
       )}
 
