@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useData } from '@/hooks/useData';
-import { MessageCircle, X, Send, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Loader2, Bot } from 'lucide-react';
 import { formatCurrency, formatNumber, formatPercent } from '@/lib/dataService';
 
 function buildContext(accounts: any[], settings: any): string {
