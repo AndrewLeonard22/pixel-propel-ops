@@ -1,6 +1,7 @@
 import AppSidebar from './AppSidebar';
 import { RefreshCw } from 'lucide-react';
 import { useData } from '@/hooks/useData';
+import AIChatPanel from '@/components/AIChatPanel';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { lastUpdated, refresh, loading } = useData();
