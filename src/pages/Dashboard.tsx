@@ -139,8 +139,7 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
 
 // === Account Detail Panel (slide-over) ===
 
-const FUNNEL_COLORS = ['#6366f1', '#8b5cf6', '#f59e0b', '#10b981', '#22c55e'];
-const FUNNEL_LABELS_FULL = ['Leads', 'Dials', 'Appointments', 'Showed', 'Closed'];
+
 
 function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onClose: () => void }) {
   const mappings = loadAccountMappings();
