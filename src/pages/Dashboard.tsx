@@ -460,13 +460,14 @@ export default function Dashboard() {
     const appts = filteredAccounts.reduce((s, a) => s + a.appointments, 0);
     const closed = filteredAccounts.reduce((s, a) => s + a.closed, 0);
     const revenue = filteredAccounts.reduce((s, a) => s + a.revenue, 0);
+    const dials = filteredAccounts.reduce((s, a) => s + a.totalDials, 0);
     return {
       spend,
       leads,
       cpl: leads > 0 ? spend / leads : 0,
       appts,
-      calls: appts,
-      callConv: leads > 0 ? (appts / leads) * 100 : 0,
+      dials,
+      dialToAppt: dials > 0 ? (appts / dials) * 100 : 0,
       costPerAppt: appts > 0 ? spend / appts : 0,
       closed,
       revenue,
