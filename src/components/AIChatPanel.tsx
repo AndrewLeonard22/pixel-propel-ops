@@ -163,9 +163,13 @@ export default function AIChatPanel() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-40 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 transition-opacity flex items-center justify-center"
+        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg hover:opacity-90 transition-opacity"
+        style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
       >
-        <MessageCircle className="w-5 h-5" />
+        <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+          <Bot className="w-3.5 h-3.5 text-white" />
+        </div>
+        <span className="text-sm font-medium text-white">Ask AI</span>
       </button>
     );
   }
