@@ -49,7 +49,7 @@ function AccountSection({ group }: { group: AccountGroup }) {
   return (
     <>
       <tr>
-        <td colSpan={12} className="pt-4 pb-2">
+        <td colSpan={10} className="pt-4 pb-2">
           <button
             onClick={() => setOpen(!open)}
             className="flex items-center gap-2"
@@ -100,21 +100,26 @@ function KPICard({ label, value, mono = true }: { label: string; value: string; 
 }
 
 function CPLBadge({ value }: { value: number }) {
-  const color = value < 25 ? 'text-success' : value <= 50 ? 'text-warning' : 'text-destructive';
+  const color = value === 0 ? 'text-muted-foreground' : value < 35 ? 'text-success' : value <= 55 ? 'text-warning' : 'text-destructive';
+  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
+}
+
+function CostPerApptBadge({ value }: { value: number }) {
+  const color = value === 0 ? 'text-muted-foreground' : value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
   return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
 }
 
 function getPerfByProgram(program: string, cpl: number, costPerAppt: number, appointments: number): PerformanceLevel | null {
   if (program === 'Done With You') {
     if (cpl === 0) return null;
-    if (cpl < 30) return 'good';
-    if (cpl <= 50) return 'fair';
+    if (cpl < 35) return 'good';
+    if (cpl <= 55) return 'fair';
     return 'poor';
   }
-  // Done For You (default)
+  // Done For You
   if (costPerAppt === 0 || appointments === 0) return null;
-  if (costPerAppt < 200) return 'good';
-  if (costPerAppt <= 350) return 'fair';
+  if (costPerAppt < 180) return 'good';
+  if (costPerAppt <= 240) return 'fair';
   return 'poor';
 }
 
@@ -129,6 +134,7 @@ function AccountRow({ account }: { account: AccountSummary }) {
       <tr
         onClick={() => setExpanded(!expanded)}
         className="cursor-pointer hover:bg-accent/30 transition-colors"
+        style={perf ? { borderLeft: `3px solid hsl(var(--${perf === 'good' ? 'success' : perf === 'fair' ? 'warning' : 'destructive'}))` } : undefined}
       >
         <td className="px-2 py-3 text-center text-muted-foreground">
           {expanded ? <ChevronDown className="w-4 h-4 inline" /> : <ChevronRight className="w-4 h-4 inline" />}
@@ -138,33 +144,28 @@ function AccountRow({ account }: { account: AccountSummary }) {
             <span className="font-semibold text-sm truncate">{account.accountName}</span>
             <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
             {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
-            {perf ? <PerformanceBadge level={perf} /> : null}
           </div>
         </td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.spend)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.leads)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CPLBadge value={account.cpl} /></td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatPercent(account.leadPercent)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.costPerAppt)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.totalDials)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatPercent(account.dialToApptPercent)}</td>
+        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
+        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} /></td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.revenue)}</td>
       </tr>
       {expanded && (
         <>
           <tr className="bg-muted/30 border-t border-border/40">
-           <td className="w-10" />
+            <td className="w-10" />
             <td className="py-1.5 pl-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Campaign</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Leads</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPL</td>
+            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Appts</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lead %</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cost/A</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Closed</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Revenue</td>
           </tr>
@@ -200,11 +201,9 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.spend)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.leads)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap"><CPLBadge value={campaign.cpl} /></td>
+        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.appointments)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatPercent(campaign.leadPercent)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.costPerAppt)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
+        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap"><CostPerApptBadge value={campaign.costPerAppt} /></td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.revenue)}</td>
       </tr>
@@ -223,11 +222,9 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.spend)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.leads)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap"><CPLBadge value={as.cpl} /></td>
+          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.appointments)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatPercent(as.leadPercent)}</td>
-           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.costPerAppt)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
+          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap"><CostPerApptBadge value={as.costPerAppt} /></td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.closed)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.revenue)}</td>
         </tr>
@@ -523,11 +520,11 @@ export default function Dashboard() {
           <KPICard label="Total Spend" value={formatCurrency(totals.spend)} />
           <KPICard label="Total Leads" value={formatNumber(totals.leads)} />
           <KPICard label="Avg CPL" value={formatCurrency(totals.cpl)} />
-          <KPICard label="Total Appointments" value={formatNumber(totals.appts)} />
           <KPICard label="Total Dials" value={formatNumber(totals.dials)} />
-          <KPICard label="Dial-to-Appt %" value={formatPercent(totals.dialToAppt)} />
+          <KPICard label="Total Appts" value={formatNumber(totals.appts)} />
           <KPICard label="Avg Cost/Appt" value={formatCurrency(totals.costPerAppt)} />
           <KPICard label="Closed Deals" value={formatNumber(totals.closed)} />
+          <KPICard label="Total Revenue" value={formatCurrency(totals.revenue)} />
         </div>
       )}
 
@@ -620,16 +617,14 @@ export default function Dashboard() {
               <colgroup>
                 <col style={{ width: '40px' }} />
                 <col />
-                <col style={{ width: '110px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '90px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '75px' }} />
                 <col style={{ width: '100px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '110px' }} />
+                <col style={{ width: '65px' }} />
+                <col style={{ width: '85px' }} />
+                <col style={{ width: '65px' }} />
+                <col style={{ width: '65px' }} />
+                <col style={{ width: '95px' }} />
+                <col style={{ width: '60px' }} />
+                <col style={{ width: '100px' }} />
               </colgroup>
               <thead className="sticky top-0 z-20 bg-background shadow-sm">
                 <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '40px' }}>
@@ -638,11 +633,9 @@ export default function Dashboard() {
                   <th className="text-right px-3 align-middle">Spend</th>
                   <th className="text-right px-3 align-middle">Leads</th>
                   <th className="text-right px-3 align-middle">CPL</th>
-                  <th className="text-right px-3 align-middle">Appts</th>
-                  <th className="text-right px-3 align-middle">Lead %</th>
-                  <th className="text-right px-3 align-middle">Cost/Appt</th>
                   <th className="text-right px-3 align-middle">Dials</th>
-                  <th className="text-right px-3 align-middle">Dial %</th>
+                  <th className="text-right px-3 align-middle">Appts</th>
+                  <th className="text-right px-3 align-middle">Cost/Appt</th>
                   <th className="text-right px-3 align-middle">Closed</th>
                   <th className="text-right px-3 align-middle">Revenue</th>
                 </tr>
