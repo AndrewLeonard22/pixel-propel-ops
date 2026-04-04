@@ -25,8 +25,7 @@ const App = () => (
           <AppLayout>
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/accounts" element={<Accounts />} />
-              <Route path="/campaigns" element={<Campaigns />} />
+              <Route path="/targets" element={<Targets />} />
               <Route path="/team" element={<TeamPerformance />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<NotFound />} />

@@ -4,8 +4,7 @@ import { useState } from 'react';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: Home },
-  { label: 'Accounts', path: '/accounts', icon: Users },
-  { label: 'Campaigns', path: '/campaigns', icon: BarChart2 },
+  { label: 'Targets', path: '/targets', icon: Target },
   { label: 'Team Performance', path: '/team', icon: TrendingUp },
 ];
 
