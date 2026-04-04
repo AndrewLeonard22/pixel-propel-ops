@@ -228,8 +228,148 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
     </>
   );
 }
+function UnmatchedSection({
+  appointments,
+  accounts,
+  settings,
+  setSettings,
+  refresh,
+  assignedClients,
+  setAssignedClients,
+  recentlyAssigned,
+  setRecentlyAssigned,
+}: {
+  appointments: AppointmentRow[];
+  accounts: AccountSummary[];
+  settings: any;
+  setSettings: (s: any) => void;
+  refresh: (s?: any) => Promise<void>;
+  assignedClients: Set<string>;
+  setAssignedClients: React.Dispatch<React.SetStateAction<Set<string>>>;
+  recentlyAssigned: Set<string>;
+  setRecentlyAssigned: React.Dispatch<React.SetStateAction<Set<string>>>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [assigning, setAssigning] = useState<string | null>(null);
 
-export default function Dashboard() {
+  const visibleAppts = appointments.filter(a => !assignedClients.has(a.client?.trim().toLowerCase() || ''));
+
+  const handleAssign = useCallback(async (appt: AppointmentRow, accountName: string) => {
+    const clientKey = appt.client?.trim().toLowerCase() || '';
+    setAssigning(clientKey);
+    try {
+      const existingAliases = settings.accountAliases || [];
+      const alreadyExists = existingAliases.some(
+        (a: any) => a.airtableName?.trim().toLowerCase() === clientKey
+      );
+      if (!alreadyExists) {
+        const newAlias = {
+          sheetName: accountName,
+          airtableName: appt.client?.trim() || '',
+          program: 'Done For You' as const,
+          mediaBuyer: '',
+          status: 'Active' as const,
+        };
+        const updatedAliases = [...existingAliases, newAlias];
+        const updatedSettings = { ...settings, accountAliases: updatedAliases };
+        setSettings(updatedSettings);
+        await Promise.all([
+          saveSettings(updatedSettings),
+          saveAccountMappings(updatedAliases),
+        ]);
+      }
+      setRecentlyAssigned(prev => new Set(prev).add(clientKey));
+      setTimeout(() => {
+        setAssignedClients(prev => new Set(prev).add(clientKey));
+        setRecentlyAssigned(prev => {
+          const next = new Set(prev);
+          next.delete(clientKey);
+          return next;
+        });
+      }, 1500);
+      await refresh();
+    } finally {
+      setAssigning(null);
+    }
+  }, [settings, setSettings, refresh, setAssignedClients, setRecentlyAssigned]);
+
+  if (visibleAppts.length === 0) return null;
+
+  // Deduplicate by client name for display
+  const uniqueByClient = new Map<string, AppointmentRow>();
+  for (const a of visibleAppts) {
+    const key = a.client?.trim().toLowerCase() || a.campaignName || '';
+    if (!uniqueByClient.has(key)) uniqueByClient.set(key, a);
+  }
+  const displayAppts = Array.from(uniqueByClient.values());
+
+  return (
+    <div className="rounded-lg border border-border bg-card overflow-hidden" style={{ borderLeftWidth: '4px', borderLeftColor: 'hsl(var(--warning, 45 93% 47%))' }}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
+      >
+        {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        <AlertTriangle className="w-4 h-4 text-yellow-500" />
+        <span>{visibleAppts.length} Unmatched Appointment{visibleAppts.length !== 1 ? 's' : ''}</span>
+        <span className="text-muted-foreground font-normal ml-1">({displayAppts.length} unique client{displayAppts.length !== 1 ? 's' : ''})</span>
+      </button>
+      {open && (
+        <div className="border-t border-border overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '36px' }}>
+                <th className="text-left pl-4 align-middle">Client Name</th>
+                <th className="text-left px-3 align-middle">Lead Name</th>
+                <th className="text-left px-3 align-middle">Date Added</th>
+                <th className="text-left px-3 align-middle">Campaign</th>
+                <th className="text-left px-3 align-middle" style={{ width: '200px' }}>Assign to Account</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayAppts.map((appt, i) => {
+                const clientKey = appt.client?.trim().toLowerCase() || '';
+                const isAssigning = assigning === clientKey;
+                const justAssigned = recentlyAssigned.has(clientKey);
+                return (
+                  <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
+                    <td className="pl-4 py-2 font-medium">{appt.client || '—'}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{appt.setter || '—'}</td>
+                    <td className="px-3 py-2 text-muted-foreground font-mono-tabular">{formatDate(appt.dateAdded || appt.appointmentDate)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{appt.campaignName || '—'}</td>
+                    <td className="px-3 py-2">
+                      {justAssigned ? (
+                        <span className="inline-flex items-center gap-1 text-green-600 text-xs font-medium">
+                          <Check className="w-3.5 h-3.5" /> Mapped!
+                        </span>
+                      ) : (
+                        <select
+                          disabled={isAssigning}
+                          defaultValue=""
+                          onChange={e => {
+                            if (e.target.value) handleAssign(appt, e.target.value);
+                          }}
+                          className="px-2 py-1 text-xs rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring/30 w-full disabled:opacity-50"
+                        >
+                          <option value="" disabled>Select account…</option>
+                          {accounts.map(a => (
+                            <option key={a.accountName} value={a.accountName}>{a.accountName}</option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
   const { accounts, adSpend, appointments, unmatchedAppointments, settings, loading, error, configured, refresh, setSettings } = useData();
   const [assignedClients, setAssignedClients] = useState<Set<string>>(new Set());
   const [recentlyAssigned, setRecentlyAssigned] = useState<Set<string>>(new Set());
