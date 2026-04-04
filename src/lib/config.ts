@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { AppSettings } from './types';
+import type { AppSettings, AccountMapping } from './types';
 
 const SETTINGS_KEY = 'socialworks_settings';
 const ACCOUNT_MAPPINGS_KEY = 'accountMappings';
@@ -162,8 +162,17 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 }
 
 /** Synchronous load account mappings from localStorage */
-export function loadAccountMappings(): any[] {
-  return loadAccountMappingsFromLocal();
+export function loadAccountMappings(): AccountMapping[] {
+  return loadAccountMappingsFromLocal() as AccountMapping[];
+}
+
+/** Look up program and status for a given account name */
+export function getAccountMapping(accountName: string, mappings: AccountMapping[]): { program: string; status: string } {
+  const match = mappings.find(m => m.sheetName.trim().toLowerCase() === accountName.trim().toLowerCase());
+  return {
+    program: match?.program || 'Done For You',
+    status: match?.status || 'Active',
+  };
 }
 
 /** Async load account mappings: DB first, localStorage fallback */

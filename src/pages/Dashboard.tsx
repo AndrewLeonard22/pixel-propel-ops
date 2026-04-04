@@ -5,36 +5,12 @@ import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton'
 import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
 import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries } from '@/lib/dataService';
-import { saveSettings, saveAccountMappings } from '@/lib/config';
+import { saveSettings, saveAccountMappings, loadAccountMappings, getAccountMapping } from '@/lib/config';
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check, X } from 'lucide-react';
-import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow } from '@/lib/types';
+import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow, AccountMapping } from '@/lib/types';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
-
-interface AccountMapping {
-  sheetName: string;
-  airtableName: string;
-  program: 'Done For You' | 'Done With You' | 'Other';
-  status: 'Active' | 'Paused' | 'Churned';
-}
-
-function loadAccountMappings(): AccountMapping[] {
-  try {
-    const stored = localStorage.getItem('accountMappings');
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function getAccountMapping(accountName: string, mappings: AccountMapping[]): { program: string; status: string } {
-  const match = mappings.find(m => m.sheetName.trim().toLowerCase() === accountName.trim().toLowerCase());
-  return {
-    program: match?.program || 'Done For You',
-    status: match?.status || 'Active',
-  };
-}
 
 interface AccountGroup {
   label: string;

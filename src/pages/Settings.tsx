@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
 import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData } from '@/lib/dataService';
-import type { AppSettings } from '@/lib/types';
+import type { AppSettings, AccountMapping } from '@/lib/types';
 import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 const REQUIRED_MAPPINGS = [
@@ -10,14 +10,6 @@ const REQUIRED_MAPPINGS = [
   'Ad Name', 'Ad ID', 'Appointment Date', 'Show Status', 'Lead Valid',
   'Closed Revenue', 'Amount Charged', 'Project Value',
 ];
-
-interface AccountMapping {
-  sheetName: string;
-  airtableName: string;
-  program: 'Done For You' | 'Done With You' | 'Other';
-  mediaBuyer: string;
-  status: 'Active' | 'Paused' | 'Churned';
-}
 
 export default function SettingsPage() {
   const { settings, setSettings, adSpend, refresh } = useData();

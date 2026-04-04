@@ -2,30 +2,8 @@ import { useMemo } from 'react';
 import { useData } from '@/hooks/useData';
 import { ConfigBanner } from '@/components/common/Banners';
 import { formatCurrency, formatPercent } from '@/lib/dataService';
-
-interface AccountMapping {
-  sheetName: string;
-  airtableName: string;
-  program: 'Done For You' | 'Done With You' | 'Other';
-  status: 'Active' | 'Paused' | 'Churned';
-}
-
-function loadAccountMappings(): AccountMapping[] {
-  try {
-    const stored = localStorage.getItem('accountMappings');
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function getAccountMapping(accountName: string, mappings: AccountMapping[]): { program: string; status: string } {
-  const match = mappings.find(m => m.sheetName.trim().toLowerCase() === accountName.trim().toLowerCase());
-  return {
-    program: match?.program || 'Done For You',
-    status: match?.status || 'Active',
-  };
-}
+import { loadAccountMappings, getAccountMapping } from '@/lib/config';
+import type { AccountMapping } from '@/lib/types';
 
 function MetricBar({
   label, scope, value, displayValue, zones, scaleMax, description
