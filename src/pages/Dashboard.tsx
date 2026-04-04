@@ -355,7 +355,7 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '32px' }}>
-                      <th className="text-left pl-2 align-middle">Lead Name</th>
+                      <th className="text-left pl-2 align-middle">Setter</th>
                       <th className="text-left px-2 align-middle">Date</th>
                       <th className="text-left px-2 align-middle">Show Status</th>
                       <th className="text-left px-2 align-middle">Lead Valid</th>
@@ -365,7 +365,7 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                   <tbody>
                     {recentAppts.map((appt, i) => (
                       <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
-                        <td className="pl-2 py-1.5 text-foreground">{appt.client || '—'}</td>
+                        <td className="pl-2 py-1.5 text-foreground">{appt.setter || '—'}</td>
                         <td className="px-2 py-1.5 text-muted-foreground font-mono-tabular">{formatDate(appt.dateAdded || appt.appointmentDate)}</td>
                         <td className="px-2 py-1.5 text-muted-foreground">{appt.showStatus || '—'}</td>
                         <td className="px-2 py-1.5 text-muted-foreground">{appt.leadValid || '—'}</td>
