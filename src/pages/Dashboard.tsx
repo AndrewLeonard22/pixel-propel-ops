@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
 import { ConfigBanner, ErrorBanner } from '@/components/common/Banners';
 import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton';
