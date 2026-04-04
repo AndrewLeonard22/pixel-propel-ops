@@ -7,7 +7,7 @@ import PerformanceBadge from '@/components/common/PerformanceBadge';
 import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries } from '@/lib/dataService';
 import { saveSettings, saveAccountMappings } from '@/lib/config';
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check } from 'lucide-react';
-import type { AccountSummary, CampaignSummary, PerformanceLevel } from '@/lib/types';
+import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow } from '@/lib/types';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
