@@ -225,7 +225,9 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap"><CPLBadge value={as.cpl} /></td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.appointments)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatPercent(as.leadPercent)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.costPerAppt)}</td>
+           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.costPerAppt)}</td>
+          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
+          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.closed)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.revenue)}</td>
         </tr>
