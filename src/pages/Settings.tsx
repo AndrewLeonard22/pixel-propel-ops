@@ -148,6 +148,19 @@ useEffect(() => {
     }
   };
 
+  const testCallCenter = async () => {
+    setCallCenterStatus('loading');
+    setCallCenterError('');
+    try {
+      const data = await fetchCallCenterData(form);
+      setCallCenterCount(data.length);
+      setCallCenterStatus('success');
+    } catch (e: any) {
+      setCallCenterError(e.message || 'Failed to fetch call center data');
+      setCallCenterStatus('error');
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-3xl">
       <div className="flex items-center gap-3">
