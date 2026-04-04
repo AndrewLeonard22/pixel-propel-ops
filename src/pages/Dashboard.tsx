@@ -203,6 +203,8 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.appointments)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatPercent(campaign.leadPercent)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.costPerAppt)}</td>
+        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
+        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.revenue)}</td>
       </tr>
