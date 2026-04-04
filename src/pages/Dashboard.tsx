@@ -201,11 +201,9 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.spend)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.leads)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap"><CPLBadge value={campaign.cpl} /></td>
+        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.appointments)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatPercent(campaign.leadPercent)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.costPerAppt)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
+        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap"><CostPerApptBadge value={campaign.costPerAppt} /></td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.revenue)}</td>
       </tr>
@@ -224,11 +222,9 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.spend)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.leads)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap"><CPLBadge value={as.cpl} /></td>
+          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.appointments)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatPercent(as.leadPercent)}</td>
-           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.costPerAppt)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
+          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap"><CostPerApptBadge value={as.costPerAppt} /></td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.closed)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.revenue)}</td>
         </tr>
