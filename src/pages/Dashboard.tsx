@@ -321,18 +321,18 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                         {c.adSets.map((as, idx) => {
                           const asPerf = getPerfByProgram(program, as.cpl, as.costPerAppt, as.appointments);
                           return (
-                            <div key={as.adSetId || idx} className={`pl-4 pr-3 py-2 flex items-start justify-between gap-3 ${idx > 0 ? 'border-t border-border/50' : ''}`}>
+                            <div key={as.adSetId || idx} className={`pl-4 pr-3 py-2 ${idx > 0 ? 'border-t border-border/50' : ''}`}>
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className="text-xs text-foreground truncate">{as.adSetName}</span>
                                 {asPerf && <PerformanceBadge level={asPerf} />}
                                 <span className="text-[10px] text-muted-foreground">{as.adCount} ads</span>
                               </div>
-                              <div className="flex items-center gap-3 text-xs font-mono-tabular text-muted-foreground shrink-0">
-                                <span>{formatCurrency(as.spend)}</span>
-                                <span>{as.leads}L</span>
-                                <span><CPLBadge value={as.cpl} /></span>
-                                <span>{as.appointments}A</span>
-                                <span><CostPerApptBadge value={as.costPerAppt} /></span>
+                              <div className="flex flex-wrap gap-3 mt-1 pl-0">
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[11px] font-mono-tabular font-semibold">{formatCurrency(as.spend)}</span></span>
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.leads}</span></span>
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} /></span></span>
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.appointments}</span></span>
+                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} /></span></span>
                               </div>
                             </div>
                           );
