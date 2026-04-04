@@ -617,16 +617,14 @@ export default function Dashboard() {
               <colgroup>
                 <col style={{ width: '40px' }} />
                 <col />
-                <col style={{ width: '110px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '90px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '75px' }} />
                 <col style={{ width: '100px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '70px' }} />
-                <col style={{ width: '110px' }} />
+                <col style={{ width: '65px' }} />
+                <col style={{ width: '85px' }} />
+                <col style={{ width: '65px' }} />
+                <col style={{ width: '65px' }} />
+                <col style={{ width: '95px' }} />
+                <col style={{ width: '60px' }} />
+                <col style={{ width: '100px' }} />
               </colgroup>
               <thead className="sticky top-0 z-20 bg-background shadow-sm">
                 <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '40px' }}>
@@ -635,11 +633,9 @@ export default function Dashboard() {
                   <th className="text-right px-3 align-middle">Spend</th>
                   <th className="text-right px-3 align-middle">Leads</th>
                   <th className="text-right px-3 align-middle">CPL</th>
-                  <th className="text-right px-3 align-middle">Appts</th>
-                  <th className="text-right px-3 align-middle">Lead %</th>
-                  <th className="text-right px-3 align-middle">Cost/Appt</th>
                   <th className="text-right px-3 align-middle">Dials</th>
-                  <th className="text-right px-3 align-middle">Dial %</th>
+                  <th className="text-right px-3 align-middle">Appts</th>
+                  <th className="text-right px-3 align-middle">Cost/Appt</th>
                   <th className="text-right px-3 align-middle">Closed</th>
                   <th className="text-right px-3 align-middle">Revenue</th>
                 </tr>
