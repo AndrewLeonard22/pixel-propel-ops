@@ -1,11 +1,10 @@
-import { Home, Users, BarChart2, TrendingUp, Settings, Menu, X } from 'lucide-react';
+import { Home, TrendingUp, Target, Settings, Menu, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: Home },
-  { label: 'Accounts', path: '/accounts', icon: Users },
-  { label: 'Campaigns', path: '/campaigns', icon: BarChart2 },
+  { label: 'Targets', path: '/targets', icon: Target },
   { label: 'Team Performance', path: '/team', icon: TrendingUp },
 ];
 
