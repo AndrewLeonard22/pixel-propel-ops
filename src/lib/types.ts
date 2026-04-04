@@ -23,6 +23,7 @@ export interface AppSettings {
     poorCpl: number;
     poorLeadPercent: number;
   };
+  anthropicApiKey: string;
 }
 
 export interface AdSpendRow {

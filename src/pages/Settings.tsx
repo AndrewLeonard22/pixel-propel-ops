@@ -255,6 +255,27 @@ useEffect(() => {
         </div>
       </section>
 
+      {/* Section: AI Assistant */}
+      <section className="card-elevated p-6 space-y-4">
+        <h2 className="font-semibold text-base">AI Assistant</h2>
+        <div>
+          <label className="text-sm font-medium text-muted-foreground">Anthropic API Key</label>
+          <div className="relative mt-1">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={form.anthropicApiKey}
+              onChange={e => updateForm({ anthropicApiKey: e.target.value })}
+              placeholder="sk-ant-..."
+              className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 pr-10"
+            />
+            <button type="button" onClick={() => setShowToken(!showToken)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">Required for the AI chat assistant. Get your key at console.anthropic.com</p>
+        </div>
+      </section>
+
       {/* Section 2: Airtable */}
       <section className="card-elevated p-6 space-y-4">
         <h2 className="font-semibold text-base">Airtable Connection</h2>
