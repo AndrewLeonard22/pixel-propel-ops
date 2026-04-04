@@ -49,7 +49,7 @@ function AccountSection({ group }: { group: AccountGroup }) {
   return (
     <>
       <tr>
-        <td colSpan={12} className="pt-4 pb-2">
+        <td colSpan={10} className="pt-4 pb-2">
           <button
             onClick={() => setOpen(!open)}
             className="flex items-center gap-2"
