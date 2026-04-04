@@ -100,21 +100,26 @@ function KPICard({ label, value, mono = true }: { label: string; value: string; 
 }
 
 function CPLBadge({ value }: { value: number }) {
-  const color = value < 25 ? 'text-success' : value <= 50 ? 'text-warning' : 'text-destructive';
+  const color = value === 0 ? 'text-muted-foreground' : value < 35 ? 'text-success' : value <= 55 ? 'text-warning' : 'text-destructive';
+  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
+}
+
+function CostPerApptBadge({ value }: { value: number }) {
+  const color = value === 0 ? 'text-muted-foreground' : value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
   return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
 }
 
 function getPerfByProgram(program: string, cpl: number, costPerAppt: number, appointments: number): PerformanceLevel | null {
   if (program === 'Done With You') {
     if (cpl === 0) return null;
-    if (cpl < 30) return 'good';
-    if (cpl <= 50) return 'fair';
+    if (cpl < 35) return 'good';
+    if (cpl <= 55) return 'fair';
     return 'poor';
   }
-  // Done For You (default)
+  // Done For You
   if (costPerAppt === 0 || appointments === 0) return null;
-  if (costPerAppt < 200) return 'good';
-  if (costPerAppt <= 350) return 'fair';
+  if (costPerAppt < 180) return 'good';
+  if (costPerAppt <= 240) return 'fair';
   return 'poor';
 }
 
