@@ -64,14 +64,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const [sheetData, airtableResult] = await Promise.all([
+      const [sheetData, airtableResult, callResult] = await Promise.all([
         fetchGoogleSheetData(s),
         fetchAirtableData(s),
+        fetchCallCenterData(s),
       ]);
       setAdSpend(sheetData);
       setAppointments(airtableResult.records);
       setAirtableFields(airtableResult.fields);
-      const result = buildAccountSummaries(sheetData, airtableResult.records, s);
+      setCallData(callResult);
+      const result = buildAccountSummaries(sheetData, airtableResult.records, s, callResult);
       setAccounts(result.accounts);
       setUnmatchedAppointments(result.unmatchedAppointments);
       setLastUpdated(new Date());
