@@ -369,8 +369,7 @@ function UnmatchedSection({
   );
 }
 
-
-  const { accounts, adSpend, appointments, unmatchedAppointments, settings, loading, error, configured, refresh, setSettings } = useData();
+export default function Dashboard() {
   const [assignedClients, setAssignedClients] = useState<Set<string>>(new Set());
   const [recentlyAssigned, setRecentlyAssigned] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
