@@ -9,6 +9,7 @@ interface DataContextType {
   adSpend: AdSpendRow[];
   appointments: AppointmentRow[];
   accounts: AccountSummary[];
+  unmatchedAppointments: AppointmentRow[];
   airtableFields: string[];
   loading: boolean;
   error: string | null;
