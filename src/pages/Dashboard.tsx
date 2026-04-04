@@ -206,7 +206,7 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
 
         <div className="p-6 space-y-6">
           {/* Section 1 — KPI Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-2.5">
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Spend</p>
               <p className="text-lg font-bold font-mono-tabular text-foreground">{formatCurrency(account.spend)}</p>
@@ -220,70 +220,79 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
               <p className="text-lg font-bold font-mono-tabular"><CostPerApptBadge value={account.costPerAppt} /></p>
             </div>
             <div className="card-elevated p-3">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Lead-to-Appt</p>
-              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatPercent(leadToAppt)}</p>
-            </div>
-            <div className="card-elevated p-3">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Dials/Lead</p>
-              <p className="text-lg font-bold font-mono-tabular text-foreground">{dialsPerLead}</p>
-            </div>
-            <div className="card-elevated p-3">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Show Rate</p>
-              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatPercent(showRate)}</p>
-            </div>
-            <div className="card-elevated p-3">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Close Rate</p>
-              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatPercent(closeRate)}</p>
-            </div>
-            <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Revenue</p>
               <p className="text-lg font-bold font-mono-tabular text-foreground">{formatCurrency(account.revenue)}</p>
             </div>
           </div>
 
-          {/* Dial Activity Callout */}
+          {/* Dial Activity */}
           {account.totalDials > 0 && (
-            <div className="bg-muted/30 rounded-lg px-4 py-2.5 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dial Activity</span>
-              <span className="text-sm font-mono-tabular text-foreground">
-                {formatNumber(account.totalDials)} dials · {dialsPerLeadFunnel} per lead · {dialBookingRate}% booking rate
-              </span>
+            <div className="border border-border rounded-lg px-4 py-3 flex items-center gap-5">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-violet-500" />
+                <span className="text-xs font-semibold text-foreground">Dial activity</span>
+              </div>
+              <div className="flex gap-4 text-sm font-mono-tabular">
+                <span><span className="font-semibold text-foreground">{formatNumber(account.totalDials)}</span> <span className="text-[11px] text-muted-foreground font-sans">dials</span></span>
+                <span><span className="font-semibold text-foreground">{dialsPerLeadFunnel}</span> <span className="text-[11px] text-muted-foreground font-sans">per lead</span></span>
+                <span><span className="font-semibold text-foreground">{dialBookingRate}%</span> <span className="text-[11px] text-muted-foreground font-sans">booking rate</span></span>
+              </div>
             </div>
           )}
 
-          {/* Section 2 — Funnel Visualization */}
+          {/* Section 2 — Conversion Funnel */}
           <div>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Conversion Funnel</h3>
-            {leadsValue === 0 ? (
+            <h3 className="text-sm font-semibold text-foreground mb-3">Conversion funnel</h3>
+            {account.leads === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">No lead data</p>
             ) : (
-              <div className="max-w-[500px] mx-auto">
-                <div className="flex flex-col gap-0.5">
-                  {funnelStages.map((stage, i) => {
-                    const widthPct = leadsValue > 0 ? Math.max((stage.value / leadsValue) * 100, stage.value > 0 ? 8 : 0) : 0;
-                    const nextStage = funnelStages[i + 1];
-                    let conversionLabel: string | null = null;
-                    if (nextStage && stage.value > 0) {
-                      conversionLabel = `${((nextStage.value / stage.value) * 100).toFixed(1)}% →`;
-                    } else if (nextStage && stage.value === 0) {
-                      conversionLabel = '—';
-                    }
-                    const textColor = stage.textDark ? 'text-white' : 'text-indigo-900';
-                    return (
-                      <div key={stage.label}>
-                        <div
-                          className={`${stage.barClass} h-9 rounded-lg mx-auto relative flex items-center justify-between px-3 transition-all duration-500`}
-                          style={{ width: `${widthPct}%` }}
-                        >
-                          <span className={`text-xs font-medium ${textColor} relative z-10`}>{stage.label}</span>
-                          <span className={`text-sm font-mono-tabular font-bold ${textColor} relative z-10`}>{formatNumber(stage.value)}</span>
-                        </div>
-                        {conversionLabel && i < funnelStages.length - 1 && (
-                          <p className="text-[10px] text-muted-foreground text-center py-0.5">{conversionLabel}</p>
-                        )}
-                      </div>
-                    );
-                  })}
+              <div className="flex flex-col gap-1">
+                {/* Leads */}
+                <div className="flex items-center gap-2.5">
+                  <span className="w-[90px] text-xs text-muted-foreground text-right">Leads</span>
+                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
+                    <div className="h-full rounded-md bg-indigo-400" style={{ width: '100%' }} />
+                  </div>
+                  <span className="w-10 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.leads)}</span>
+                </div>
+                {/* Lead to Appt conversion */}
+                <div className="flex items-center gap-1.5 ml-[100px]">
+                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(leadToAppt)}</span>
+                  <span className="text-[11px] text-muted-foreground">converted to appointments</span>
+                </div>
+                {/* Appointments */}
+                <div className="flex items-center gap-2.5">
+                  <span className="w-[90px] text-xs text-muted-foreground text-right">Appointments</span>
+                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
+                    <div className="h-full rounded-md bg-amber-400" style={{ width: `${Math.max(account.leads > 0 ? (account.appointments / account.leads) * 100 : 0, account.appointments > 0 ? 3 : 0)}%` }} />
+                  </div>
+                  <span className="w-10 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.appointments)}</span>
+                </div>
+                {/* Show rate */}
+                <div className="flex items-center gap-1.5 ml-[100px]">
+                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(account.appointments > 0 ? (showedCount / account.appointments) * 100 : 0)}</span>
+                  <span className="text-[11px] text-muted-foreground">showed up</span>
+                </div>
+                {/* Showed */}
+                <div className="flex items-center gap-2.5">
+                  <span className="w-[90px] text-xs text-muted-foreground text-right">Showed</span>
+                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
+                    <div className="h-full rounded-md bg-emerald-400" style={{ width: `${Math.max(account.leads > 0 ? (showedCount / account.leads) * 100 : 0, showedCount > 0 ? 3 : 0)}%` }} />
+                  </div>
+                  <span className="w-10 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(showedCount)}</span>
+                </div>
+                {/* Close rate */}
+                <div className="flex items-center gap-1.5 ml-[100px]">
+                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(showedCount > 0 ? (account.closed / showedCount) * 100 : 0)}</span>
+                  <span className="text-[11px] text-muted-foreground">closed won</span>
+                </div>
+                {/* Closed */}
+                <div className="flex items-center gap-2.5">
+                  <span className="w-[90px] text-xs text-muted-foreground text-right">Closed</span>
+                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
+                    <div className="h-full rounded-md bg-emerald-600" style={{ width: `${Math.max(account.leads > 0 ? (account.closed / account.leads) * 100 : 0, account.closed > 0 ? 3 : 0)}%` }} />
+                  </div>
+                  <span className="w-10 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.closed)}</span>
                 </div>
               </div>
             )}
