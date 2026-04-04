@@ -79,6 +79,27 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
   }));
 }
 
+export async function fetchCallCenterData(settings: AppSettings): Promise<CallRow[]> {
+  if (!settings.callCenterSheetUrl) return [];
+  try {
+    const csvUrl = convertSheetUrlToCsv(settings.callCenterSheetUrl, settings.callCenterSheetTab);
+    if (!csvUrl) return [];
+    const response = await fetch(csvUrl);
+    if (!response.ok) return [];
+    const text = await response.text();
+    const rows = parseCsv(text);
+    return rows.map(r => ({
+      timestamp: r['Timestamp'] || '',
+      ghlLocationName: r['ghl_location_name'] || '',
+      agentName: r['Agent Name'] || '',
+      callDuration: parseNumber(r['Call Duration']),
+      callDisposition: r['call_dispostion'] || r['call_disposition'] || '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[] }> {
   const { airtableBaseId, airtableTableName, airtableToken, columnMappings } = settings;
   
