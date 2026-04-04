@@ -623,6 +623,8 @@ export default function Dashboard() {
                 <col style={{ width: '75px' }} />
                 <col style={{ width: '100px' }} />
                 <col style={{ width: '70px' }} />
+                <col style={{ width: '70px' }} />
+                <col style={{ width: '70px' }} />
                 <col style={{ width: '110px' }} />
               </colgroup>
               <thead className="sticky top-0 z-20 bg-background shadow-sm">
@@ -635,6 +637,8 @@ export default function Dashboard() {
                   <th className="text-right px-3 align-middle">Appts</th>
                   <th className="text-right px-3 align-middle">Lead %</th>
                   <th className="text-right px-3 align-middle">Cost/Appt</th>
+                  <th className="text-right px-3 align-middle">Dials</th>
+                  <th className="text-right px-3 align-middle">Dial %</th>
                   <th className="text-right px-3 align-middle">Closed</th>
                   <th className="text-right px-3 align-middle">Revenue</th>
                 </tr>
