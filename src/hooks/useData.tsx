@@ -11,6 +11,7 @@ interface DataContextType {
   accounts: AccountSummary[];
   unmatchedAppointments: AppointmentRow[];
   airtableFields: string[];
+  callData: CallRow[];
   loading: boolean;
   error: string | null;
   lastUpdated: Date | null;
@@ -26,6 +27,7 @@ const defaultDataContext: DataContextType = {
   accounts: [],
   unmatchedAppointments: [],
   airtableFields: [],
+  callData: [],
   loading: false,
   error: null,
   lastUpdated: null,
