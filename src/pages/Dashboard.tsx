@@ -415,7 +415,7 @@ export default function Dashboard() {
 
     const filteredSpend = adSpend.filter(row => {
       const d = parseDateSafe(row.date);
-      if (!d) return false; // exclude rows with unparseable dates when filtering by date
+      if (!d) return false;
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
@@ -423,14 +423,22 @@ export default function Dashboard() {
 
     const filteredAppts = appointments.filter(row => {
       const d = parseDateSafe(row.dateAdded || row.appointmentDate);
-      if (!d) return false; // exclude rows with unparseable dates when filtering by date
+      if (!d) return false;
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
     });
 
-    return buildAccountSummaries(filteredSpend, filteredAppts, settings).accounts;
-  }, [accounts, adSpend, appointments, settings, dateRange]);
+    const filteredCalls = callData.filter(row => {
+      const d = parseDateSafe(row.timestamp);
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+
+    return buildAccountSummaries(filteredSpend, filteredAppts, settings, filteredCalls).accounts;
+  }, [accounts, adSpend, appointments, callData, settings, dateRange]);
 
   const filteredAccounts = useMemo(() => {
     return dateFilteredAccounts.filter(a => {
