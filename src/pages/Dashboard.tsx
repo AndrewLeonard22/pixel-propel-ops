@@ -163,26 +163,18 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
     return next;
   });
 
-  // Build funnel stages
-  const hasDials = account.totalDials > 0;
-  const funnelStages: { label: string; value: number; color: string }[] = [];
-  if (hasDials) {
-    funnelStages.push(
-      { label: 'Leads', value: account.leads, color: FUNNEL_COLORS[0] },
-      { label: 'Dials', value: account.totalDials, color: FUNNEL_COLORS[1] },
-      { label: 'Appointments', value: account.appointments, color: FUNNEL_COLORS[2] },
-      { label: 'Showed', value: showedCount, color: FUNNEL_COLORS[3] },
-      { label: 'Closed', value: account.closed, color: FUNNEL_COLORS[4] },
-    );
-  } else {
-    funnelStages.push(
-      { label: 'Leads', value: account.leads, color: FUNNEL_COLORS[0] },
-      { label: 'Appointments', value: account.appointments, color: FUNNEL_COLORS[2] },
-      { label: 'Showed', value: showedCount, color: FUNNEL_COLORS[3] },
-      { label: 'Closed', value: account.closed, color: FUNNEL_COLORS[4] },
-    );
-  }
-  const maxFunnel = Math.max(...funnelStages.map(s => s.value), 1);
+  // Dial activity stats (separate from funnel)
+  const dialBookingRate = account.totalDials > 0 ? ((account.appointments / account.totalDials) * 100).toFixed(1) : '—';
+  const dialsPerLeadFunnel = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '—';
+
+  // Build funnel stages (no Dials — it's a parallel activity, not a funnel stage)
+  const funnelStages = [
+    { label: 'Leads', value: account.leads, barClass: 'bg-indigo-100', textDark: false },
+    { label: 'Appointments', value: account.appointments, barClass: 'bg-indigo-300', textDark: false },
+    { label: 'Showed', value: showedCount, barClass: 'bg-indigo-500', textDark: true },
+    { label: 'Closed', value: account.closed, barClass: 'bg-emerald-500', textDark: true },
+  ];
+  const leadsValue = account.leads;
 
   // Recent appointments sorted by dateAdded desc
   const recentAppts = [...account.appointmentList]
