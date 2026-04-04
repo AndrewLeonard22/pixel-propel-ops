@@ -134,6 +134,7 @@ function AccountRow({ account }: { account: AccountSummary }) {
       <tr
         onClick={() => setExpanded(!expanded)}
         className="cursor-pointer hover:bg-accent/30 transition-colors"
+        style={perf ? { borderLeft: `3px solid hsl(var(--${perf === 'good' ? 'success' : perf === 'fair' ? 'warning' : 'destructive'}))` } : undefined}
       >
         <td className="px-2 py-3 text-center text-muted-foreground">
           {expanded ? <ChevronDown className="w-4 h-4 inline" /> : <ChevronRight className="w-4 h-4 inline" />}
@@ -143,33 +144,28 @@ function AccountRow({ account }: { account: AccountSummary }) {
             <span className="font-semibold text-sm truncate">{account.accountName}</span>
             <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
             {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
-            {perf ? <PerformanceBadge level={perf} /> : null}
           </div>
         </td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.spend)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.leads)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CPLBadge value={account.cpl} /></td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatPercent(account.leadPercent)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.costPerAppt)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.totalDials)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatPercent(account.dialToApptPercent)}</td>
+        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
+        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} /></td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.revenue)}</td>
       </tr>
       {expanded && (
         <>
           <tr className="bg-muted/30 border-t border-border/40">
-           <td className="w-10" />
+            <td className="w-10" />
             <td className="py-1.5 pl-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Campaign</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Leads</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPL</td>
+            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Appts</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lead %</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cost/A</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Closed</td>
             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Revenue</td>
           </tr>
