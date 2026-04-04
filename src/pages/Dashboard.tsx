@@ -6,7 +6,7 @@ import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
 import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries } from '@/lib/dataService';
 import { saveSettings, saveAccountMappings } from '@/lib/config';
-import { ChevronDown, ChevronRight, Search, AlertTriangle, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search, AlertTriangle, Check, X } from 'lucide-react';
 import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow } from '@/lib/types';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
@@ -42,28 +42,21 @@ interface AccountGroup {
   defaultOpen: boolean;
 }
 
-function AccountSection({ group }: { group: AccountGroup }) {
-  const [open, setOpen] = useState(group.defaultOpen);
+function AccountSection({ group, onSelect }: { group: AccountGroup; onSelect: (account: AccountSummary) => void }) {
   if (group.accounts.length === 0) return null;
 
   return (
     <>
       <tr>
-        <td colSpan={10} className="pt-4 pb-2">
-          <button
-            onClick={() => setOpen(!open)}
-            className="flex items-center gap-2"
-          >
-            <span className="text-muted-foreground">
-              {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </span>
+        <td colSpan={9} className="pt-4 pb-2">
+          <div className="flex items-center gap-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</span>
             <span className="text-xs px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">{group.accounts.length}</span>
-          </button>
+          </div>
         </td>
       </tr>
-      {open && group.accounts.map(a => (
-        <AccountRow key={a.accountName} account={a} />
+      {group.accounts.map(a => (
+        <AccountRow key={a.accountName} account={a} onSelect={onSelect} />
       ))}
     </>
   );
@@ -71,22 +64,14 @@ function AccountSection({ group }: { group: AccountGroup }) {
 
 function parseDateSafe(dateStr: string): Date | null {
   if (!dateStr) return null;
-  
-  // Normalize Airtable cellFormat=string times: "3/18/2026 10:05am" → "3/18/2026 10:05 AM"
-  // JS Date needs space before AM/PM in some engines
   const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
-  
   let d = new Date(normalized);
   if (!isNaN(d.getTime())) return d;
-  
-  // Fallback: strip time portion entirely for date-only comparison
-  // Matches patterns like " 8:30 AM", " 2:00pm", " 10:05am"
   const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
   if (dateOnly && dateOnly !== dateStr) {
     d = new Date(dateOnly);
     if (!isNaN(d.getTime())) return d;
   }
-  
   return null;
 }
 
@@ -116,123 +101,244 @@ function getPerfByProgram(program: string, cpl: number, costPerAppt: number, app
     if (cpl <= 55) return 'fair';
     return 'poor';
   }
-  // Done For You
   if (costPerAppt === 0 || appointments === 0) return null;
   if (costPerAppt < 180) return 'good';
   if (costPerAppt <= 240) return 'fair';
   return 'poor';
 }
 
-function AccountRow({ account }: { account: AccountSummary }) {
-  const [expanded, setExpanded] = useState(false);
+function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: (account: AccountSummary) => void }) {
   const mappings = loadAccountMappings();
   const { program, status } = getAccountMapping(account.accountName, mappings);
   const perf = (status === 'Paused' || status === 'Churned') ? null : getPerfByProgram(program, account.cpl, account.costPerAppt, account.appointments);
 
   return (
-    <>
-      <tr
-        onClick={() => setExpanded(!expanded)}
-        className="cursor-pointer hover:bg-accent/30 transition-colors"
-        style={perf ? { borderLeft: `3px solid hsl(var(--${perf === 'good' ? 'success' : perf === 'fair' ? 'warning' : 'destructive'}))` } : undefined}
-      >
-        <td className="px-2 py-3 text-center text-muted-foreground">
-          {expanded ? <ChevronDown className="w-4 h-4 inline" /> : <ChevronRight className="w-4 h-4 inline" />}
-        </td>
-        <td className="py-3 pl-2 pr-3">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm truncate">{account.accountName}</span>
-            <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
-            {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
-          </div>
-        </td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.spend)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.leads)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CPLBadge value={account.cpl} /></td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.totalDials)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} /></td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.closed)}</td>
-        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.revenue)}</td>
-      </tr>
-      {expanded && (
-        <>
-          <tr className="bg-muted/30 border-t border-border/40">
-            <td className="w-10" />
-            <td className="py-1.5 pl-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Campaign</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Leads</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPL</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Appts</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cost/A</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Closed</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Revenue</td>
-          </tr>
-          {account.campaigns.map(c => (
-            <CampaignRow key={c.campaignId} campaign={c} program={program} />
-          ))}
-        </>
-      )}
-    </>
+    <tr
+      onClick={() => onSelect(account)}
+      className="cursor-pointer hover:bg-accent/30 transition-colors"
+      style={perf ? { borderLeft: `3px solid hsl(var(--${perf === 'good' ? 'success' : perf === 'fair' ? 'warning' : 'destructive'}))` } : undefined}
+    >
+      <td className="py-3 pl-3 pr-3">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-sm truncate">{account.accountName}</span>
+          <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
+          {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
+        </div>
+      </td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.spend)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.leads)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CPLBadge value={account.cpl} /></td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.totalDials)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} /></td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.closed)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.revenue)}</td>
+    </tr>
   );
 }
 
-function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const perf = getPerfByProgram(program, campaign.cpl, campaign.costPerAppt, campaign.appointments);
+// === Account Detail Panel (slide-over) ===
+
+const FUNNEL_COLORS = ['#6366f1', '#8b5cf6', '#f59e0b', '#10b981', '#22c55e'];
+const FUNNEL_LABELS_FULL = ['Leads', 'Dials', 'Appointments', 'Showed', 'Closed'];
+
+function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onClose: () => void }) {
+  const mappings = loadAccountMappings();
+  const { program } = getAccountMapping(account.accountName, mappings);
+
+  const showedCount = account.appointmentList.filter(a => {
+    const s = (a.showStatus || '').toLowerCase();
+    return s === 'showed' || s === 'show';
+  }).length;
+
+  const leadToAppt = account.leads > 0 && account.appointments > 0 ? (account.appointments / account.leads) * 100 : 0;
+  const dialsPerLead = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '0';
+  const showRate = account.appointmentList.length > 0 ? (showedCount / account.appointmentList.length) * 100 : 0;
+  const closeRate = account.appointmentList.length > 0 ? (account.closed / account.appointmentList.length) * 100 : 0;
+
+  // Build funnel stages
+  const hasDials = account.totalDials > 0;
+  const funnelStages: { label: string; value: number; color: string }[] = [];
+  if (hasDials) {
+    funnelStages.push(
+      { label: 'Leads', value: account.leads, color: FUNNEL_COLORS[0] },
+      { label: 'Dials', value: account.totalDials, color: FUNNEL_COLORS[1] },
+      { label: 'Appointments', value: account.appointments, color: FUNNEL_COLORS[2] },
+      { label: 'Showed', value: showedCount, color: FUNNEL_COLORS[3] },
+      { label: 'Closed', value: account.closed, color: FUNNEL_COLORS[4] },
+    );
+  } else {
+    funnelStages.push(
+      { label: 'Leads', value: account.leads, color: FUNNEL_COLORS[0] },
+      { label: 'Appointments', value: account.appointments, color: FUNNEL_COLORS[2] },
+      { label: 'Showed', value: showedCount, color: FUNNEL_COLORS[3] },
+      { label: 'Closed', value: account.closed, color: FUNNEL_COLORS[4] },
+    );
+  }
+  const maxFunnel = Math.max(...funnelStages.map(s => s.value), 1);
+
+  // Recent appointments sorted by dateAdded desc
+  const recentAppts = [...account.appointmentList]
+    .sort((a, b) => {
+      const da = parseDateSafe(a.dateAdded || a.appointmentDate);
+      const db = parseDateSafe(b.dateAdded || b.appointmentDate);
+      return (db?.getTime() || 0) - (da?.getTime() || 0);
+    })
+    .slice(0, 30);
 
   return (
-    <>
-      <tr
-        onClick={() => setExpanded(!expanded)}
-        className="cursor-pointer hover:bg-accent/30 transition-colors bg-accent/20 border-t"
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black/40" />
+      {/* Panel */}
+      <div
+        className="relative w-full max-w-2xl bg-card border-l shadow-xl overflow-y-auto animate-in slide-in-from-right duration-300"
+        onClick={e => e.stopPropagation()}
       >
-        <td className="px-2 py-2.5 text-center text-muted-foreground">
-          {expanded ? <ChevronDown className="w-3.5 h-3.5 inline" /> : <ChevronRight className="w-3.5 h-3.5 inline" />}
-        </td>
-        <td className="py-2.5 pl-6 pr-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm truncate">{campaign.campaignName}</span>
-            {perf ? <PerformanceBadge level={perf} /> : null}
-            <span className="text-xs text-muted-foreground">{campaign.adSets.length} ad sets</span>
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-card border-b px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">{account.accountName}</h2>
+            {account.mediaBuyer && <p className="text-xs text-muted-foreground">{account.mediaBuyer}</p>}
           </div>
-        </td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.spend)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.leads)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap"><CPLBadge value={campaign.cpl} /></td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.appointments)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap"><CostPerApptBadge value={campaign.costPerAppt} /></td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.closed)}</td>
-        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.revenue)}</td>
-      </tr>
-      {expanded && campaign.adSets.map(as => {
-        const asPerf = getPerfByProgram(program, as.cpl, as.costPerAppt, as.appointments);
-        return (
-        <tr key={as.adSetId} className="bg-accent/10 border-t border-border/50">
-          <td />
-          <td className="py-2 pl-10 pr-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs truncate text-muted-foreground">{as.adSetName}</span>
-              {asPerf ? <PerformanceBadge level={asPerf} /> : null}
-              <span className="text-xs text-muted-foreground">{as.adCount} ads</span>
+          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted transition-colors">
+            <X className="w-5 h-5 text-muted-foreground" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Section 1 — KPI Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="card-elevated p-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Spend</p>
+              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatCurrency(account.spend)}</p>
             </div>
-          </td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.spend)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.leads)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap"><CPLBadge value={as.cpl} /></td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.appointments)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap"><CostPerApptBadge value={as.costPerAppt} /></td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.closed)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.revenue)}</td>
-        </tr>
-        );
-      })}
-    </>
+            <div className="card-elevated p-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">CPL</p>
+              <p className="text-lg font-bold font-mono-tabular"><CPLBadge value={account.cpl} /></p>
+            </div>
+            <div className="card-elevated p-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Cost/Appt</p>
+              <p className="text-lg font-bold font-mono-tabular"><CostPerApptBadge value={account.costPerAppt} /></p>
+            </div>
+            <div className="card-elevated p-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Lead-to-Appt</p>
+              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatPercent(leadToAppt)}</p>
+            </div>
+            <div className="card-elevated p-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Dials/Lead</p>
+              <p className="text-lg font-bold font-mono-tabular text-foreground">{dialsPerLead}</p>
+            </div>
+            <div className="card-elevated p-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Show Rate</p>
+              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatPercent(showRate)}</p>
+            </div>
+            <div className="card-elevated p-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Close Rate</p>
+              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatPercent(closeRate)}</p>
+            </div>
+            <div className="card-elevated p-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Revenue</p>
+              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatCurrency(account.revenue)}</p>
+            </div>
+          </div>
+
+          {/* Section 2 — Funnel Visualization */}
+          <div>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Conversion Funnel</h3>
+            <div className="space-y-2">
+              {funnelStages.map((stage, i) => {
+                const widthPct = maxFunnel > 0 ? (stage.value / maxFunnel) * 100 : 0;
+                const nextStage = funnelStages[i + 1];
+                const conversionPct = nextStage && stage.value > 0 ? ((nextStage.value / stage.value) * 100).toFixed(1) : null;
+                return (
+                  <div key={stage.label}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-medium text-foreground w-28 shrink-0">{stage.label}</span>
+                      <div className="flex-1 h-7 rounded-md bg-muted/30 relative overflow-hidden">
+                        <div
+                          className="h-full rounded-md transition-all duration-500"
+                          style={{ width: `${Math.max(widthPct, 0)}%`, backgroundColor: stage.color }}
+                        />
+                      </div>
+                      <span className="font-mono-tabular font-semibold text-sm text-foreground w-14 text-right">{formatNumber(stage.value)}</span>
+                    </div>
+                    {conversionPct && (
+                      <p className="text-[10px] text-muted-foreground ml-28 pl-3 mt-0.5">→ {conversionPct}% conversion</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Section 3 — Campaign Breakdown */}
+          <div>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Campaigns ({account.campaigns.length})</h3>
+            <div className="space-y-2">
+              {account.campaigns.map(c => {
+                const cPerf = getPerfByProgram(program, c.cpl, c.costPerAppt, c.appointments);
+                return (
+                  <div key={c.campaignId} className="card-elevated p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium truncate">{c.campaignName}</span>
+                        {cPerf && <PerformanceBadge level={cPerf} />}
+                      </div>
+                      <div className="flex items-center gap-4 text-xs font-mono-tabular text-muted-foreground shrink-0">
+                        <span>{formatCurrency(c.spend)}</span>
+                        <span>{c.leads}L</span>
+                        <span><CPLBadge value={c.cpl} /></span>
+                        <span>{c.appointments}A</span>
+                        <span><CostPerApptBadge value={c.costPerAppt} /></span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Section 4 — Recent Appointments */}
+          <div>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Appointments ({account.appointmentList.length})</h3>
+            {recentAppts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No appointments found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '32px' }}>
+                      <th className="text-left pl-2 align-middle">Lead Name</th>
+                      <th className="text-left px-2 align-middle">Date</th>
+                      <th className="text-left px-2 align-middle">Show Status</th>
+                      <th className="text-left px-2 align-middle">Lead Valid</th>
+                      <th className="text-right pr-2 align-middle">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentAppts.map((appt, i) => (
+                      <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
+                        <td className="pl-2 py-1.5 text-foreground">{appt.client || '—'}</td>
+                        <td className="px-2 py-1.5 text-muted-foreground font-mono-tabular">{formatDate(appt.dateAdded || appt.appointmentDate)}</td>
+                        <td className="px-2 py-1.5 text-muted-foreground">{appt.showStatus || '—'}</td>
+                        <td className="px-2 py-1.5 text-muted-foreground">{appt.leadValid || '—'}</td>
+                        <td className="pr-2 py-1.5 text-right font-mono-tabular">{formatCurrency(appt.closedRevenue || 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
+
+// === Unmatched Section (unchanged) ===
+
 function UnmatchedSection({
   appointments,
   accounts,
@@ -300,7 +406,6 @@ function UnmatchedSection({
 
   if (visibleAppts.length === 0) return null;
 
-  // Deduplicate by client name for display
   const uniqueByClient = new Map<string, AppointmentRow>();
   for (const a of visibleAppts) {
     const key = a.client?.trim().toLowerCase() || a.campaignName || '';
@@ -384,8 +489,8 @@ export default function Dashboard() {
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const [selectedAccount, setSelectedAccount] = useState<AccountSummary | null>(null);
 
-  // Compute date range
   const dateRange = useMemo(() => {
     const now = new Date();
     switch (datePreset) {
@@ -407,13 +512,10 @@ export default function Dashboard() {
     }
   }, [datePreset, customFrom, customTo]);
 
-  // Filter raw data by date range and rebuild summaries
   const dateFilteredAccounts = useMemo(() => {
     if (!dateRange.from && !dateRange.to) return accounts;
-
     const from = dateRange.from;
     const to = dateRange.to;
-
     const filteredSpend = adSpend.filter(row => {
       const d = parseDateSafe(row.date);
       if (!d) return false;
@@ -421,7 +523,6 @@ export default function Dashboard() {
       if (to && d > to) return false;
       return true;
     });
-
     const filteredAppts = appointments.filter(row => {
       const d = parseDateSafe(row.dateAdded || row.appointmentDate);
       if (!d) return false;
@@ -429,7 +530,6 @@ export default function Dashboard() {
       if (to && d > to) return false;
       return true;
     });
-
     const filteredCalls = callData.filter(row => {
       const d = parseDateSafe(row.timestamp);
       if (!d) return false;
@@ -437,7 +537,6 @@ export default function Dashboard() {
       if (to && d > to) return false;
       return true;
     });
-
     return buildAccountSummaries(filteredSpend, filteredAppts, settings, filteredCalls).accounts;
   }, [accounts, adSpend, appointments, callData, settings, dateRange]);
 
@@ -463,15 +562,11 @@ export default function Dashboard() {
     const revenue = filteredAccounts.reduce((s, a) => s + a.revenue, 0);
     const dials = filteredAccounts.reduce((s, a) => s + a.totalDials, 0);
     return {
-      spend,
-      leads,
+      spend, leads,
       cpl: leads > 0 ? spend / leads : 0,
-      appts,
-      dials,
-      dialToAppt: dials > 0 ? (appts / dials) * 100 : 0,
+      appts, dials,
       costPerAppt: appts > 0 ? spend / appts : 0,
-      closed,
-      revenue,
+      closed, revenue,
     };
   }, [filteredAccounts]);
 
@@ -481,7 +576,6 @@ export default function Dashboard() {
     const dwy: AccountSummary[] = [];
     const paused: AccountSummary[] = [];
     const churned: AccountSummary[] = [];
-
     for (const a of filteredAccounts) {
       const { program, status } = getAccountMapping(a.accountName, mappings);
       if (status === 'Paused') { paused.push(a); continue; }
@@ -489,7 +583,6 @@ export default function Dashboard() {
       if (program === 'Done With You') { dwy.push(a); continue; }
       dfy.push(a);
     }
-
     return [
       { label: 'Done For You — Active', accounts: dfy, defaultOpen: true },
       { label: 'Done With You — Active', accounts: dwy, defaultOpen: true },
@@ -605,7 +698,7 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Account Cards */}
+      {/* Account Table */}
       {loading ? (
         <TableSkeleton rows={5} />
       ) : filteredAccounts.length === 0 ? (
@@ -615,7 +708,6 @@ export default function Dashboard() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
               <colgroup>
-                <col style={{ width: '40px' }} />
                 <col />
                 <col style={{ width: '100px' }} />
                 <col style={{ width: '65px' }} />
@@ -628,8 +720,7 @@ export default function Dashboard() {
               </colgroup>
               <thead className="sticky top-0 z-20 bg-background shadow-sm">
                 <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '40px' }}>
-                  <th className="align-middle" />
-                  <th className="text-left pl-2 align-middle">Account</th>
+                  <th className="text-left pl-3 align-middle">Account</th>
                   <th className="text-right px-3 align-middle">Spend</th>
                   <th className="text-right px-3 align-middle">Leads</th>
                   <th className="text-right px-3 align-middle">CPL</th>
@@ -642,13 +733,16 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {accountGroups.map(g => (
-                  <AccountSection key={g.label} group={g} />
+                  <AccountSection key={g.label} group={g} onSelect={setSelectedAccount} />
                 ))}
               </tbody>
             </table>
           </div>
         </div>
       )}
+
+      {/* Account Detail Panel */}
+      {selectedAccount && <AccountDetailPanel account={selectedAccount} onClose={() => setSelectedAccount(null)} />}
     </div>
   );
 }
