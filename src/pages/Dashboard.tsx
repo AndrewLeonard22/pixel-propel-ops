@@ -156,6 +156,13 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
   const showRate = account.appointmentList.length > 0 ? (showedCount / account.appointmentList.length) * 100 : 0;
   const closeRate = account.appointmentList.length > 0 ? (account.closed / account.appointmentList.length) * 100 : 0;
 
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
+  const toggleCampaign = (id: string) => setExpandedCampaigns(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
   // Build funnel stages
   const hasDials = account.totalDials > 0;
   const funnelStages: { label: string; value: number; color: string }[] = [];
@@ -278,21 +285,51 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
             <div className="space-y-2">
               {account.campaigns.map(c => {
                 const cPerf = getPerfByProgram(program, c.cpl, c.costPerAppt, c.appointments);
+                const isExpanded = expandedCampaigns.has(c.campaignId);
                 return (
-                  <div key={c.campaignId} className="card-elevated p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-sm font-medium truncate">{c.campaignName}</span>
-                        {cPerf && <PerformanceBadge level={cPerf} />}
-                      </div>
-                      <div className="flex items-center gap-4 text-xs font-mono-tabular text-muted-foreground shrink-0">
-                        <span>{formatCurrency(c.spend)}</span>
-                        <span>{c.leads}L</span>
-                        <span><CPLBadge value={c.cpl} /></span>
-                        <span>{c.appointments}A</span>
-                        <span><CostPerApptBadge value={c.costPerAppt} /></span>
+                  <div key={c.campaignId} className="card-elevated overflow-hidden">
+                    <div
+                      className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                      onClick={() => toggleCampaign(c.campaignId)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                          <span className="text-sm font-medium truncate">{c.campaignName}</span>
+                          {cPerf && <PerformanceBadge level={cPerf} />}
+                        </div>
+                        <div className="flex items-center gap-4 text-xs font-mono-tabular text-muted-foreground shrink-0">
+                          <span>{formatCurrency(c.spend)}</span>
+                          <span>{c.leads}L</span>
+                          <span><CPLBadge value={c.cpl} /></span>
+                          <span>{c.appointments}A</span>
+                          <span><CostPerApptBadge value={c.costPerAppt} /></span>
+                        </div>
                       </div>
                     </div>
+                    {isExpanded && c.adSets && c.adSets.length > 0 && (
+                      <div className="border-t border-border">
+                        {c.adSets.map((as, idx) => {
+                          const asPerf = getPerfByProgram(program, as.cpl, as.costPerAppt, as.appointments);
+                          return (
+                            <div key={as.adSetId || idx} className={`pl-4 pr-3 py-2 flex items-start justify-between gap-3 ${idx > 0 ? 'border-t border-border/50' : ''}`}>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-xs text-foreground truncate">{as.adSetName}</span>
+                                {asPerf && <PerformanceBadge level={asPerf} />}
+                                <span className="text-[10px] text-muted-foreground">{as.adCount} ads</span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs font-mono-tabular text-muted-foreground shrink-0">
+                                <span>{formatCurrency(as.spend)}</span>
+                                <span>{as.leads}L</span>
+                                <span><CPLBadge value={as.cpl} /></span>
+                                <span>{as.appointments}A</span>
+                                <span><CostPerApptBadge value={as.costPerAppt} /></span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
