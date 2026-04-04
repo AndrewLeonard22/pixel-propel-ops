@@ -155,16 +155,18 @@ function AccountRow({ account }: { account: AccountSummary }) {
       {expanded && (
         <>
           <tr className="bg-muted/30 border-t border-border/40">
-            <td className="w-10" />
-            <td className="py-1.5 pl-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Campaign</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Leads</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPL</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Appts</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lead %</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cost/A</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Closed</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Revenue</td>
+           <td className="w-10" />
+157:             <td className="py-1.5 pl-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Campaign</td>
+158:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</td>
+159:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Leads</td>
+160:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPL</td>
+161:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Appts</td>
+162:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lead %</td>
+163:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cost/A</td>
+            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
+            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
+164:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Closed</td>
+165:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Revenue</td>
           </tr>
           {account.campaigns.map(c => (
             <CampaignRow key={c.campaignId} campaign={c} program={program} />
