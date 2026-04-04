@@ -44,6 +44,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [unmatchedAppointments, setUnmatchedAppointments] = useState<AppointmentRow[]>([]);
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
+  const [callData, setCallData] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
