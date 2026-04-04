@@ -139,8 +139,7 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
 
 // === Account Detail Panel (slide-over) ===
 
-const FUNNEL_COLORS = ['#6366f1', '#8b5cf6', '#f59e0b', '#10b981', '#22c55e'];
-const FUNNEL_LABELS_FULL = ['Leads', 'Dials', 'Appointments', 'Showed', 'Closed'];
+
 
 function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onClose: () => void }) {
   const mappings = loadAccountMappings();
@@ -163,26 +162,18 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
     return next;
   });
 
-  // Build funnel stages
-  const hasDials = account.totalDials > 0;
-  const funnelStages: { label: string; value: number; color: string }[] = [];
-  if (hasDials) {
-    funnelStages.push(
-      { label: 'Leads', value: account.leads, color: FUNNEL_COLORS[0] },
-      { label: 'Dials', value: account.totalDials, color: FUNNEL_COLORS[1] },
-      { label: 'Appointments', value: account.appointments, color: FUNNEL_COLORS[2] },
-      { label: 'Showed', value: showedCount, color: FUNNEL_COLORS[3] },
-      { label: 'Closed', value: account.closed, color: FUNNEL_COLORS[4] },
-    );
-  } else {
-    funnelStages.push(
-      { label: 'Leads', value: account.leads, color: FUNNEL_COLORS[0] },
-      { label: 'Appointments', value: account.appointments, color: FUNNEL_COLORS[2] },
-      { label: 'Showed', value: showedCount, color: FUNNEL_COLORS[3] },
-      { label: 'Closed', value: account.closed, color: FUNNEL_COLORS[4] },
-    );
-  }
-  const maxFunnel = Math.max(...funnelStages.map(s => s.value), 1);
+  // Dial activity stats (separate from funnel)
+  const dialBookingRate = account.totalDials > 0 ? ((account.appointments / account.totalDials) * 100).toFixed(1) : '—';
+  const dialsPerLeadFunnel = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '—';
+
+  // Build funnel stages (no Dials — it's a parallel activity, not a funnel stage)
+  const funnelStages = [
+    { label: 'Leads', value: account.leads, barClass: 'bg-indigo-100', textDark: false },
+    { label: 'Appointments', value: account.appointments, barClass: 'bg-indigo-300', textDark: false },
+    { label: 'Showed', value: showedCount, barClass: 'bg-indigo-500', textDark: true },
+    { label: 'Closed', value: account.closed, barClass: 'bg-emerald-500', textDark: true },
+  ];
+  const leadsValue = account.leads;
 
   // Recent appointments sorted by dateAdded desc
   const recentAppts = [...account.appointmentList]
@@ -250,42 +241,52 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
             </div>
           </div>
 
+          {/* Dial Activity Callout */}
+          {account.totalDials > 0 && (
+            <div className="bg-muted/30 rounded-lg px-4 py-2.5 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dial Activity</span>
+              <span className="text-sm font-mono-tabular text-foreground">
+                {formatNumber(account.totalDials)} dials · {dialsPerLeadFunnel} per lead · {dialBookingRate}% booking rate
+              </span>
+            </div>
+          )}
+
           {/* Section 2 — Funnel Visualization */}
           <div>
             <h3 className="text-sm font-semibold text-foreground mb-3">Conversion Funnel</h3>
-            <div className="space-y-1.5">
-              {funnelStages.map((stage, i) => {
-                const widthPct = maxFunnel > 0 ? (stage.value / maxFunnel) * 100 : 0;
-                const nextStage = funnelStages[i + 1];
-                const isLeadsToDials = stage.label === 'Leads' && nextStage?.label === 'Dials';
-                let conversionLabel: string | null = null;
-                if (nextStage && stage.value > 0) {
-                  if (isLeadsToDials) {
-                    conversionLabel = `→ ${(nextStage.value / stage.value).toFixed(1)} dials per lead`;
-                  } else {
-                    const pct = (nextStage.value / stage.value) * 100;
-                    if (pct <= 100) conversionLabel = `→ ${pct.toFixed(1)}% conversion`;
-                  }
-                }
-                return (
-                  <div key={stage.label}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-medium text-foreground w-28 shrink-0">{stage.label}</span>
-                      <div className="flex-1 h-5 rounded-md bg-muted/30 relative overflow-hidden">
+            {leadsValue === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No lead data</p>
+            ) : (
+              <div className="max-w-[500px] mx-auto">
+                <div className="flex flex-col gap-0.5">
+                  {funnelStages.map((stage, i) => {
+                    const widthPct = leadsValue > 0 ? Math.max((stage.value / leadsValue) * 100, stage.value > 0 ? 8 : 0) : 0;
+                    const nextStage = funnelStages[i + 1];
+                    let conversionLabel: string | null = null;
+                    if (nextStage && stage.value > 0) {
+                      conversionLabel = `${((nextStage.value / stage.value) * 100).toFixed(1)}% →`;
+                    } else if (nextStage && stage.value === 0) {
+                      conversionLabel = '—';
+                    }
+                    const textColor = stage.textDark ? 'text-white' : 'text-indigo-900';
+                    return (
+                      <div key={stage.label}>
                         <div
-                          className="h-full rounded-md transition-all duration-500"
-                          style={{ width: `${Math.max(widthPct, 0)}%`, backgroundColor: stage.color }}
-                        />
+                          className={`${stage.barClass} h-9 rounded-lg mx-auto relative flex items-center justify-between px-3 transition-all duration-500`}
+                          style={{ width: `${widthPct}%` }}
+                        >
+                          <span className={`text-xs font-medium ${textColor} relative z-10`}>{stage.label}</span>
+                          <span className={`text-sm font-mono-tabular font-bold ${textColor} relative z-10`}>{formatNumber(stage.value)}</span>
+                        </div>
+                        {conversionLabel && i < funnelStages.length - 1 && (
+                          <p className="text-[10px] text-muted-foreground text-center py-0.5">{conversionLabel}</p>
+                        )}
                       </div>
-                      <span className="font-mono-tabular font-semibold text-sm text-foreground w-14 text-right">{formatNumber(stage.value)}</span>
-                    </div>
-                    {conversionLabel && (
-                      <p className="text-[10px] text-muted-foreground ml-28 pl-3 mt-0.5">{conversionLabel}</p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Section 3 — Campaign Breakdown */}
