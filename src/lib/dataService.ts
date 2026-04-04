@@ -303,6 +303,34 @@ export function buildAccountSummaries(
     }
   }
 
+  // --- Dial counting from call center data ---
+  // Build a map of normalized ghlLocationName → { dials, totalDuration }
+  const dialMap = new Map<string, { dials: number; totalDuration: number }>();
+  for (const call of callData || []) {
+    const key = (call.ghlLocationName || '').trim().toLowerCase();
+    if (!key) continue;
+    const entry = dialMap.get(key) || { dials: 0, totalDuration: 0 };
+    entry.dials++;
+    entry.totalDuration += call.callDuration;
+    dialMap.set(key, entry);
+  }
+
+  // Build reverse lookup: for each account, collect all name keys that could match dial data
+  const accountDialKeys = new Map<string, string[]>(); // normalizedAccountKey → list of dial lookup keys
+  for (const [normalizedKey, data] of accountMap) {
+    const keys: string[] = [normalizedKey];
+    // Add Airtable alias name
+    const alias = (settings?.accountAliases || []).find(a => a.sheetName.trim().toLowerCase() === normalizedKey);
+    if (alias) {
+      const airtableName = (alias.airtableName || alias.sheetName || '').trim().toLowerCase();
+      if (airtableName && !keys.includes(airtableName)) keys.push(airtableName);
+    }
+    // Add any client names resolved to this account during Tier 3
+    for (const [clientKey, acctKey] of clientNameToAccount) {
+      if (acctKey === normalizedKey && !keys.includes(clientKey)) keys.push(clientKey);
+    }
+    accountDialKeys.set(normalizedKey, keys);
+  }
 
   // 4. Build final summaries
   const summaries: AccountSummary[] = [];
