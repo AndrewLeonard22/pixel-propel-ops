@@ -177,13 +177,18 @@ export default function AIChatPanel() {
   return (
     <div className="fixed bottom-5 right-5 z-40 w-96 h-[32rem] rounded-xl border bg-card shadow-2xl flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
-        <div className="flex items-center gap-2">
-          <MessageCircle className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold">Performance AI</span>
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+            <Bot className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <span className="text-sm font-semibold text-white">Performance AI</span>
+            <p className="text-[10px] text-white/70">Analyzing your accounts live</p>
+          </div>
         </div>
-        <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-muted">
-          <X className="w-4 h-4" />
+        <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-white/10">
+          <X className="w-4 h-4 text-white/70" />
         </button>
       </div>
 
