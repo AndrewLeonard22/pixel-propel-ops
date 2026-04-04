@@ -10,12 +10,12 @@ export interface AppSettings {
   showPausedAccounts: boolean;
   showChurnedAccounts: boolean;
   pausedThresholdDays: number;
-  accountAliases: { 
-    sheetName: string; 
-    airtableName: string; 
-    program: string; 
-    mediaBuyer: string; 
-    status: string; 
+  accountAliases: {
+    sheetName: string;
+    airtableName: string;
+    program: string;
+    mediaBuyer: string;
+    status: string;
   }[];
   perfThresholds: {
     goodCpl: number;
@@ -24,6 +24,7 @@ export interface AppSettings {
     poorLeadPercent: number;
   };
   anthropicApiKey: string;
+  excludedCampaigns: string[];
 }
 
 export interface AdSpendRow {
@@ -79,6 +80,8 @@ export interface AccountSummary {
   status: string;
   spend: number;
   leads: number;
+  performanceSpend: number;
+  performanceLeads: number;
   cpl: number;
   appointments: number;
   leadPercent: number;

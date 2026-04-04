@@ -357,23 +357,23 @@ export function buildAccountSummaries(
   const summaries: AccountSummary[] = [];
   const aliasMap = new Map((settings?.accountAliases || []).map(a => [a.sheetName.trim().toLowerCase(), a]));
   const thresholds = settings?.perfThresholds;
+  const excludedCampaignIds = new Set(settings?.excludedCampaigns || []);
 
   for (const [normalizedKey, data] of accountMap) {
     const accountName = data.originalName;
+    const alias = aliasMap.get(normalizedKey);
+
+    // Total spend/leads from ALL campaigns (shown to client — matches their Facebook bill)
     const totalSpend = data.spendRows.reduce((s, r) => s + r.spent, 0);
     const totalLeads = data.spendRows.reduce((s, r) => s + r.leads, 0);
-    const totalAppts = data.appts.length;
-    const closed = data.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
-    const revenue = data.appts.reduce((s, a) => s + a.closedRevenue, 0);
-    const billed = data.appts.reduce((s, a) => s + a.amountCharged, 0);
-    const qualified = data.appts.filter(a => a.leadValid?.toLowerCase() === 'yes' || a.leadValid?.toLowerCase() === 'true').length;
 
-    const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
-    const leadPct = totalLeads > 0 ? (totalAppts / totalLeads) * 100 : 0;
-    const costPerAppt = totalAppts > 0 ? totalSpend / totalAppts : 0;
-    const qualPercent = totalAppts > 0 ? (qualified / totalAppts) * 100 : 0;
-
-    const alias = aliasMap.get(normalizedKey);
+    // Performance spend/leads from non-excluded campaigns only
+    const performanceSpend = data.spendRows
+      .filter(r => !excludedCampaignIds.has(r.campaignId))
+      .reduce((s, r) => s + r.spent, 0);
+    const performanceLeads = data.spendRows
+      .filter(r => !excludedCampaignIds.has(r.campaignId))
+      .reduce((s, r) => s + r.leads, 0);
 
     // Build campaigns within this account
     const campaignMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[] }>();
@@ -508,6 +508,29 @@ export function buildAccountSummaries(
       });
     }
 
+    // Collect appointments matched to excluded campaigns
+    const excludedApptSet = new Set<AppointmentRow>();
+    for (const [, cData] of campaignMap) {
+      const campaignId = cData.spendRows[0]?.campaignId || '';
+      if (excludedCampaignIds.has(campaignId)) {
+        for (const a of cData.appts) excludedApptSet.add(a);
+      }
+    }
+
+    // Performance appointments = only non-excluded campaigns
+    const performanceAppts = data.appts.filter(a => !excludedApptSet.has(a));
+
+    const totalAppts = performanceAppts.length;
+    const closed = performanceAppts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+    const revenue = performanceAppts.reduce((s, a) => s + a.closedRevenue, 0);
+    const billed = performanceAppts.reduce((s, a) => s + a.amountCharged, 0);
+    const qualified = performanceAppts.filter(a => a.leadValid?.toLowerCase() === 'yes' || a.leadValid?.toLowerCase() === 'true').length;
+
+    const cpl = performanceLeads > 0 ? performanceSpend / performanceLeads : 0;
+    const leadPct = performanceLeads > 0 ? (totalAppts / performanceLeads) * 100 : 0;
+    const costPerAppt = totalAppts > 0 ? performanceSpend / totalAppts : 0;
+    const qualPercent = totalAppts > 0 ? (qualified / totalAppts) * 100 : 0;
+
     // Dial data for this account
     const dialKeys = accountDialKeys.get(normalizedKey) || [];
     let matchedDials = 0;
@@ -527,6 +550,8 @@ export function buildAccountSummaries(
       status: alias?.status || 'Active',
       spend: totalSpend,
       leads: totalLeads,
+      performanceSpend,
+      performanceLeads,
       cpl,
       appointments: totalAppts,
       leadPercent: leadPct,

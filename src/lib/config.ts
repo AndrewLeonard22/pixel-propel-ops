@@ -46,6 +46,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     poorLeadPercent: 2,
   },
   anthropicApiKey: '',
+  excludedCampaigns: [],
 };
 
 // --- localStorage helpers (fallback/cache) ---

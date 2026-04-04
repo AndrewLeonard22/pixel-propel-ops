@@ -7,7 +7,7 @@ import PerformanceBadge from '@/components/common/PerformanceBadge';
 import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries } from '@/lib/dataService';
 import { saveSettings, saveAccountMappings, loadAccountMappings, getAccountMapping } from '@/lib/config';
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check, X } from 'lucide-react';
-import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow, AccountMapping } from '@/lib/types';
+import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow, AccountMapping, AppSettings } from '@/lib/types';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
@@ -117,7 +117,12 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
 
 
 
-function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onClose: () => void }) {
+function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
+  account: AccountSummary;
+  settings: AppSettings;
+  onClose: () => void;
+  onToggleExclude: (campaignId: string) => Promise<void>;
+}) {
   const mappings = loadAccountMappings();
   const { program } = getAccountMapping(account.accountName, mappings);
 
@@ -126,7 +131,6 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
     return s === 'showed' || s === 'show';
   }).length;
 
-  const leadToAppt = account.leads > 0 && account.appointments > 0 ? (account.appointments / account.leads) * 100 : 0;
   const dialsPerLead = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '0';
   const showRate = account.appointmentList.length > 0 ? (showedCount / account.appointmentList.length) * 100 : 0;
   const closeRate = account.appointmentList.length > 0 ? (account.closed / account.appointmentList.length) * 100 : 0;
@@ -233,7 +237,7 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                 </div>
                 {/* Lead to Appt conversion */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(leadToAppt)}</span>
+                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(account.leadPercent)}</span>
                   <span className="text-[11px] text-muted-foreground">converted to appointments</span>
                 </div>
                 {/* Appointments */}
@@ -279,10 +283,11 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
             <h3 className="text-sm font-semibold text-foreground mb-3">Campaigns ({account.campaigns.length})</h3>
             <div className="space-y-2">
               {account.campaigns.map(c => {
-                const cPerf = getPerfByProgram(program, c.cpl, c.costPerAppt, c.appointments);
+                const isExcluded = (settings.excludedCampaigns || []).includes(c.campaignId);
+                const cPerf = isExcluded ? null : getPerfByProgram(program, c.cpl, c.costPerAppt, c.appointments);
                 const isExpanded = expandedCampaigns.has(c.campaignId);
                 return (
-                  <div key={c.campaignId} className="card-elevated overflow-hidden">
+                  <div key={c.campaignId} className={`card-elevated overflow-hidden${isExcluded ? ' opacity-60' : ''}`}>
                     <div
                       className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
                       onClick={() => toggleCampaign(c.campaignId)}
@@ -291,8 +296,18 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                         <div className="flex items-center gap-2 min-w-0">
                           {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                           <span className="text-sm font-medium truncate max-w-[300px]">{c.campaignName}</span>
+                          {isExcluded && <span className="text-[10px] font-medium text-muted-foreground px-1.5 py-0.5 rounded bg-muted shrink-0">Excluded</span>}
                         </div>
-                        {cPerf && <PerformanceBadge level={cPerf} />}
+                        <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                          {!isExcluded && cPerf && <PerformanceBadge level={cPerf} />}
+                          <input
+                            type="checkbox"
+                            checked={!isExcluded}
+                            onChange={() => onToggleExclude(c.campaignId)}
+                            className="w-3.5 h-3.5 accent-primary cursor-pointer"
+                            title={isExcluded ? 'Include in performance metrics' : 'Exclude from performance metrics'}
+                          />
+                        </div>
                       </div>
                       <div className="flex flex-wrap gap-3 mt-1.5 ml-5">
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-xs font-mono-tabular font-semibold">{formatCurrency(c.spend)}</span></span>
@@ -521,7 +536,7 @@ export default function Dashboard() {
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
-  const [selectedAccount, setSelectedAccount] = useState<AccountSummary | null>(null);
+  const [selectedAccountName, setSelectedAccountName] = useState<string | null>(null);
 
   const dateRange = useMemo(() => {
     const now = new Date();
@@ -601,22 +616,41 @@ export default function Dashboard() {
     
     const spend = activeAccounts.reduce((s, a) => s + a.spend, 0);
     const leads = activeAccounts.reduce((s, a) => s + a.leads, 0);
+    const perfSpend = activeAccounts.reduce((s, a) => s + a.performanceSpend, 0);
+    const perfLeads = activeAccounts.reduce((s, a) => s + a.performanceLeads, 0);
     const appts = activeAccounts.reduce((s, a) => s + a.appointments, 0);
     const closed = activeAccounts.reduce((s, a) => s + a.closed, 0);
     const revenue = activeAccounts.reduce((s, a) => s + a.revenue, 0);
     const dials = activeAccounts.reduce((s, a) => s + a.totalDials, 0);
-    
-    const dfySpend = dfyAccounts.reduce((s, a) => s + a.spend, 0);
+
+    const dfyPerfSpend = dfyAccounts.reduce((s, a) => s + a.performanceSpend, 0);
     const dfyAppts = dfyAccounts.reduce((s, a) => s + a.appointments, 0);
-    
+
     return {
       spend, leads,
-      cpl: leads > 0 ? spend / leads : 0,
+      cpl: perfLeads > 0 ? perfSpend / perfLeads : 0,
       appts, dials,
-      costPerAppt: dfyAppts > 0 ? dfySpend / dfyAppts : 0,
+      costPerAppt: dfyAppts > 0 ? dfyPerfSpend / dfyAppts : 0,
       closed, revenue,
     };
   }, [filteredAccounts]);
+
+  // Derive selectedAccount from name so it auto-updates after refresh
+  const selectedAccount = useMemo(
+    () => selectedAccountName ? dateFilteredAccounts.find(a => a.accountName === selectedAccountName) ?? null : null,
+    [selectedAccountName, dateFilteredAccounts],
+  );
+
+  const handleToggleExclude = useCallback(async (campaignId: string) => {
+    const current = settings.excludedCampaigns || [];
+    const updated = current.includes(campaignId)
+      ? current.filter(id => id !== campaignId)
+      : [...current, campaignId];
+    const updatedSettings = { ...settings, excludedCampaigns: updated };
+    setSettings(updatedSettings);
+    await saveSettings(updatedSettings);
+    await refresh(updatedSettings);
+  }, [settings, setSettings, refresh]);
 
   const accountGroups = useMemo((): AccountGroup[] => {
     const mappings = loadAccountMappings();
@@ -781,7 +815,7 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {accountGroups.map(g => (
-                  <AccountSection key={g.label} group={g} onSelect={setSelectedAccount} />
+                  <AccountSection key={g.label} group={g} onSelect={a => setSelectedAccountName(a.accountName)} />
                 ))}
               </tbody>
             </table>
@@ -790,7 +824,14 @@ export default function Dashboard() {
       )}
 
       {/* Account Detail Panel */}
-      {selectedAccount && <AccountDetailPanel account={selectedAccount} onClose={() => setSelectedAccount(null)} />}
+      {selectedAccount && (
+        <AccountDetailPanel
+          account={selectedAccount}
+          settings={settings}
+          onClose={() => setSelectedAccountName(null)}
+          onToggleExclude={handleToggleExclude}
+        />
+      )}
     </div>
   );
 }
