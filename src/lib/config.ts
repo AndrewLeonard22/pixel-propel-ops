@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     poorCpl: 50,
     poorLeadPercent: 2,
   },
+  anthropicApiKey: '',
 };
 
 // --- localStorage helpers (fallback/cache) ---
