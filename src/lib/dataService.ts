@@ -1,4 +1,4 @@
-import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, TeamMember, PerformanceLevel } from './types';
+import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, TeamMember, PerformanceLevel, CallRow } from './types';
 import { convertSheetUrlToCsv } from './config';
 
 // Parse CSV text into rows
