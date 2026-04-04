@@ -156,6 +156,13 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
   const showRate = account.appointmentList.length > 0 ? (showedCount / account.appointmentList.length) * 100 : 0;
   const closeRate = account.appointmentList.length > 0 ? (account.closed / account.appointmentList.length) * 100 : 0;
 
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
+  const toggleCampaign = (id: string) => setExpandedCampaigns(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
   // Build funnel stages
   const hasDials = account.totalDials > 0;
   const funnelStages: { label: string; value: number; color: string }[] = [];
