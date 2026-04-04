@@ -611,17 +611,33 @@ export default function Dashboard() {
   }, [dateFilteredAccounts, search, perfFilter, accountFilter]);
 
   const totals = useMemo(() => {
-    const spend = filteredAccounts.reduce((s, a) => s + a.spend, 0);
-    const leads = filteredAccounts.reduce((s, a) => s + a.leads, 0);
-    const appts = filteredAccounts.reduce((s, a) => s + a.appointments, 0);
-    const closed = filteredAccounts.reduce((s, a) => s + a.closed, 0);
-    const revenue = filteredAccounts.reduce((s, a) => s + a.revenue, 0);
-    const dials = filteredAccounts.reduce((s, a) => s + a.totalDials, 0);
+    const mappings = loadAccountMappings();
+    
+    const activeAccounts = filteredAccounts.filter(a => {
+      const { status } = getAccountMapping(a.accountName, mappings);
+      return status === 'Active';
+    });
+    
+    const dfyAccounts = activeAccounts.filter(a => {
+      const { program } = getAccountMapping(a.accountName, mappings);
+      return program !== 'Done With You';
+    });
+    
+    const spend = activeAccounts.reduce((s, a) => s + a.spend, 0);
+    const leads = activeAccounts.reduce((s, a) => s + a.leads, 0);
+    const appts = activeAccounts.reduce((s, a) => s + a.appointments, 0);
+    const closed = activeAccounts.reduce((s, a) => s + a.closed, 0);
+    const revenue = activeAccounts.reduce((s, a) => s + a.revenue, 0);
+    const dials = activeAccounts.reduce((s, a) => s + a.totalDials, 0);
+    
+    const dfySpend = dfyAccounts.reduce((s, a) => s + a.spend, 0);
+    const dfyAppts = dfyAccounts.reduce((s, a) => s + a.appointments, 0);
+    
     return {
       spend, leads,
       cpl: leads > 0 ? spend / leads : 0,
       appts, dials,
-      costPerAppt: appts > 0 ? spend / appts : 0,
+      costPerAppt: dfyAppts > 0 ? dfySpend / dfyAppts : 0,
       closed, revenue,
     };
   }, [filteredAccounts]);
