@@ -238,8 +238,13 @@ export default function AIChatPanel() {
             placeholder="Ask about performance..."
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
-          <button onClick={sendMessage} disabled={!input.trim() || loading} className="p-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
-            <Send className="w-3.5 h-3.5" />
+          <button
+            onClick={sendMessage}
+            disabled={!input.trim() || loading}
+            className="p-1.5 rounded-md transition-colors disabled:opacity-30"
+            style={{ background: input.trim() && !loading ? '#6366f1' : 'transparent' }}
+          >
+            <Send className={`w-4 h-4 ${input.trim() && !loading ? 'text-white' : 'text-muted-foreground'}`} />
           </button>
         </div>
       </div>
