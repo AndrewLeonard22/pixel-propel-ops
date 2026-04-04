@@ -24,6 +24,7 @@ const defaultDataContext: DataContextType = {
   adSpend: [],
   appointments: [],
   accounts: [],
+  unmatchedAppointments: [],
   airtableFields: [],
   loading: false,
   error: null,

@@ -479,7 +479,7 @@ export function buildAccountSummaries(
     });
   }
 
-  return summaries.sort((a, b) => b.spend - a.spend);
+  return { accounts: summaries.sort((a, b) => b.spend - a.spend), unmatchedAppointments };
 }
 
 export function buildTeamPerformance(accounts: AccountSummary[]): TeamMember[] {
