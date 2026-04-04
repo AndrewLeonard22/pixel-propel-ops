@@ -30,6 +30,9 @@ export default function SettingsPage() {
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
   const [airtableError, setAirtableError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [callCenterStatus, setCallCenterStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [callCenterError, setCallCenterError] = useState('');
+  const [callCenterCount, setCallCenterCount] = useState(0);
   const [accountMappings, setAccountMappings] = useState<AccountMapping[]>(loadAccountMappings);
   const isFirstRender = useRef(true);
 
