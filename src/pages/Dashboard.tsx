@@ -301,19 +301,19 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                       className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
                       onClick={() => toggleCampaign(c.campaignId)}
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-                          <span className="text-sm font-medium truncate">{c.campaignName}</span>
-                          {cPerf && <PerformanceBadge level={cPerf} />}
+                          <span className="text-sm font-medium truncate max-w-[300px]">{c.campaignName}</span>
                         </div>
-                        <div className="flex items-center gap-4 text-xs font-mono-tabular text-muted-foreground shrink-0">
-                          <span>{formatCurrency(c.spend)}</span>
-                          <span>{c.leads}L</span>
-                          <span><CPLBadge value={c.cpl} /></span>
-                          <span>{c.appointments}A</span>
-                          <span><CostPerApptBadge value={c.costPerAppt} /></span>
-                        </div>
+                        {cPerf && <PerformanceBadge level={cPerf} />}
+                      </div>
+                      <div className="flex flex-wrap gap-3 mt-1.5 ml-5">
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-xs font-mono-tabular font-semibold">{formatCurrency(c.spend)}</span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-xs font-mono-tabular font-semibold">{c.leads}</span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-xs font-mono-tabular font-semibold"><CPLBadge value={c.cpl} /></span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-xs font-mono-tabular font-semibold">{c.appointments}</span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-xs font-mono-tabular font-semibold"><CostPerApptBadge value={c.costPerAppt} /></span></span>
                       </div>
                     </div>
                     {isExpanded && c.adSets && c.adSets.length > 0 && (
