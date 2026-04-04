@@ -253,16 +253,25 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
           {/* Section 2 — Funnel Visualization */}
           <div>
             <h3 className="text-sm font-semibold text-foreground mb-3">Conversion Funnel</h3>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {funnelStages.map((stage, i) => {
                 const widthPct = maxFunnel > 0 ? (stage.value / maxFunnel) * 100 : 0;
                 const nextStage = funnelStages[i + 1];
-                const conversionPct = nextStage && stage.value > 0 ? ((nextStage.value / stage.value) * 100).toFixed(1) : null;
+                const isLeadsToDials = stage.label === 'Leads' && nextStage?.label === 'Dials';
+                let conversionLabel: string | null = null;
+                if (nextStage && stage.value > 0) {
+                  if (isLeadsToDials) {
+                    conversionLabel = `→ ${(nextStage.value / stage.value).toFixed(1)} dials per lead`;
+                  } else {
+                    const pct = (nextStage.value / stage.value) * 100;
+                    if (pct <= 100) conversionLabel = `→ ${pct.toFixed(1)}% conversion`;
+                  }
+                }
                 return (
                   <div key={stage.label}>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium text-foreground w-28 shrink-0">{stage.label}</span>
-                      <div className="flex-1 h-7 rounded-md bg-muted/30 relative overflow-hidden">
+                      <div className="flex-1 h-5 rounded-md bg-muted/30 relative overflow-hidden">
                         <div
                           className="h-full rounded-md transition-all duration-500"
                           style={{ width: `${Math.max(widthPct, 0)}%`, backgroundColor: stage.color }}
@@ -270,8 +279,8 @@ function AccountDetailPanel({ account, onClose }: { account: AccountSummary; onC
                       </div>
                       <span className="font-mono-tabular font-semibold text-sm text-foreground w-14 text-right">{formatNumber(stage.value)}</span>
                     </div>
-                    {conversionPct && (
-                      <p className="text-[10px] text-muted-foreground ml-28 pl-3 mt-0.5">→ {conversionPct}% conversion</p>
+                    {conversionLabel && (
+                      <p className="text-[10px] text-muted-foreground ml-28 pl-3 mt-0.5">{conversionLabel}</p>
                     )}
                   </div>
                 );
