@@ -1,6 +1,8 @@
 export interface AppSettings {
   googleSheetUrl: string;
   googleSheetTab: string;
+  callCenterSheetUrl: string;
+  callCenterSheetTab: string;
   airtableBaseId: string;
   airtableTableName: string;
   airtableToken: string;
