@@ -487,6 +487,18 @@ export function buildAccountSummaries(
       });
     }
 
+    // Dial data for this account
+    const dialKeys = accountDialKeys.get(normalizedKey) || [];
+    let matchedDials = 0;
+    let matchedDuration = 0;
+    for (const dk of dialKeys) {
+      const entry = dialMap.get(dk);
+      if (entry) {
+        matchedDials += entry.dials;
+        matchedDuration += entry.totalDuration;
+      }
+    }
+
     summaries.push({
       accountName,
       program: alias?.program || 'Unknown',
@@ -503,6 +515,9 @@ export function buildAccountSummaries(
       closed,
       revenue,
       billed,
+      totalDials: matchedDials,
+      dialToApptPercent: matchedDials > 0 ? (totalAppts / matchedDials) * 100 : 0,
+      avgCallDuration: matchedDials > 0 ? matchedDuration / matchedDials : 0,
       campaigns,
       appointmentList: data.appts,
     });
