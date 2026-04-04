@@ -68,8 +68,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setAdSpend(sheetData);
       setAppointments(airtableResult.records);
       setAirtableFields(airtableResult.fields);
-      const summaries = buildAccountSummaries(sheetData, airtableResult.records, s);
-      setAccounts(summaries);
+      const result = buildAccountSummaries(sheetData, airtableResult.records, s);
+      setAccounts(result.accounts);
+      setUnmatchedAppointments(result.unmatchedAppointments);
       setLastUpdated(new Date());
     } catch (e: any) {
       setError(e.message || 'Failed to fetch data');
