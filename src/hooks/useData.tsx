@@ -9,6 +9,7 @@ interface DataContextType {
   adSpend: AdSpendRow[];
   appointments: AppointmentRow[];
   accounts: AccountSummary[];
+  unmatchedAppointments: AppointmentRow[];
   airtableFields: string[];
   loading: boolean;
   error: string | null;
@@ -23,6 +24,7 @@ const defaultDataContext: DataContextType = {
   adSpend: [],
   appointments: [],
   accounts: [],
+  unmatchedAppointments: [],
   airtableFields: [],
   loading: false,
   error: null,
@@ -38,6 +40,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [adSpend, setAdSpend] = useState<AdSpendRow[]>([]);
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  const [unmatchedAppointments, setUnmatchedAppointments] = useState<AppointmentRow[]>([]);
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +68,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setAdSpend(sheetData);
       setAppointments(airtableResult.records);
       setAirtableFields(airtableResult.fields);
-      const summaries = buildAccountSummaries(sheetData, airtableResult.records, s);
-      setAccounts(summaries);
+      const result = buildAccountSummaries(sheetData, airtableResult.records, s);
+      setAccounts(result.accounts);
+      setUnmatchedAppointments(result.unmatchedAppointments);
       setLastUpdated(new Date());
     } catch (e: any) {
       setError(e.message || 'Failed to fetch data');
@@ -91,7 +95,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DataContext.Provider value={{
-      settings, setSettings, adSpend, appointments, accounts, airtableFields,
+      settings, setSettings, adSpend, appointments, accounts, unmatchedAppointments, airtableFields,
       loading, error, lastUpdated, configured, refresh,
     }}>
       {children}

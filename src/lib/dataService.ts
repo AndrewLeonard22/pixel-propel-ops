@@ -163,11 +163,37 @@ export function getPerformance(
   return 'fair';
 }
 
+// Levenshtein distance for fuzzy matching (Tier 4)
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function levenshteinSimilarity(a: string, b: string): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshteinDistance(a, b) / maxLen;
+}
+
+function normalizeName(s: string): string {
+  return s.toLowerCase().trim().replace(/\b(llc|inc|corp)\b/gi, '').replace(/\s+/g, ' ').trim();
+}
+
 export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],
   settings?: AppSettings,
-): AccountSummary[] {
+): { accounts: AccountSummary[], unmatchedAppointments: AppointmentRow[] } {
   const accountMap = new Map<string, { spendRows: AdSpendRow[]; appts: AppointmentRow[]; originalName: string }>();
 
   // 1. Group ad spend by normalized account name
@@ -200,25 +226,79 @@ export function buildAccountSummaries(
     }
   }
 
-  // 3. Match appointments — two steps only, no name-based guessing
+  // 3. Match appointments — 4-tier matching system
+  const unmatchedAfterTier2: AppointmentRow[] = [];
+  const clientNameToAccount = new Map<string, string>(); // for Tier 3 inference
+
+  // First pass: Tier 1 & Tier 2
   for (const appt of appointments) {
     let matchedAccountKey: string | undefined;
 
-    // Step 1: Campaign ID — the only globally unique Meta identifier
+    // Tier 1 — ID Matching
     if (!isBlank(appt.campaignId)) {
       matchedAccountKey = campaignIdToAccount.get(appt.campaignId);
     }
 
-    // Step 2: Manual alias — explicit user-configured override in Settings
+    // Tier 2 — Manual Alias
     if (!matchedAccountKey && appt.client) {
       matchedAccountKey = manualMappingToAccount.get(appt.client.trim().toLowerCase());
     }
 
-    // Only assign if a valid match was found. No match = appointment is dropped silently.
-    // This is correct behavior — it means the Airtable record has no Campaign ID
-    // and no manual alias exists. Do NOT fall back to name guessing.
     if (matchedAccountKey && accountMap.has(matchedAccountKey)) {
       accountMap.get(matchedAccountKey)!.appts.push(appt);
+      // Record this client name → account mapping for Tier 3
+      if (appt.client) {
+        clientNameToAccount.set(appt.client.trim().toLowerCase(), matchedAccountKey);
+      }
+    } else {
+      unmatchedAfterTier2.push(appt);
+    }
+  }
+
+  // Second pass: Tier 3 — Client Name Inference
+  const unmatchedAfterTier3: AppointmentRow[] = [];
+  for (const appt of unmatchedAfterTier2) {
+    let matchedAccountKey: string | undefined;
+
+    if (appt.client) {
+      matchedAccountKey = clientNameToAccount.get(appt.client.trim().toLowerCase());
+    }
+
+    if (matchedAccountKey && accountMap.has(matchedAccountKey)) {
+      accountMap.get(matchedAccountKey)!.appts.push(appt);
+    } else {
+      unmatchedAfterTier3.push(appt);
+    }
+  }
+
+  // Third pass: Tier 4 — Fuzzy Name Matching
+  const unmatchedAppointments: AppointmentRow[] = [];
+  const accountKeys = Array.from(accountMap.keys());
+  const normalizedAccountKeys = accountKeys.map(k => ({ key: k, normalized: normalizeName(accountMap.get(k)!.originalName) }));
+
+  for (const appt of unmatchedAfterTier3) {
+    let matchedAccountKey: string | undefined;
+
+    if (appt.client) {
+      const normalizedClient = normalizeName(appt.client);
+      const scores = normalizedAccountKeys.map(ak => ({
+        key: ak.key,
+        score: levenshteinSimilarity(normalizedClient, ak.normalized),
+      })).sort((a, b) => b.score - a.score);
+
+      if (scores.length > 0 && scores[0].score >= 0.85) {
+        const secondScore = scores.length > 1 ? scores[1].score : 0;
+        // Only match if exactly one account above threshold with sufficient gap
+        if (scores[0].score - secondScore >= 0.15) {
+          matchedAccountKey = scores[0].key;
+        }
+      }
+    }
+
+    if (matchedAccountKey && accountMap.has(matchedAccountKey)) {
+      accountMap.get(matchedAccountKey)!.appts.push(appt);
+    } else {
+      unmatchedAppointments.push(appt);
     }
   }
 
@@ -399,7 +479,7 @@ export function buildAccountSummaries(
     });
   }
 
-  return summaries.sort((a, b) => b.spend - a.spend);
+  return { accounts: summaries.sort((a, b) => b.spend - a.spend), unmatchedAppointments };
 }
 
 export function buildTeamPerformance(accounts: AccountSummary[]): TeamMember[] {
