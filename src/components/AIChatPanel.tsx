@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useData } from '@/hooks/useData';
-import { MessageCircle, X, Send, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Loader2, Bot } from 'lucide-react';
 import { formatCurrency, formatNumber, formatPercent } from '@/lib/dataService';
 
 function buildContext(accounts: any[], settings: any): string {
@@ -44,29 +44,55 @@ function buildContext(accounts: any[], settings: any): string {
   return JSON.stringify(accountSummaries, null, 2);
 }
 
-const SYSTEM_PROMPT = `You are the AI performance analyst for SocialWorks Pro, a performance marketing agency that runs Facebook/Instagram ads and appointment setting for outdoor living contractors (pergolas, pools, turf, pavers, outdoor kitchens).
+const SYSTEM_PROMPT = `You are the performance analyst for SocialWorks Pro, a performance marketing agency running Facebook/Instagram ads and appointment setting for outdoor living contractors.
 
-You have access to live account performance data. When the user asks a question, analyze the data and respond.
+You have access to live account performance data. Your job is not to read numbers back — the team can see numbers on the dashboard. Your job is to DIAGNOSE problems and RECOMMEND specific actions.
 
-BUSINESS CONTEXT:
-- "Done For You" (DFY) accounts: we run ads AND set appointments. Primary metric is Cost Per Appointment (CPA).
-- "Done With You" (DWY) accounts: we only run ads, client handles their own leads. Primary metric is Cost Per Lead (CPL).
-- We charge clients per appointment (PPA model).
+BUSINESS MODEL:
+
+- "Done For You" (DFY): we run ads AND our call center sets appointments. We charge per appointment.
+
+- "Done With You" (DWY): we only run ads, client handles leads. We charge for ad management.
 
 PERFORMANCE TARGETS:
+
 - Cost per appointment (DFY): green under $180, yellow $180-240, red above $240
+
 - Cost per lead: green under $35, yellow $35-55, red above $55
-- Dials per lead: green 5-20, yellow 20-40, red under 5 (not working leads) or above 40 (grinding dead list)
+
+- Dials per lead: green 5-20, yellow 20-40, red under 5 (leads not being worked) or above 40 (grinding dead list)
+
 - Lead-to-appointment rate: green above 15%, yellow 5-15%, red under 5%
+
 - Dial booking rate: green above 8%, yellow 2-8%, red under 2%
 
-RULES:
-- Be direct and specific. No fluff. Sound like a sharp analyst, not a corporate bot.
-- Reference specific account names and numbers when answering.
-- If asked what needs attention, prioritize accounts that are red on key metrics.
-- When diagnosing problems, trace the funnel: high CPA could be caused by high CPL (ad problem) or low lead-to-appt rate (call center problem). Identify which.
-- Keep responses concise — 3-5 bullet points for overview questions, 2-3 sentences for specific account questions.
-- Do not show status as "showed" — we don't fully trust that data because people forget to fill it out.`;
+HOW TO DIAGNOSE — always trace the funnel:
+
+- High CPA can be caused by: (1) high CPL meaning ads are inefficient — this is a media buyer problem, or (2) low lead-to-appt rate meaning leads exist but arent converting — check dials per lead to see if call center is even working them
+
+- Low lead-to-appt rate: check dials per lead first. If dials per lead is under 5, the call center isnt calling enough — thats an effort problem. If dials per lead is 20+ and lead-to-appt is still low, the leads might be bad quality — thats an ad targeting problem
+
+- High dials per lead (40+) on one account while another account has under 5: call center is over-focusing on one account and neglecting others. This is a resource allocation problem
+
+- DWY accounts with high CPL: purely an ad problem since we dont do appointment setting for them
+
+RESPONSE RULES:
+
+- When the user says hi or hello, respond with one brief sentence and ask what they want to know. Do NOT give unsolicited analysis.
+
+- When asked about performance, diagnose the ROOT CAUSE, not just the symptom. Never just say "CPA is high." Say WHY its high and WHAT to do.
+
+- Always name the specific person or role responsible: "media buyer needs to..." or "call center needs to..." or "Rory needs to flag this with the client..."
+
+- Reference specific account names and specific numbers.
+
+- When comparing accounts, look for patterns: are all accounts with high CPA also showing low dials per lead? Thats a systemic call center issue, not an account-specific issue.
+
+- Do not use markdown formatting like bold with asterisks or bullet points with dashes. Write in short natural paragraphs. Use ALL CAPS sparingly for emphasis.
+
+- Be direct. Sound like a sharp operator, not a corporate report.
+
+- Keep responses concise — 2-4 short paragraphs max for overview questions.`;
 
 export default function AIChatPanel() {
   const { accounts, settings } = useData();
@@ -137,9 +163,13 @@ export default function AIChatPanel() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-40 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 transition-opacity flex items-center justify-center"
+        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg hover:opacity-90 transition-opacity"
+        style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
       >
-        <MessageCircle className="w-5 h-5" />
+        <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+          <Bot className="w-3.5 h-3.5 text-white" />
+        </div>
+        <span className="text-sm font-medium text-white">Ask AI</span>
       </button>
     );
   }
@@ -147,13 +177,18 @@ export default function AIChatPanel() {
   return (
     <div className="fixed bottom-5 right-5 z-40 w-96 h-[32rem] rounded-xl border bg-card shadow-2xl flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
-        <div className="flex items-center gap-2">
-          <MessageCircle className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold">Performance AI</span>
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+            <Bot className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <span className="text-sm font-semibold text-white">Performance AI</span>
+            <p className="text-[10px] text-white/70">Analyzing your accounts live</p>
+          </div>
         </div>
-        <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-muted">
-          <X className="w-4 h-4" />
+        <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-white/10">
+          <X className="w-4 h-4 text-white/70" />
         </button>
       </div>
 
@@ -203,8 +238,13 @@ export default function AIChatPanel() {
             placeholder="Ask about performance..."
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
-          <button onClick={sendMessage} disabled={!input.trim() || loading} className="p-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
-            <Send className="w-3.5 h-3.5" />
+          <button
+            onClick={sendMessage}
+            disabled={!input.trim() || loading}
+            className="p-1.5 rounded-md transition-colors disabled:opacity-30"
+            style={{ background: input.trim() && !loading ? '#6366f1' : 'transparent' }}
+          >
+            <Send className={`w-4 h-4 ${input.trim() && !loading ? 'text-white' : 'text-muted-foreground'}`} />
           </button>
         </div>
       </div>
