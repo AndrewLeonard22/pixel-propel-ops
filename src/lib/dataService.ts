@@ -193,6 +193,7 @@ export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],
   settings?: AppSettings,
+  callData?: CallRow[],
 ): { accounts: AccountSummary[], unmatchedAppointments: AppointmentRow[] } {
   const accountMap = new Map<string, { spendRows: AdSpendRow[]; appts: AppointmentRow[]; originalName: string }>();
 
