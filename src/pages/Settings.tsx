@@ -293,11 +293,11 @@ useEffect(() => {
         <section className="card-elevated p-6 space-y-4">
           <h2 className="font-semibold text-base">Account Mappings</h2>
           <p className="text-xs text-muted-foreground">
-            Map each Google Sheet Account Name to the exact Airtable Client Name. Set program and status for Dashboard grouping.
+            Map each Ad Account Name to the matching Airtable Name. Set program, media buyer, and status for Dashboard grouping.
           </p>
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <span className="flex-1">Google Sheet Account Name</span>
-            <span className="flex-1">Airtable Client Name</span>
+            <span className="flex-1">Ad Account Name</span>
+            <span className="flex-1">Airtable Name</span>
             <span className="w-36">Program</span>
             <span className="w-32">Media Buyer</span>
             <span className="w-28">Status</span>
