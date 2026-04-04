@@ -7,6 +7,8 @@ const ACCOUNT_MAPPINGS_KEY = 'accountMappings';
 const DEFAULT_SETTINGS: AppSettings = {
   googleSheetUrl: '',
   googleSheetTab: 'Ads Data',
+  callCenterSheetUrl: '',
+  callCenterSheetTab: 'RAW DATA',
   airtableBaseId: '',
   airtableTableName: 'Appointments',
   airtableToken: '',

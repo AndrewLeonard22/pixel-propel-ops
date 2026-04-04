@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary } from '@/lib/types';
+import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CallRow } from '@/lib/types';
 import { loadSettings, loadSettingsAsync, isConfigured } from '@/lib/config';
-import { fetchGoogleSheetData, fetchAirtableData, buildAccountSummaries } from '@/lib/dataService';
+import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries } from '@/lib/dataService';
 
 interface DataContextType {
   settings: AppSettings;
@@ -11,6 +11,7 @@ interface DataContextType {
   accounts: AccountSummary[];
   unmatchedAppointments: AppointmentRow[];
   airtableFields: string[];
+  callData: CallRow[];
   loading: boolean;
   error: string | null;
   lastUpdated: Date | null;
@@ -26,6 +27,7 @@ const defaultDataContext: DataContextType = {
   accounts: [],
   unmatchedAppointments: [],
   airtableFields: [],
+  callData: [],
   loading: false,
   error: null,
   lastUpdated: null,
@@ -42,6 +44,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [unmatchedAppointments, setUnmatchedAppointments] = useState<AppointmentRow[]>([]);
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
+  const [callData, setCallData] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -61,14 +64,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const [sheetData, airtableResult] = await Promise.all([
+      const [sheetData, airtableResult, callResult] = await Promise.all([
         fetchGoogleSheetData(s),
         fetchAirtableData(s),
+        fetchCallCenterData(s),
       ]);
       setAdSpend(sheetData);
       setAppointments(airtableResult.records);
       setAirtableFields(airtableResult.fields);
-      const result = buildAccountSummaries(sheetData, airtableResult.records, s);
+      setCallData(callResult);
+      const result = buildAccountSummaries(sheetData, airtableResult.records, s, callResult);
       setAccounts(result.accounts);
       setUnmatchedAppointments(result.unmatchedAppointments);
       setLastUpdated(new Date());
@@ -95,7 +100,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DataContext.Provider value={{
-      settings, setSettings, adSpend, appointments, accounts, unmatchedAppointments, airtableFields,
+      settings, setSettings, adSpend, appointments, accounts, unmatchedAppointments, airtableFields, callData,
       loading, error, lastUpdated, configured, refresh,
     }}>
       {children}

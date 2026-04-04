@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
 import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync } from '@/lib/config';
-import { fetchGoogleSheetData, fetchAirtableData } from '@/lib/dataService';
+import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData } from '@/lib/dataService';
 import type { AppSettings } from '@/lib/types';
 import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 
@@ -30,6 +30,9 @@ export default function SettingsPage() {
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
   const [airtableError, setAirtableError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [callCenterStatus, setCallCenterStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [callCenterError, setCallCenterError] = useState('');
+  const [callCenterCount, setCallCenterCount] = useState(0);
   const [accountMappings, setAccountMappings] = useState<AccountMapping[]>(loadAccountMappings);
   const isFirstRender = useRef(true);
 
@@ -145,6 +148,19 @@ useEffect(() => {
     }
   };
 
+  const testCallCenter = async () => {
+    setCallCenterStatus('loading');
+    setCallCenterError('');
+    try {
+      const data = await fetchCallCenterData(form);
+      setCallCenterCount(data.length);
+      setCallCenterStatus('success');
+    } catch (e: any) {
+      setCallCenterError(e.message || 'Failed to fetch call center data');
+      setCallCenterStatus('error');
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-3xl">
       <div className="flex items-center gap-3">
@@ -205,6 +221,38 @@ useEffect(() => {
             </table>
           </div>
         )}
+      </section>
+
+      {/* Section: Call Center Google Sheet */}
+      <section className="card-elevated p-6 space-y-4">
+        <h2 className="font-semibold text-base">Call Center Google Sheet</h2>
+        <div>
+          <label className="text-sm font-medium text-muted-foreground">Google Sheet URL</label>
+          <input
+            type="url"
+            value={form.callCenterSheetUrl}
+            onChange={e => updateForm({ callCenterSheetUrl: e.target.value })}
+            placeholder="https://docs.google.com/spreadsheets/d/..."
+            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-muted-foreground">Tab/Sheet Name</label>
+          <input
+            type="text"
+            value={form.callCenterSheetTab}
+            onChange={e => updateForm({ callCenterSheetTab: e.target.value })}
+            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={testCallCenter} disabled={!form.callCenterSheetUrl || callCenterStatus === 'loading'}
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50">
+            {callCenterStatus === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Test Connection'}
+          </button>
+          {callCenterStatus === 'success' && <span className="flex items-center gap-1 text-success text-sm"><CheckCircle className="w-4 h-4" /> {callCenterCount} rows loaded</span>}
+          {callCenterStatus === 'error' && <span className="flex items-center gap-1 text-destructive text-sm"><AlertCircle className="w-4 h-4" /> {callCenterError}</span>}
+        </div>
       </section>
 
       {/* Section 2: Airtable */}

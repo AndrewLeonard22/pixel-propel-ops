@@ -1,4 +1,4 @@
-import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, TeamMember, PerformanceLevel } from './types';
+import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, TeamMember, PerformanceLevel, CallRow } from './types';
 import { convertSheetUrlToCsv } from './config';
 
 // Parse CSV text into rows
@@ -77,6 +77,27 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
     leads: parseNumber(r['Leads']),
     accountName: r['Account Name'] || '',
   }));
+}
+
+export async function fetchCallCenterData(settings: AppSettings): Promise<CallRow[]> {
+  if (!settings.callCenterSheetUrl) return [];
+  try {
+    const csvUrl = convertSheetUrlToCsv(settings.callCenterSheetUrl, settings.callCenterSheetTab);
+    if (!csvUrl) return [];
+    const response = await fetch(csvUrl);
+    if (!response.ok) return [];
+    const text = await response.text();
+    const rows = parseCsv(text);
+    return rows.map(r => ({
+      timestamp: r['Timestamp'] || '',
+      ghlLocationName: r['ghl_location_name'] || '',
+      agentName: r['Agent Name'] || '',
+      callDuration: parseNumber(r['Call Duration']),
+      callDisposition: r['call_dispostion'] || r['call_disposition'] || '',
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[] }> {
@@ -193,6 +214,7 @@ export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],
   settings?: AppSettings,
+  callData?: CallRow[],
 ): { accounts: AccountSummary[], unmatchedAppointments: AppointmentRow[] } {
   const accountMap = new Map<string, { spendRows: AdSpendRow[]; appts: AppointmentRow[]; originalName: string }>();
 
@@ -302,6 +324,34 @@ export function buildAccountSummaries(
     }
   }
 
+  // --- Dial counting from call center data ---
+  // Build a map of normalized ghlLocationName → { dials, totalDuration }
+  const dialMap = new Map<string, { dials: number; totalDuration: number }>();
+  for (const call of callData || []) {
+    const key = (call.ghlLocationName || '').trim().toLowerCase();
+    if (!key) continue;
+    const entry = dialMap.get(key) || { dials: 0, totalDuration: 0 };
+    entry.dials++;
+    entry.totalDuration += call.callDuration;
+    dialMap.set(key, entry);
+  }
+
+  // Build reverse lookup: for each account, collect all name keys that could match dial data
+  const accountDialKeys = new Map<string, string[]>(); // normalizedAccountKey → list of dial lookup keys
+  for (const [normalizedKey, data] of accountMap) {
+    const keys: string[] = [normalizedKey];
+    // Add Airtable alias name
+    const alias = (settings?.accountAliases || []).find(a => a.sheetName.trim().toLowerCase() === normalizedKey);
+    if (alias) {
+      const airtableName = (alias.airtableName || alias.sheetName || '').trim().toLowerCase();
+      if (airtableName && !keys.includes(airtableName)) keys.push(airtableName);
+    }
+    // Add any client names resolved to this account during Tier 3
+    for (const [clientKey, acctKey] of clientNameToAccount) {
+      if (acctKey === normalizedKey && !keys.includes(clientKey)) keys.push(clientKey);
+    }
+    accountDialKeys.set(normalizedKey, keys);
+  }
 
   // 4. Build final summaries
   const summaries: AccountSummary[] = [];
@@ -458,6 +508,18 @@ export function buildAccountSummaries(
       });
     }
 
+    // Dial data for this account
+    const dialKeys = accountDialKeys.get(normalizedKey) || [];
+    let matchedDials = 0;
+    let matchedDuration = 0;
+    for (const dk of dialKeys) {
+      const entry = dialMap.get(dk);
+      if (entry) {
+        matchedDials += entry.dials;
+        matchedDuration += entry.totalDuration;
+      }
+    }
+
     summaries.push({
       accountName,
       program: alias?.program || 'Unknown',
@@ -474,6 +536,9 @@ export function buildAccountSummaries(
       closed,
       revenue,
       billed,
+      totalDials: matchedDials,
+      dialToApptPercent: matchedDials > 0 ? (totalAppts / matchedDials) * 100 : 0,
+      avgCallDuration: matchedDials > 0 ? matchedDuration / matchedDials : 0,
       campaigns,
       appointmentList: data.appts,
     });

@@ -1,6 +1,8 @@
 export interface AppSettings {
   googleSheetUrl: string;
   googleSheetTab: string;
+  callCenterSheetUrl: string;
+  callCenterSheetTab: string;
   airtableBaseId: string;
   airtableTableName: string;
   airtableToken: string;
@@ -61,6 +63,14 @@ export interface AppointmentRow {
   clientBillingModel: string;
 }
 
+export interface CallRow {
+  timestamp: string;
+  ghlLocationName: string;
+  agentName: string;
+  callDuration: number;
+  callDisposition: string;
+}
+
 export interface AccountSummary {
   accountName: string;
   program: string;
@@ -77,6 +87,9 @@ export interface AccountSummary {
   closed: number;
   revenue: number;
   billed: number;
+  totalDials: number;
+  dialToApptPercent: number;
+  avgCallDuration: number;
   campaigns: CampaignSummary[];
   appointmentList: AppointmentRow[];
   pausedDays?: number;

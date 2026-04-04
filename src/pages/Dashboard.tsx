@@ -7,7 +7,7 @@ import PerformanceBadge from '@/components/common/PerformanceBadge';
 import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries } from '@/lib/dataService';
 import { saveSettings, saveAccountMappings } from '@/lib/config';
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check } from 'lucide-react';
-import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow } from '@/lib/types';
+import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow } from '@/lib/types';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
@@ -49,7 +49,7 @@ function AccountSection({ group }: { group: AccountGroup }) {
   return (
     <>
       <tr>
-        <td colSpan={10} className="pt-4 pb-2">
+        <td colSpan={12} className="pt-4 pb-2">
           <button
             onClick={() => setOpen(!open)}
             className="flex items-center gap-2"
@@ -147,22 +147,26 @@ function AccountRow({ account }: { account: AccountSummary }) {
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatPercent(account.leadPercent)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.costPerAppt)}</td>
+        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.totalDials)}</td>
+        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatPercent(account.dialToApptPercent)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.revenue)}</td>
       </tr>
       {expanded && (
         <>
           <tr className="bg-muted/30 border-t border-border/40">
-            <td className="w-10" />
-            <td className="py-1.5 pl-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Campaign</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Leads</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPL</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Appts</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lead %</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cost/A</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Closed</td>
-            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Revenue</td>
+           <td className="w-10" />
+157:             <td className="py-1.5 pl-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Campaign</td>
+158:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spend</td>
+159:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Leads</td>
+160:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPL</td>
+161:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Appts</td>
+162:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lead %</td>
+163:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cost/A</td>
+            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
+            <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" />
+164:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Closed</td>
+165:             <td className="py-1.5 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Revenue</td>
           </tr>
           {account.campaigns.map(c => (
             <CampaignRow key={c.campaignId} campaign={c} program={program} />
@@ -199,6 +203,8 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.appointments)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatPercent(campaign.leadPercent)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.costPerAppt)}</td>
+        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
+        <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap" />
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatNumber(campaign.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-2.5 px-3 whitespace-nowrap">{formatCurrency(campaign.revenue)}</td>
       </tr>
@@ -219,7 +225,9 @@ function CampaignRow({ campaign, program }: { campaign: CampaignSummary; program
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap"><CPLBadge value={as.cpl} /></td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.appointments)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatPercent(as.leadPercent)}</td>
-          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.costPerAppt)}</td>
+           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.costPerAppt)}</td>
+          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
+          <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap" />
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatNumber(as.closed)}</td>
           <td className="text-right font-mono-tabular text-xs py-2 px-3 whitespace-nowrap">{formatCurrency(as.revenue)}</td>
         </tr>
@@ -370,7 +378,7 @@ function UnmatchedSection({
 }
 
 export default function Dashboard() {
-  const { accounts, adSpend, appointments, unmatchedAppointments, settings, loading, error, configured, refresh, setSettings } = useData();
+  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, refresh, setSettings } = useData();
   const [assignedClients, setAssignedClients] = useState<Set<string>>(new Set());
   const [recentlyAssigned, setRecentlyAssigned] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -411,7 +419,7 @@ export default function Dashboard() {
 
     const filteredSpend = adSpend.filter(row => {
       const d = parseDateSafe(row.date);
-      if (!d) return false; // exclude rows with unparseable dates when filtering by date
+      if (!d) return false;
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
@@ -419,14 +427,22 @@ export default function Dashboard() {
 
     const filteredAppts = appointments.filter(row => {
       const d = parseDateSafe(row.dateAdded || row.appointmentDate);
-      if (!d) return false; // exclude rows with unparseable dates when filtering by date
+      if (!d) return false;
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
     });
 
-    return buildAccountSummaries(filteredSpend, filteredAppts, settings).accounts;
-  }, [accounts, adSpend, appointments, settings, dateRange]);
+    const filteredCalls = callData.filter(row => {
+      const d = parseDateSafe(row.timestamp);
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+
+    return buildAccountSummaries(filteredSpend, filteredAppts, settings, filteredCalls).accounts;
+  }, [accounts, adSpend, appointments, callData, settings, dateRange]);
 
   const filteredAccounts = useMemo(() => {
     return dateFilteredAccounts.filter(a => {
@@ -448,13 +464,14 @@ export default function Dashboard() {
     const appts = filteredAccounts.reduce((s, a) => s + a.appointments, 0);
     const closed = filteredAccounts.reduce((s, a) => s + a.closed, 0);
     const revenue = filteredAccounts.reduce((s, a) => s + a.revenue, 0);
+    const dials = filteredAccounts.reduce((s, a) => s + a.totalDials, 0);
     return {
       spend,
       leads,
       cpl: leads > 0 ? spend / leads : 0,
       appts,
-      calls: appts,
-      callConv: leads > 0 ? (appts / leads) * 100 : 0,
+      dials,
+      dialToAppt: dials > 0 ? (appts / dials) * 100 : 0,
       costPerAppt: appts > 0 ? spend / appts : 0,
       closed,
       revenue,
@@ -507,8 +524,8 @@ export default function Dashboard() {
           <KPICard label="Total Leads" value={formatNumber(totals.leads)} />
           <KPICard label="Avg CPL" value={formatCurrency(totals.cpl)} />
           <KPICard label="Total Appointments" value={formatNumber(totals.appts)} />
-          <KPICard label="Total Calls" value={formatNumber(totals.calls)} />
-          <KPICard label="Call Conv %" value={formatPercent(totals.callConv)} />
+          <KPICard label="Total Dials" value={formatNumber(totals.dials)} />
+          <KPICard label="Dial-to-Appt %" value={formatPercent(totals.dialToAppt)} />
           <KPICard label="Avg Cost/Appt" value={formatCurrency(totals.costPerAppt)} />
           <KPICard label="Closed Deals" value={formatNumber(totals.closed)} />
         </div>
@@ -610,6 +627,8 @@ export default function Dashboard() {
                 <col style={{ width: '75px' }} />
                 <col style={{ width: '100px' }} />
                 <col style={{ width: '70px' }} />
+                <col style={{ width: '70px' }} />
+                <col style={{ width: '70px' }} />
                 <col style={{ width: '110px' }} />
               </colgroup>
               <thead className="sticky top-0 z-20 bg-background shadow-sm">
@@ -622,6 +641,8 @@ export default function Dashboard() {
                   <th className="text-right px-3 align-middle">Appts</th>
                   <th className="text-right px-3 align-middle">Lead %</th>
                   <th className="text-right px-3 align-middle">Cost/Appt</th>
+                  <th className="text-right px-3 align-middle">Dials</th>
+                  <th className="text-right px-3 align-middle">Dial %</th>
                   <th className="text-right px-3 align-middle">Closed</th>
                   <th className="text-right px-3 align-middle">Revenue</th>
                 </tr>
