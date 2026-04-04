@@ -3,8 +3,32 @@ import { useData } from '@/hooks/useData';
 import { ConfigBanner } from '@/components/common/Banners';
 import { formatCurrency, formatPercent } from '@/lib/dataService';
 
+interface AccountMapping {
+  sheetName: string;
+  airtableName: string;
+  program: 'Done For You' | 'Done With You' | 'Other';
+  status: 'Active' | 'Paused' | 'Churned';
+}
+
+function loadAccountMappings(): AccountMapping[] {
+  try {
+    const stored = localStorage.getItem('accountMappings');
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getAccountMapping(accountName: string, mappings: AccountMapping[]): { program: string; status: string } {
+  const match = mappings.find(m => m.sheetName.trim().toLowerCase() === accountName.trim().toLowerCase());
+  return {
+    program: match?.program || 'Done For You',
+    status: match?.status || 'Active',
+  };
+}
+
 function MetricBar({
-  label, scope, value, displayValue, zones, scaleMax, description, scaleLabels
+  label, scope, value, displayValue, zones, scaleMax, description
 }: {
   label: string;
   scope: string;
@@ -57,13 +81,39 @@ export default function Targets() {
 
   const stats = useMemo(() => {
     if (accounts.length === 0) return null;
-    const totalSpend = accounts.reduce((s, a) => s + a.spend, 0);
-    const totalLeads = accounts.reduce((s, a) => s + a.leads, 0);
-    const totalAppts = accounts.reduce((s, a) => s + a.appointments, 0);
-    const totalDials = accounts.reduce((s, a) => s + a.totalDials, 0);
+
+    const mappings = loadAccountMappings();
+
+    // Split accounts by program type, excluding Paused and Churned
+    const dfyAccounts = accounts.filter(a => {
+      const { program, status } = getAccountMapping(a.accountName, mappings);
+      return status === 'Active' && program !== 'Done With You';
+    });
+    const dwyAccounts = accounts.filter(a => {
+      const { program, status } = getAccountMapping(a.accountName, mappings);
+      return status === 'Active' && program === 'Done With You';
+    });
+    const activeAccounts = [...dfyAccounts, ...dwyAccounts];
+
+    // DFY metrics (CPA is the primary metric)
+    const dfySpend = dfyAccounts.reduce((s, a) => s + a.spend, 0);
+    const dfyLeads = dfyAccounts.reduce((s, a) => s + a.leads, 0);
+    const dfyAppts = dfyAccounts.reduce((s, a) => s + a.appointments, 0);
+    const dfyDials = dfyAccounts.reduce((s, a) => s + a.totalDials, 0);
+
+    // DWY metrics (CPL is the primary metric)
+    const dwySpend = dwyAccounts.reduce((s, a) => s + a.spend, 0);
+    const dwyLeads = dwyAccounts.reduce((s, a) => s + a.leads, 0);
+
+    // Overall metrics (active accounts only)
+    const totalDials = activeAccounts.reduce((s, a) => s + a.totalDials, 0);
+    const totalLeads = activeAccounts.reduce((s, a) => s + a.leads, 0);
+    const totalAppts = activeAccounts.reduce((s, a) => s + a.appointments, 0);
+
     return {
-      avgCPA: totalAppts > 0 ? totalSpend / totalAppts : 0,
-      avgCPL: totalLeads > 0 ? totalSpend / totalLeads : 0,
+      dfyAvgCPA: dfyAppts > 0 ? dfySpend / dfyAppts : 0,
+      dfyAvgCPL: dfyLeads > 0 ? dfySpend / dfyLeads : 0,
+      dwyAvgCPL: dwyLeads > 0 ? dwySpend / dwyLeads : 0,
       dialsPerLead: totalLeads > 0 ? totalDials / totalLeads : 0,
       leadToAppt: totalLeads > 0 ? (totalAppts / totalLeads) * 100 : 0,
       dialBookingRate: totalDials > 0 ? (totalAppts / totalDials) * 100 : 0,
@@ -83,13 +133,13 @@ export default function Targets() {
       {/* Top summary cards */}
       <div className="grid grid-cols-3 gap-3">
         <div className="card-elevated p-4">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Avg Cost/Appt</p>
-          <p className={`text-xl font-bold font-mono-tabular ${stats.avgCPA <= 180 ? 'text-emerald-600' : stats.avgCPA <= 300 ? 'text-amber-600' : 'text-red-600'}`}>{formatCurrency(stats.avgCPA)}</p>
+          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">DFY Cost/Appt</p>
+          <p className={`text-xl font-bold font-mono-tabular ${stats.dfyAvgCPA < 180 ? 'text-emerald-600' : stats.dfyAvgCPA <= 240 ? 'text-amber-600' : 'text-red-600'}`}>{formatCurrency(stats.dfyAvgCPA)}</p>
           <p className="text-[11px] text-muted-foreground mt-1">Target: under $180</p>
         </div>
         <div className="card-elevated p-4">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Avg CPL</p>
-          <p className={`text-xl font-bold font-mono-tabular ${stats.avgCPL <= 35 ? 'text-emerald-600' : stats.avgCPL <= 60 ? 'text-amber-600' : 'text-red-600'}`}>{formatCurrency(stats.avgCPL)}</p>
+          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">DFY CPL</p>
+          <p className={`text-xl font-bold font-mono-tabular ${stats.dfyAvgCPL < 35 ? 'text-emerald-600' : stats.dfyAvgCPL <= 55 ? 'text-amber-600' : 'text-red-600'}`}>{formatCurrency(stats.dfyAvgCPL)}</p>
           <p className="text-[11px] text-muted-foreground mt-1">Target: under $35</p>
         </div>
         <div className="card-elevated p-4">
@@ -102,74 +152,75 @@ export default function Targets() {
       {/* Metric bars */}
       <div className="space-y-4">
         <MetricBar
-          label="Cost per Appointment"
-          scope="All accounts, current period"
-          value={stats.avgCPA}
-          displayValue={formatCurrency(stats.avgCPA)}
+          label="Cost per appointment"
+          scope="Done For You accounts · target under $180"
+          value={stats.dfyAvgCPA}
+          displayValue={formatCurrency(stats.dfyAvgCPA)}
           zones={[
-            { flex: 3, color: 'bg-emerald-500', label: 'Great' },
-            { flex: 2, color: 'bg-amber-500', label: 'OK' },
-            { flex: 2, color: 'bg-red-500', label: 'High' },
+            { flex: 180, color: 'bg-emerald-500', label: 'Under $180' },
+            { flex: 60, color: 'bg-amber-500', label: '$180–240' },
+            { flex: 160, color: 'bg-red-500', label: 'Above $240' },
           ]}
-          scaleMax={500}
-          scaleLabels={['$0', '$180', '$300', '$500']}
-          description="Target: under $180. Green zone is $0–$214, yellow $214–$357, red $357+."
+          scaleMax={400}
+          scaleLabels={['$0', '$180', '$240', '$400']}
+          description="Our primary metric for DFY accounts. If CPA is red, check: are leads converting to appointments (lead-to-appt %), or is CPL too high?"
         />
         <MetricBar
-          label="Cost per Lead"
-          scope="All accounts, current period"
-          value={stats.avgCPL}
-          displayValue={formatCurrency(stats.avgCPL)}
+          label="Cost per lead"
+          scope="All accounts · target under $35"
+          value={stats.dfyAvgCPL}
+          displayValue={formatCurrency(stats.dfyAvgCPL)}
           zones={[
-            { flex: 3, color: 'bg-emerald-500', label: 'Great' },
-            { flex: 2, color: 'bg-amber-500', label: 'OK' },
-            { flex: 2, color: 'bg-red-500', label: 'High' },
+            { flex: 35, color: 'bg-emerald-500', label: 'Under $35' },
+            { flex: 20, color: 'bg-amber-500', label: '$35–55' },
+            { flex: 45, color: 'bg-red-500', label: 'Above $55' },
           ]}
           scaleMax={100}
-          scaleLabels={['$0', '$35', '$60', '$100']}
-          description="Target: under $35. Measures ad efficiency at generating raw leads."
+          scaleLabels={['$0', '$35', '$55', '$100']}
+          description="What each lead costs from Facebook. High CPL = ad creative or targeting issue. This is on the media buyer."
         />
         <MetricBar
-          label="Lead-to-Appointment Rate"
-          scope="All accounts, current period"
-          value={stats.leadToAppt}
-          displayValue={formatPercent(stats.leadToAppt)}
-          zones={[
-            { flex: 2, color: 'bg-red-500', label: 'Low' },
-            { flex: 2, color: 'bg-amber-500', label: 'OK' },
-            { flex: 3, color: 'bg-emerald-500', label: 'Strong' },
-          ]}
-          scaleMax={40}
-          scaleLabels={['0%', '5%', '15%', '40%']}
-          description="Target: above 15%. Higher is better — measures how well leads convert to booked appointments."
-        />
-        <MetricBar
-          label="Dials per Lead"
-          scope="All accounts, current period"
+          label="Dials per lead"
+          scope="Call center efficiency · sweet spot 5–20"
           value={stats.dialsPerLead}
           displayValue={stats.dialsPerLead.toFixed(1)}
           zones={[
-            { flex: 2, color: 'bg-red-500', label: 'Low' },
-            { flex: 3, color: 'bg-emerald-500', label: 'Good' },
-            { flex: 2, color: 'bg-amber-500', label: 'High' },
+            { flex: 5, color: 'bg-red-500', label: 'Under 5' },
+            { flex: 15, color: 'bg-emerald-500', label: '5–20' },
+            { flex: 20, color: 'bg-amber-500', label: '20–40' },
+            { flex: 20, color: 'bg-red-500', label: '40+' },
           ]}
-          scaleMax={20}
-          scaleLabels={['0', '4', '10', '20']}
-          description="Sweet spot: 4–10 dials per lead. Too low means leads aren't being worked; too high may indicate poor lead quality."
+          scaleMax={60}
+          scaleLabels={['0', '5', '20', '40', '60']}
+          description="Under 5 = not working leads hard enough. Over 40 = beating a dead list."
         />
         <MetricBar
-          label="Dial Booking Rate"
-          scope="All accounts, current period"
+          label="Lead-to-appointment rate"
+          scope="Funnel conversion · target above 15%"
+          value={stats.leadToAppt}
+          displayValue={formatPercent(stats.leadToAppt)}
+          zones={[
+            { flex: 5, color: 'bg-red-500', label: 'Under 5%' },
+            { flex: 10, color: 'bg-amber-500', label: '5–15%' },
+            { flex: 35, color: 'bg-emerald-500', label: 'Above 15%' },
+          ]}
+          scaleMax={50}
+          scaleLabels={['0%', '5%', '15%', '50%']}
+          description="What percentage of leads turn into booked appointments. Low rate = either bad leads (media buyer) or weak follow-up (setter)."
+        />
+        <MetricBar
+          label="Dial booking rate"
+          scope="Dials to appointments · target above 8%"
           value={stats.dialBookingRate}
           displayValue={formatPercent(stats.dialBookingRate)}
           zones={[
-            { flex: 2, color: 'bg-red-500', label: 'Low' },
-            { flex: 2, color: 'bg-amber-500', label: 'OK' },
-            { flex: 3, color: 'bg-emerald-500', label: 'Strong' },
+            { flex: 2, color: 'bg-red-500', label: 'Under 2%' },
+            { flex: 6, color: 'bg-amber-500', label: '2–8%' },
+            { flex: 12, color: 'bg-emerald-500', label: 'Above 8%' },
           ]}
           scaleMax={20}
-          scaleLabels={['0%', '3%', '7%', '20%']}
-          description="Target: above 7%. Percentage of dials that result in a booked appointment."
+          scaleLabels={['0%', '2%', '8%', '20%']}
+          description="Combines lead quality and setter skill into one number."
         />
       </div>
     </div>
