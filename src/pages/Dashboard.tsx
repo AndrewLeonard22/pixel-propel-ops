@@ -147,6 +147,8 @@ function AccountRow({ account }: { account: AccountSummary }) {
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatPercent(account.leadPercent)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.costPerAppt)}</td>
+        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.totalDials)}</td>
+        <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatPercent(account.dialToApptPercent)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.closed)}</td>
         <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.revenue)}</td>
       </tr>
