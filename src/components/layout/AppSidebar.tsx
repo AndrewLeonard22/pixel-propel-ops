@@ -1,4 +1,4 @@
-import { Home, Users, BarChart2, TrendingUp, Settings, Menu, X } from 'lucide-react';
+import { Home, TrendingUp, Target, Settings, Menu, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 
