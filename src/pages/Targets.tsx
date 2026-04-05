@@ -1,9 +1,25 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
 import { ConfigBanner } from '@/components/common/Banners';
-import { formatCurrency, formatPercent } from '@/lib/dataService';
+import { formatCurrency, formatPercent, buildAccountSummaries } from '@/lib/dataService';
 import { loadAccountMappings, getAccountMapping } from '@/lib/config';
 import type { AccountMapping } from '@/lib/types';
+import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
+
+type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months';
+
+function parseDateSafe(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
+  let d = new Date(normalized);
+  if (!isNaN(d.getTime())) return d;
+  const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
+  if (dateOnly && dateOnly !== dateStr) {
+    d = new Date(dateOnly);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
 
 function MetricBar({
   label, scope, value, displayValue, zones, scaleMax, description
@@ -40,8 +56,8 @@ function MetricBar({
       <div className="relative">
         <div className="flex rounded-md overflow-hidden h-5">
           {zones.map((z, i) => (
-            <div key={i} className={`${z.color} opacity-80 flex items-center justify-center`} style={{ flex: z.flex }}>
-              <span className="text-[9px] font-medium text-white/90">{z.label}</span>
+            <div key={i} className={`${z.color} opacity-80 flex items-center justify-center overflow-hidden`} style={{ flex: z.flex }}>
+              <span className="text-[9px] font-medium text-white/90 whitespace-nowrap overflow-hidden">{z.label}</span>
             </div>
           ))}
         </div>
@@ -55,61 +71,113 @@ function MetricBar({
 }
 
 export default function Targets() {
-  const { accounts, configured } = useData();
+  const { accounts, adSpend, appointments, callData, settings, configured } = useData();
+  const [datePreset, setDatePreset] = useState<DatePreset>('all');
+
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    switch (datePreset) {
+      case 'this_month':
+        return { from: startOfMonth(now), to: endOfMonth(now) };
+      case 'last_month': {
+        const last = subMonths(now, 1);
+        return { from: startOfMonth(last), to: endOfMonth(last) };
+      }
+      case 'last_3_months':
+        return { from: startOfMonth(subMonths(now, 2)), to: endOfMonth(now) };
+      default:
+        return { from: undefined, to: undefined };
+    }
+  }, [datePreset]);
+
+  const filteredAccounts = useMemo(() => {
+    if (!dateRange.from && !dateRange.to) return accounts;
+    const { from, to } = dateRange;
+    const filteredSpend = adSpend.filter(row => {
+      const d = parseDateSafe(row.date);
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+    const filteredAppts = appointments.filter(row => {
+      const d = parseDateSafe(row.dateAdded || row.appointmentDate);
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+    const filteredCalls = callData.filter(row => {
+      const d = parseDateSafe(row.timestamp);
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+    return buildAccountSummaries(filteredSpend, filteredAppts, settings, filteredCalls).accounts;
+  }, [accounts, adSpend, appointments, callData, settings, dateRange]);
 
   const stats = useMemo(() => {
-    if (accounts.length === 0) return null;
+    if (filteredAccounts.length === 0) return null;
 
     const mappings = loadAccountMappings();
 
-    // Split accounts by program type, excluding Paused and Churned
-    const dfyAccounts = accounts.filter(a => {
+    const dfyAccounts = filteredAccounts.filter(a => {
       const { program, status } = getAccountMapping(a.accountName, mappings);
       return status === 'Active' && program !== 'Done With You';
     });
-    const dwyAccounts = accounts.filter(a => {
+    const dwyAccounts = filteredAccounts.filter(a => {
       const { program, status } = getAccountMapping(a.accountName, mappings);
       return status === 'Active' && program === 'Done With You';
     });
     const activeAccounts = [...dfyAccounts, ...dwyAccounts];
 
-    // DFY metrics (CPA is the primary metric)
-    const dfySpend = dfyAccounts.reduce((s, a) => s + a.spend, 0);
-    const dfyLeads = dfyAccounts.reduce((s, a) => s + a.leads, 0);
+    // Use performanceSpend/performanceLeads so excluded campaigns don't inflate metrics
+    const dfyPerfSpend = dfyAccounts.reduce((s, a) => s + a.performanceSpend, 0);
+    const dfyPerfLeads = dfyAccounts.reduce((s, a) => s + a.performanceLeads, 0);
     const dfyAppts = dfyAccounts.reduce((s, a) => s + a.appointments, 0);
-    const dfyDials = dfyAccounts.reduce((s, a) => s + a.totalDials, 0);
 
-    // DWY metrics (CPL is the primary metric)
-    const dwySpend = dwyAccounts.reduce((s, a) => s + a.spend, 0);
-    const dwyLeads = dwyAccounts.reduce((s, a) => s + a.leads, 0);
+    const dwyPerfSpend = dwyAccounts.reduce((s, a) => s + a.performanceSpend, 0);
+    const dwyPerfLeads = dwyAccounts.reduce((s, a) => s + a.performanceLeads, 0);
 
-    // Overall metrics (active accounts only)
     const totalDials = activeAccounts.reduce((s, a) => s + a.totalDials, 0);
-    const totalLeads = activeAccounts.reduce((s, a) => s + a.leads, 0);
+    const totalPerfLeads = activeAccounts.reduce((s, a) => s + a.performanceLeads, 0);
     const totalAppts = activeAccounts.reduce((s, a) => s + a.appointments, 0);
 
     return {
-      dfyAvgCPA: dfyAppts > 0 ? dfySpend / dfyAppts : 0,
-      dfyAvgCPL: dfyLeads > 0 ? dfySpend / dfyLeads : 0,
-      dwyAvgCPL: dwyLeads > 0 ? dwySpend / dwyLeads : 0,
-      dialsPerLead: totalLeads > 0 ? totalDials / totalLeads : 0,
-      leadToAppt: totalLeads > 0 ? (totalAppts / totalLeads) * 100 : 0,
+      dfyAvgCPA: dfyAppts > 0 ? dfyPerfSpend / dfyAppts : 0,
+      dfyAvgCPL: dfyPerfLeads > 0 ? dfyPerfSpend / dfyPerfLeads : 0,
+      dwyAvgCPL: dwyPerfLeads > 0 ? dwyPerfSpend / dwyPerfLeads : 0,
+      dialsPerLead: totalPerfLeads > 0 ? totalDials / totalPerfLeads : 0,
+      leadToAppt: totalPerfLeads > 0 ? (totalAppts / totalPerfLeads) * 100 : 0,
       dialBookingRate: totalDials > 0 ? (totalAppts / totalDials) * 100 : 0,
     };
-  }, [accounts]);
+  }, [filteredAccounts]);
 
   if (!configured) return <ConfigBanner />;
   if (!stats) return null;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-foreground">Targets</h1>
-        <p className="text-sm text-muted-foreground mt-1">How you're performing against your benchmarks</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-foreground">Targets</h1>
+          <p className="text-sm text-muted-foreground mt-1">How you're performing against your benchmarks</p>
+        </div>
+        <select
+          value={datePreset}
+          onChange={e => setDatePreset(e.target.value as DatePreset)}
+          className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
+        >
+          <option value="all">All Time</option>
+          <option value="this_month">This Month</option>
+          <option value="last_month">Last Month</option>
+          <option value="last_3_months">Last 3 Months</option>
+        </select>
       </div>
 
       {/* Top summary cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="card-elevated p-4">
           <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">DFY Cost/Appt</p>
           <p className={`text-xl font-bold font-mono-tabular ${stats.dfyAvgCPA < 180 ? 'text-emerald-600' : stats.dfyAvgCPA <= 240 ? 'text-amber-600' : 'text-red-600'}`}>{formatCurrency(stats.dfyAvgCPA)}</p>

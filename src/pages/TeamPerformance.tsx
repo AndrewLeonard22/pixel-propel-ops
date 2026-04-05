@@ -20,7 +20,7 @@ export default function TeamPerformance() {
       {loading ? <TableSkeleton rows={4} /> : team.length === 0 ? <EmptyState message="No team data available" /> : (
         <>
           {/* Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {team.map(m => (
               <div key={m.name} className="card-elevated p-5 space-y-4">
                 <div className="flex items-center gap-3">

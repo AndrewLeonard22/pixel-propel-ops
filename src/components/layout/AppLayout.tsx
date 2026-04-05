@@ -31,7 +31,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-6 fade-in">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 fade-in">
           {children}
         </main>
       </div>

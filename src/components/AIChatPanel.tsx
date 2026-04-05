@@ -166,7 +166,7 @@ export default function AIChatPanel() {
   }
 
   return (
-    <div className="fixed bottom-5 right-5 z-40 w-96 h-[32rem] rounded-xl border bg-card shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed bottom-4 sm:bottom-5 right-4 sm:right-5 z-40 w-[calc(100vw-2rem)] sm:w-96 h-[70vh] sm:h-[32rem] rounded-xl border bg-card shadow-2xl flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
         <div className="flex items-center gap-2.5">

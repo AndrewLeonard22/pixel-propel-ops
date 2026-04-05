@@ -102,13 +102,13 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
         </div>
       </td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.spend)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.leads)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CPLBadge value={account.cpl} /></td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.totalDials)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.leads)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell"><CPLBadge value={account.cpl} /></td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.totalDials)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} /></td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.closed)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.revenue)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.closed)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatCurrency(account.revenue)}</td>
     </tr>
   );
 }
@@ -170,7 +170,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
       <div className="absolute inset-0 bg-black/40" />
       {/* Panel */}
       <div
-        className="relative w-full max-w-2xl bg-card border-l shadow-xl overflow-y-auto animate-in slide-in-from-right duration-300"
+        className="relative w-full sm:max-w-2xl bg-card border-l shadow-xl overflow-y-auto animate-in slide-in-from-right duration-300"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -186,7 +186,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
 
         <div className="p-6 space-y-6">
           {/* Section 1 — KPI Cards */}
-          <div className="grid grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Spend</p>
               <p className="text-lg font-bold font-mono-tabular text-foreground">{formatCurrency(account.spend)}</p>
@@ -788,29 +788,18 @@ export default function Dashboard() {
       ) : (
         <div className="overflow-y-auto max-h-[70vh]">
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
-              <colgroup>
-                <col />
-                <col style={{ width: '100px' }} />
-                <col style={{ width: '65px' }} />
-                <col style={{ width: '85px' }} />
-                <col style={{ width: '65px' }} />
-                <col style={{ width: '65px' }} />
-                <col style={{ width: '95px' }} />
-                <col style={{ width: '60px' }} />
-                <col style={{ width: '100px' }} />
-              </colgroup>
+            <table className="w-full border-collapse">
               <thead className="sticky top-0 z-20 bg-background shadow-sm">
                 <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '40px' }}>
                   <th className="text-left px-3 align-middle">Account</th>
                   <th className="text-right px-3 align-middle">Spend</th>
-                  <th className="text-right px-3 align-middle">Leads</th>
-                  <th className="text-right px-3 align-middle">CPL</th>
-                  <th className="text-right px-3 align-middle">Dials</th>
+                  <th className="text-right px-3 align-middle hidden md:table-cell">Leads</th>
+                  <th className="text-right px-3 align-middle hidden md:table-cell">CPL</th>
+                  <th className="text-right px-3 align-middle hidden md:table-cell">Dials</th>
                   <th className="text-right px-3 align-middle">Appts</th>
                   <th className="text-right px-3 align-middle">Cost/Appt</th>
-                  <th className="text-right px-3 align-middle">Closed</th>
-                  <th className="text-right px-3 align-middle">Revenue</th>
+                  <th className="text-right px-3 align-middle hidden md:table-cell">Closed</th>
+                  <th className="text-right px-3 align-middle hidden md:table-cell">Revenue</th>
                 </tr>
               </thead>
               <tbody>
