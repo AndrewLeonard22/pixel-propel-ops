@@ -45,7 +45,7 @@ function MetricBar({
             </div>
           ))}
         </div>
-        <div className="absolute top-0 h-5" style={{ left: `${markerPos}%` }}>
+        <div className="absolute top-0 h-5" style={{ left: `${markerPos}%`, transform: 'translateX(-50%)' }}>
           <div className="w-0.5 h-full bg-foreground rounded-full" />
         </div>
       </div>

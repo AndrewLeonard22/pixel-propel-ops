@@ -184,7 +184,7 @@ useEffect(() => {
   };
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-8 max-w-4xl">
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-bold">Settings</h1>
         {saved && <span className="text-success text-sm flex items-center gap-1 animate-in fade-in"><CheckCircle className="w-4 h-4" /> Saved</span>}

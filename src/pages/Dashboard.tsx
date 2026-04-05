@@ -94,7 +94,7 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
       className="cursor-pointer hover:bg-accent/30 transition-colors"
       style={perf ? { borderLeft: `3px solid hsl(var(--${perf === 'good' ? 'success' : perf === 'fair' ? 'warning' : 'destructive'}))` } : undefined}
     >
-      <td className="py-3 pl-3 pr-3">
+      <td className="py-3 px-3">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-sm truncate">{account.accountName}</span>
           <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
@@ -233,7 +233,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-indigo-400" style={{ width: '100%' }} />
                   </div>
-                  <span className="w-10 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.leads)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.leads)}</span>
                 </div>
                 {/* Lead to Appt conversion */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
@@ -246,7 +246,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-amber-400" style={{ width: `${Math.max(account.leads > 0 ? (account.appointments / account.leads) * 100 : 0, account.appointments > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-10 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.appointments)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.appointments)}</span>
                 </div>
                 {/* Show rate */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
@@ -259,7 +259,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-emerald-400" style={{ width: `${Math.max(account.leads > 0 ? (showedCount / account.leads) * 100 : 0, showedCount > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-10 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(showedCount)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(showedCount)}</span>
                 </div>
                 {/* Close rate */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
@@ -272,7 +272,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-emerald-600" style={{ width: `${Math.max(account.leads > 0 ? (account.closed / account.leads) * 100 : 0, account.closed > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-10 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.closed)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.closed)}</span>
                 </div>
               </div>
             )}
@@ -293,10 +293,10 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                       onClick={() => toggleCampaign(c.campaignId)}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-                          <span className="text-sm font-medium truncate max-w-[300px]">{c.campaignName}</span>
-                          {isExcluded && <span className="text-[10px] font-medium text-muted-foreground px-1.5 py-0.5 rounded bg-muted shrink-0">Excluded</span>}
+                        <div className="flex items-start gap-2 flex-1 min-w-0">
+                          {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5" />}
+                          <span className="text-sm font-medium leading-snug">{c.campaignName}</span>
+                          {isExcluded && <span className="text-[10px] font-medium text-muted-foreground px-1.5 py-0.5 rounded bg-muted shrink-0 mt-0.5">Excluded</span>}
                         </div>
                         <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
                           {!isExcluded && cPerf && <PerformanceBadge level={cPerf} />}
@@ -356,7 +356,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '32px' }}>
-                      <th className="text-left pl-2 align-middle">Setter</th>
+                      <th className="text-left px-2 align-middle">Setter</th>
                       <th className="text-left px-2 align-middle">Date</th>
                       <th className="text-left px-2 align-middle">Show Status</th>
                       <th className="text-left px-2 align-middle">Lead Valid</th>
@@ -366,7 +366,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <tbody>
                     {recentAppts.map((appt, i) => (
                       <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
-                        <td className="pl-2 py-1.5 text-foreground">{appt.setter || '—'}</td>
+                        <td className="px-2 py-1.5 text-foreground">{appt.setter || '—'}</td>
                         <td className="px-2 py-1.5 text-muted-foreground font-mono-tabular">{formatDate(appt.dateAdded || appt.appointmentDate)}</td>
                         <td className="px-2 py-1.5 text-muted-foreground">{appt.showStatus || '—'}</td>
                         <td className="px-2 py-1.5 text-muted-foreground">{appt.leadValid || '—'}</td>
@@ -802,7 +802,7 @@ export default function Dashboard() {
               </colgroup>
               <thead className="sticky top-0 z-20 bg-background shadow-sm">
                 <tr className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '40px' }}>
-                  <th className="text-left pl-3 align-middle">Account</th>
+                  <th className="text-left px-3 align-middle">Account</th>
                   <th className="text-right px-3 align-middle">Spend</th>
                   <th className="text-right px-3 align-middle">Leads</th>
                   <th className="text-right px-3 align-middle">CPL</th>
