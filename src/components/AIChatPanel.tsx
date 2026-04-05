@@ -2,22 +2,13 @@ import { useState, useRef, useEffect } from 'react';
 import { useData } from '@/hooks/useData';
 import { MessageCircle, X, Send, Loader2, Bot } from 'lucide-react';
 import { formatCurrency, formatNumber, formatPercent } from '@/lib/dataService';
+import { loadAccountMappings, getAccountMapping } from '@/lib/config';
 
 function buildContext(accounts: any[], settings: any): string {
-  const mappings = (() => {
-    try {
-      const stored = localStorage.getItem('accountMappings');
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  })();
-
-  const getMapping = (name: string) => {
-    const match = mappings.find((m: any) => m.sheetName?.trim().toLowerCase() === name.trim().toLowerCase());
-    return { program: match?.program || 'Done For You', status: match?.status || 'Active' };
-  };
+  const mappings = loadAccountMappings();
 
   const accountSummaries = accounts.map(a => {
-    const { program, status } = getMapping(a.accountName);
+    const { program, status } = getAccountMapping(a.accountName, mappings);
     const showedCount = a.appointmentList?.filter((apt: any) => {
       const s = (apt.showStatus || '').toLowerCase();
       return s === 'showed' || s === 'show';

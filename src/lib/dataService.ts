@@ -174,11 +174,30 @@ function isBlank(val: string | null | undefined): boolean {
 }
 
 export function getPerformance(
-  cpl: number, 
-  leadPercent: number, 
-  thresholds?: AppSettings["perfThresholds"]
+  cpl: number,
+  leadPercent: number,
+  thresholds?: AppSettings["perfThresholds"],
+  program?: string,
+  costPerAppt?: number,
+  appointments?: number,
 ): PerformanceLevel {
-  const t = thresholds || { goodCpl: 25, goodLeadPercent: 5, poorCpl: 50, poorLeadPercent: 2 };
+  if (program !== undefined) {
+    // Program-aware: mirrors getPerfByProgram in Dashboard.tsx
+    if (program === 'Done With You') {
+      if (cpl === 0) return 'fair';
+      if (cpl < 35) return 'good';
+      if (cpl <= 55) return 'fair';
+      return 'poor';
+    }
+    // DFY / Other: judge on cost per appointment
+    const cpa = costPerAppt ?? 0;
+    const appts = appointments ?? 0;
+    if (cpa === 0 || appts === 0) return 'fair';
+    if (cpa < 180) return 'good';
+    if (cpa <= 240) return 'fair';
+    return 'poor';
+  }
+  const t = thresholds || { goodCpl: 35, goodLeadPercent: 15, poorCpl: 55, poorLeadPercent: 5 };
   if (cpl < t.goodCpl && leadPercent > t.goodLeadPercent) return 'good';
   if (cpl > t.poorCpl || leadPercent < t.poorLeadPercent) return 'poor';
   return 'fair';
@@ -424,7 +443,7 @@ export function buildAccountSummaries(
       const cAppts = cData.appts.length;
       const cClosed = cData.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
       const cRevenue = cData.appts.reduce((s, a) => s + a.closedRevenue, 0);
-      const cQualified = cData.appts.filter(a => a.leadValid?.toLowerCase() === 'yes' || a.leadValid?.toLowerCase() === 'true').length;
+      const cQualified = cData.appts.filter(a => a.leadValid?.toLowerCase() === 'valid').length;
       const cCpl = cLeads > 0 ? cSpend / cLeads : 0;
       const cLeadPct = cLeads > 0 ? (cAppts / cLeads) * 100 : 0;
 
@@ -484,7 +503,7 @@ export function buildAccountSummaries(
           costPerAppt: asAppts > 0 ? asSpend / asAppts : 0,
           closed: asClosed,
           revenue: asRevenue,
-          performance: getPerformance(asCpl, asLeadPct, thresholds),
+          performance: getPerformance(asCpl, asLeadPct, thresholds, alias?.program, asAppts > 0 ? asSpend / asAppts : 0, asAppts),
           adCount: adNames.size,
         });
       }
@@ -503,7 +522,7 @@ export function buildAccountSummaries(
         qualPercent: cAppts > 0 ? (cQualified / cAppts) * 100 : 0,
         closed: cClosed,
         revenue: cRevenue,
-        performance: getPerformance(cCpl, cLeadPct, thresholds),
+        performance: getPerformance(cCpl, cLeadPct, thresholds, alias?.program, cAppts > 0 ? cSpend / cAppts : 0, cAppts),
         adSets,
       });
     }
@@ -524,7 +543,7 @@ export function buildAccountSummaries(
     const closed = performanceAppts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
     const revenue = performanceAppts.reduce((s, a) => s + a.closedRevenue, 0);
     const billed = performanceAppts.reduce((s, a) => s + a.amountCharged, 0);
-    const qualified = performanceAppts.filter(a => a.leadValid?.toLowerCase() === 'yes' || a.leadValid?.toLowerCase() === 'true').length;
+    const qualified = performanceAppts.filter(a => a.leadValid?.toLowerCase() === 'valid').length;
 
     const cpl = performanceLeads > 0 ? performanceSpend / performanceLeads : 0;
     const leadPct = performanceLeads > 0 ? (totalAppts / performanceLeads) * 100 : 0;
