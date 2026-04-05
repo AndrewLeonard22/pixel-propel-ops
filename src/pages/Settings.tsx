@@ -3,7 +3,13 @@ import { useData } from '@/hooks/useData';
 import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData } from '@/lib/dataService';
 import type { AppSettings, AccountMapping } from '@/lib/types';
-import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2, Search } from 'lucide-react';
+
+function isJunkAccount(name: string): boolean {
+  return /^[\d,\s]+(USD)?$/i.test(name.trim());
+}
+
+const STATUS_ORDER: Record<string, number> = { Active: 0, Paused: 1, Churned: 2 };
 
 const REQUIRED_MAPPINGS = [
   'Client Name', 'Campaign Name', 'Campaign ID', 'Ad Set Name', 'Ad Set ID',
@@ -26,6 +32,7 @@ export default function SettingsPage() {
   const [callCenterError, setCallCenterError] = useState('');
   const [callCenterCount, setCallCenterCount] = useState(0);
   const [accountMappings, setAccountMappings] = useState<AccountMapping[]>(loadAccountMappings);
+  const [mappingSearch, setMappingSearch] = useState('');
   const isFirstRender = useRef(true);
 
   // On mount, load the latest account mappings from the DB to ensure we have the most up-to-date aliases
@@ -59,7 +66,7 @@ useEffect(() => {
       const key = name.trim().toLowerCase();
       if (!existing.has(key)) {
         // Only add accounts that don't already exist — never touch existing ones
-        updated.push({ sheetName: name, airtableName: name, program: 'Done For You' as const, mediaBuyer: '', status: 'Active' as const });
+        updated.push({ sheetName: name, airtableName: name, program: 'Done For You' as const, mediaBuyer: '', status: isJunkAccount(name) ? 'Churned' as const : 'Active' as const });
         changed = true;
       }
     }
@@ -68,6 +75,29 @@ useEffect(() => {
     return changed ? updated : prev;
   });
 }, [uniqueSheetAccounts]);
+
+  // Sorted + filtered view of accountMappings for display (does not affect stored order)
+  const sortedMappings = useMemo(() => {
+    return accountMappings
+      .map((mapping, index) => ({ mapping, index }))
+      .sort((a, b) => {
+        const aJunk = isJunkAccount(a.mapping.sheetName);
+        const bJunk = isJunkAccount(b.mapping.sheetName);
+        if (aJunk !== bJunk) return aJunk ? 1 : -1;
+        const statusDiff = (STATUS_ORDER[a.mapping.status] ?? 2) - (STATUS_ORDER[b.mapping.status] ?? 2);
+        if (statusDiff !== 0) return statusDiff;
+        return a.mapping.sheetName.localeCompare(b.mapping.sheetName);
+      });
+  }, [accountMappings]);
+
+  const displayedMappings = useMemo(() => {
+    const q = mappingSearch.trim().toLowerCase();
+    if (!q) return sortedMappings;
+    return sortedMappings.filter(({ mapping }) =>
+      mapping.sheetName.toLowerCase().includes(q) ||
+      mapping.airtableName.toLowerCase().includes(q)
+    );
+  }, [sortedMappings, mappingSearch]);
 
   // Autosave: debounce form + accountMappings changes
   const performSave = useCallback(async (formToSave: AppSettings, mappingsToSave: AccountMapping[]) => {
@@ -356,51 +386,84 @@ useEffect(() => {
           <p className="text-xs text-muted-foreground">
             Map each Ad Account Name to the matching Airtable Name. Set program, media buyer, and status for Dashboard grouping.
           </p>
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <span className="flex-1">Ad Account Name</span>
-            <span className="flex-1">Airtable Name</span>
-            <span className="w-36">Program</span>
-            <span className="w-32">Media Buyer</span>
-            <span className="w-28">Status</span>
+
+          {/* Search */}
+          <div className="relative w-56">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Filter accounts..."
+              value={mappingSearch}
+              onChange={e => setMappingSearch(e.target.value)}
+              className="pl-8 pr-3 py-1.5 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 w-full"
+            />
           </div>
-          {accountMappings.map((mapping, i) => (
-            <div key={mapping.sheetName} className="flex items-center gap-2">
-              <span className="flex-1 px-3 py-2 text-sm rounded-lg border bg-muted/50 truncate">
-                {mapping.sheetName}
-              </span>
-              <input
-                type="text"
-                value={mapping.airtableName}
-                onChange={e => updateAccountMapping(i, { airtableName: e.target.value })}
-                className="flex-1 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-              />
-              <select
-                value={mapping.program || 'Done For You'}
-                onChange={e => updateAccountMapping(i, { program: e.target.value as AccountMapping['program'] })}
-                className="w-36 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <div style={{ minWidth: '760px' }}>
+              {/* Header */}
+              <div
+                className="grid gap-2 text-xs font-medium text-muted-foreground mb-2 px-1"
+                style={{ gridTemplateColumns: 'minmax(220px,1fr) minmax(220px,1fr) 144px 128px 112px' }}
               >
-                <option value="Done For You">Done For You</option>
-                <option value="Done With You">Done With You</option>
-                <option value="Other">Other</option>
-              </select>
-              <input
-                type="text"
-                value={mapping.mediaBuyer || ''}
-                onChange={e => updateAccountMapping(i, { mediaBuyer: e.target.value })}
-                placeholder="Unassigned"
-                className="w-32 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-              />
-              <select
-                value={mapping.status || 'Active'}
-                onChange={e => updateAccountMapping(i, { status: e.target.value as AccountMapping['status'] })}
-                className="w-28 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
-              >
-                <option value="Active">Active</option>
-                <option value="Paused">Paused</option>
-                <option value="Churned">Churned</option>
-              </select>
+                <span>Ad Account Name</span>
+                <span>Airtable Name</span>
+                <span>Program</span>
+                <span>Media Buyer</span>
+                <span>Status</span>
+              </div>
+
+              {/* Rows */}
+              <div className="space-y-2">
+                {displayedMappings.map(({ mapping, index }) => (
+                  <div
+                    key={mapping.sheetName}
+                    className="grid gap-2 items-center"
+                    style={{ gridTemplateColumns: 'minmax(220px,1fr) minmax(220px,1fr) 144px 128px 112px' }}
+                  >
+                    <span className="px-3 py-2 text-sm rounded-lg border bg-muted/50 truncate" title={mapping.sheetName}>
+                      {mapping.sheetName}
+                    </span>
+                    <input
+                      type="text"
+                      value={mapping.airtableName}
+                      onChange={e => updateAccountMapping(index, { airtableName: e.target.value })}
+                      className="px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 min-w-0"
+                    />
+                    <select
+                      value={mapping.program || 'Done For You'}
+                      onChange={e => updateAccountMapping(index, { program: e.target.value as AccountMapping['program'] })}
+                      className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
+                    >
+                      <option value="Done For You">Done For You</option>
+                      <option value="Done With You">Done With You</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={mapping.mediaBuyer || ''}
+                      onChange={e => updateAccountMapping(index, { mediaBuyer: e.target.value })}
+                      placeholder="Unassigned"
+                      className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+                    />
+                    <select
+                      value={mapping.status || 'Active'}
+                      onChange={e => updateAccountMapping(index, { status: e.target.value as AccountMapping['status'] })}
+                      className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Paused">Paused</option>
+                      <option value="Churned">Churned</option>
+                    </select>
+                  </div>
+                ))}
+                {displayedMappings.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-2">No accounts match your filter.</p>
+                )}
+              </div>
             </div>
-          ))}
+          </div>
         </section>
       )}
 
