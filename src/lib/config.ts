@@ -47,6 +47,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   anthropicApiKey: '',
   excludedCampaigns: [],
+  setterBonusRates: [],
 };
 
 // --- localStorage helpers (fallback/cache) ---

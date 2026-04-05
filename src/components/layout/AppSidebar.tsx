@@ -1,11 +1,12 @@
-import { Home, TrendingUp, Target, Settings, Menu, X } from 'lucide-react';
+import { Home, TrendingUp, Target, UserCheck, Settings, Menu, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: Home },
-  { label: 'Targets', path: '/targets', icon: Target },
   { label: 'Team Performance', path: '/team', icon: TrendingUp },
+  { label: 'Agents', path: '/agents', icon: UserCheck },
+  { label: 'Targets', path: '/targets', icon: Target },
 ];
 
 export default function AppSidebar() {

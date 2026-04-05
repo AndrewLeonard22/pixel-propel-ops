@@ -18,7 +18,7 @@ const REQUIRED_MAPPINGS = [
 ];
 
 export default function SettingsPage() {
-  const { settings, setSettings, adSpend, refresh } = useData();
+  const { settings, setSettings, adSpend, accounts, refresh } = useData();
   const [form, setForm] = useState<AppSettings>(settings);
   const [showToken, setShowToken] = useState(false);
   const [sheetStatus, setSheetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -134,6 +134,29 @@ useEffect(() => {
       ...prev,
       columnMappings: { ...prev.columnMappings, [key]: value },
     }));
+  };
+
+  const uniqueSetters = useMemo(() => {
+    const names = new Set<string>();
+    for (const account of accounts) {
+      for (const appt of account.appointmentList) {
+        if (appt.setter?.trim()) names.add(appt.setter.trim());
+      }
+    }
+    return Array.from(names).sort();
+  }, [accounts]);
+
+  const updateSetterRate = (setterName: string, rate: number) => {
+    setForm(prev => {
+      const existing = prev.setterBonusRates || [];
+      const idx = existing.findIndex(r => r.setterName === setterName);
+      if (idx >= 0) {
+        const updated = [...existing];
+        updated[idx] = { setterName, rate };
+        return { ...prev, setterBonusRates: updated };
+      }
+      return { ...prev, setterBonusRates: [...existing, { setterName, rate }] };
+    });
   };
 
   const updateAccountMapping = (index: number, patch: Partial<AccountMapping>) => {
@@ -467,7 +490,38 @@ useEffect(() => {
         </section>
       )}
 
-      {/* Section 5: Account Groups */}
+      {/* Section 5: Setter Bonus Rates */}
+      {uniqueSetters.length > 0 && (
+        <section className="card-elevated p-6 space-y-4">
+          <div>
+            <h2 className="font-semibold text-base">Setter Bonus Rates</h2>
+            <p className="text-xs text-muted-foreground mt-1">Dollar amount paid per valid appointment for each setter. Used on the Agents page.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {uniqueSetters.map(setterName => {
+              const rateConfig = (form.setterBonusRates || []).find(r => r.setterName === setterName);
+              const rate = rateConfig?.rate ?? 5;
+              return (
+                <div key={setterName} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border bg-muted/20">
+                  <span className="text-sm font-medium truncate">{setterName}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-sm text-muted-foreground">$</span>
+                    <input
+                      type="number"
+                      value={rate}
+                      min={0}
+                      onChange={e => updateSetterRate(setterName, parseFloat(e.target.value) || 0)}
+                      className="w-16 px-2 py-1 text-sm text-right rounded-md border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 font-mono-tabular"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Section 6: Account Groups */}
       <section className="card-elevated p-6 space-y-4">
         <h2 className="font-semibold text-base">Account Groups</h2>
         <label className="flex items-center gap-3 cursor-pointer">

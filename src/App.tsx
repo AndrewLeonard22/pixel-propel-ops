@@ -9,6 +9,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import Dashboard from "./pages/Dashboard";
 import Targets from "./pages/Targets";
 import TeamPerformance from "./pages/TeamPerformance";
+import Agents from "./pages/Agents";
 import SettingsPage from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -28,6 +29,7 @@ const App = () => (
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/targets" element={<Targets />} />
                 <Route path="/team" element={<TeamPerformance />} />
+                <Route path="/agents" element={<Agents />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
