@@ -11,6 +11,7 @@ import Targets from "./pages/Targets";
 import TeamPerformance from "./pages/TeamPerformance";
 import Agents from "./pages/Agents";
 import SettingsPage from "./pages/Settings";
+import AppointmentsCalendar from "./pages/AppointmentsCalendar";
 import NotFound from "./pages/NotFound";
 
 
@@ -30,6 +31,7 @@ const App = () => (
                 <Route path="/targets" element={<Targets />} />
                 <Route path="/team" element={<TeamPerformance />} />
                 <Route path="/agents" element={<Agents />} />
+                <Route path="/calendar" element={<AppointmentsCalendar />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
