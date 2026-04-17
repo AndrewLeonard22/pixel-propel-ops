@@ -1,21 +1,25 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useData } from '@/hooks/useData';
-import { ChevronLeft, ChevronRight, X, Calendar, Clock, User, Tag } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, subMonths, isSameDay, isSameMonth, isToday, isPast, isFuture, parseISO } from 'date-fns';
+import {
+  ChevronLeft, ChevronRight, RefreshCw, CalendarDays, Users,
+  TrendingUp, Clock, ChevronDown, Check,
+} from 'lucide-react';
+import {
+  format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
+  addDays, subMonths, addMonths, isSameDay, isSameMonth, isToday,
+  isPast, parseISO,
+} from 'date-fns';
 import type { AppointmentRow } from '@/lib/types';
 
 function parseDateSafe(dateStr: string): Date | null {
   if (!dateStr) return null;
-  // Try ISO parse first
   try {
     const d = parseISO(dateStr);
     if (!isNaN(d.getTime())) return d;
   } catch {}
-  // Try normalizing am/pm spacing
   const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
   const d = new Date(normalized);
   if (!isNaN(d.getTime())) return d;
-  // Try date-only
   const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
   if (dateOnly && dateOnly !== dateStr) {
     const d2 = new Date(dateOnly);
@@ -24,360 +28,430 @@ function parseDateSafe(dateStr: string): Date | null {
   return null;
 }
 
-function ShowStatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status: string }) {
   const s = (status || '').toLowerCase();
-  let bg = 'bg-muted text-muted-foreground';
-  if (s === 'showed' || s === 'show') bg = 'bg-emerald-100 text-emerald-700';
-  else if (s === 'no show' || s === 'noshow' || s === 'no-show') bg = 'bg-red-100 text-red-600';
-  else if (s === 'pending' || s === 'scheduled') bg = 'bg-blue-100 text-blue-700';
+  let cls = 'bg-gray-100 text-gray-500';
+  if (s === 'showed' || s === 'show')                cls = 'bg-green-50 text-green-700';
+  else if (s === 'no show' || s === 'noshow' || s === 'no-show') cls = 'bg-red-50 text-red-600';
+  else if (s === 'cancelled' || s === 'canceled')    cls = 'bg-orange-50 text-orange-600';
+  else if (s === 'rescheduled')                      cls = 'bg-blue-50 text-blue-600';
+  else if (s === 'pending' || s === 'scheduled')     cls = 'bg-blue-50 text-blue-600';
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${bg}`}>
-      {status || 'Unknown'}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
+      {status || 'Pending'}
     </span>
   );
 }
 
-interface DayAppointments {
-  date: Date;
-  appointments: AppointmentRow[];
-}
-
 export default function AppointmentsCalendar() {
-  const { appointments, accounts, loading } = useData();
+  const { appointments, loading, refresh } = useData();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
-  const [accountFilter, setAccountFilter] = useState('all');
+  const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set());
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
 
-  // Filter appointments by account
-  const filteredAppointments = useMemo(() => {
-    if (accountFilter === 'all') return appointments;
-    return appointments.filter(a => {
-      const client = (a.client || '').toLowerCase().trim();
-      const account = accountFilter.toLowerCase().trim();
-      return client === account || client.includes(account) || account.includes(client);
-    });
-  }, [appointments, accountFilter]);
+  // Unique client names from appointments
+  const clientNames = useMemo(() => {
+    const names = new Set<string>();
+    appointments.forEach(a => { if (a.client) names.add(a.client); });
+    return Array.from(names).sort();
+  }, [appointments]);
 
-  // Build a map of date string → appointments
-  const appointmentsByDate = useMemo(() => {
-    const map = new Map<string, AppointmentRow[]>();
-    for (const appt of filteredAppointments) {
-      const d = parseDateSafe(appt.appointmentDate || appt.dateAdded);
-      if (!d) continue;
-      const key = format(d, 'yyyy-MM-dd');
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(appt);
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setFilterOpen(false);
+      }
     }
-    return map;
-  }, [filteredAppointments]);
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
-  // Build calendar grid for current month
+  const allSelected = selectedClients.size === 0;
+
+  function toggleClient(name: string) {
+    setSelectedClients(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+    setSelectedDay(null);
+  }
+
+  function toggleAll() {
+    setSelectedClients(new Set());
+    setSelectedDay(null);
+  }
+
+  const filtered = useMemo(() => {
+    if (selectedClients.size === 0) return appointments;
+    return appointments.filter(a => a.client && selectedClients.has(a.client));
+  }, [appointments, selectedClients]);
+
+  // date key → appointments
+  const apptMap = useMemo(() => {
+    const map = new Map<string, AppointmentRow[]>();
+    filtered.forEach(a => {
+      const d = parseDateSafe(a.appointmentDate || a.dateAdded);
+      if (!d) return;
+      const k = format(d, 'yyyy-MM-dd');
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(a);
+    });
+    return map;
+  }, [filtered]);
+
+  // Calendar grid days
   const calendarDays = useMemo(() => {
     const start = startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 0 });
-    const end = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 0 });
+    const end   = endOfWeek(endOfMonth(currentMonth), { weekStartsOn: 0 });
     const days: Date[] = [];
     let d = start;
-    while (d <= end) {
-      days.push(d);
-      d = addDays(d, 1);
-    }
+    while (d <= end) { days.push(d); d = addDays(d, 1); }
     return days;
   }, [currentMonth]);
 
-  // Stats for current month
-  const monthStats = useMemo(() => {
-    const monthStart = startOfMonth(currentMonth);
-    const monthEnd = endOfMonth(currentMonth);
-    const now = new Date();
-    let total = 0, upcoming = 0, past = 0, showed = 0;
-    for (const appt of filteredAppointments) {
-      const d = parseDateSafe(appt.appointmentDate || appt.dateAdded);
-      if (!d || d < monthStart || d > monthEnd) continue;
+  // Month stats
+  const stats = useMemo(() => {
+    const mStart = startOfMonth(currentMonth);
+    const mEnd   = endOfMonth(currentMonth);
+    const now    = new Date();
+    let total = 0, upcoming = 0, showed = 0;
+    filtered.forEach(a => {
+      const d = parseDateSafe(a.appointmentDate || a.dateAdded);
+      if (!d || d < mStart || d > mEnd) return;
       total++;
       if (d > now) upcoming++;
-      else past++;
-      const s = (appt.showStatus || '').toLowerCase();
+      const s = (a.showStatus || '').toLowerCase();
       if (s === 'showed' || s === 'show') showed++;
-    }
-    return { total, upcoming, past, showed };
-  }, [filteredAppointments, currentMonth]);
+    });
+    return { total, upcoming, past: total - upcoming, showed };
+  }, [filtered, currentMonth]);
 
-  const selectedDayAppts = useMemo(() => {
+  // Selected day appointments, sorted by time
+  const selectedAppts = useMemo(() => {
     if (!selectedDay) return [];
     const key = format(selectedDay, 'yyyy-MM-dd');
-    return appointmentsByDate.get(key) || [];
-  }, [selectedDay, appointmentsByDate]);
+    return (apptMap.get(key) || []).slice().sort((a, b) => {
+      const da = parseDateSafe(a.appointmentDate || a.dateAdded);
+      const db = parseDateSafe(b.appointmentDate || b.dateAdded);
+      return (da?.getTime() || 0) - (db?.getTime() || 0);
+    });
+  }, [selectedDay, apptMap]);
 
-  const getApptCount = (day: Date) => {
-    const key = format(day, 'yyyy-MM-dd');
-    return appointmentsByDate.get(key)?.length || 0;
-  };
+  const today = new Date();
 
   return (
-    <div className="space-y-6 w-full">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Appointments Calendar</h1>
-        <select
-          value={accountFilter}
-          onChange={e => setAccountFilter(e.target.value)}
-          className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-        >
-          <option value="all">All Accounts</option>
-          {accounts.map(a => (
-            <option key={a.accountName} value={a.accountName}>{a.accountName}</option>
-          ))}
-        </select>
-      </div>
+    <div className="space-y-5 fade-in">
 
-      {/* Month stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="card-elevated p-4">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">This Month</p>
-          <p className="text-2xl font-bold font-mono-tabular text-foreground">{monthStats.total}</p>
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-foreground tracking-tight">Appointments Calendar</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">All accounts · appointment overview</p>
         </div>
-        <div className="card-elevated p-4">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Upcoming</p>
-          <p className="text-2xl font-bold font-mono-tabular text-blue-500">{monthStats.upcoming}</p>
-        </div>
-        <div className="card-elevated p-4">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Past</p>
-          <p className="text-2xl font-bold font-mono-tabular text-muted-foreground">{monthStats.past}</p>
-        </div>
-        <div className="card-elevated p-4">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Showed</p>
-          <p className="text-2xl font-bold font-mono-tabular text-emerald-500">{monthStats.showed}</p>
-        </div>
-      </div>
-
-      {/* Calendar */}
-      <div className="card-elevated overflow-hidden">
-        {/* Month header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <button
-            onClick={() => setCurrentMonth(m => subMonths(m, 1))}
-            className="p-1.5 rounded-md hover:bg-muted transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4 text-muted-foreground" />
-          </button>
-          <h2 className="text-base font-semibold text-foreground">
-            {format(currentMonth, 'MMMM yyyy')}
-          </h2>
-          <button
-            onClick={() => setCurrentMonth(m => addMonths(m, 1))}
-            className="p-1.5 rounded-md hover:bg-muted transition-colors"
-          >
-            <ChevronRight className="w-4 h-4 text-muted-foreground" />
-          </button>
-        </div>
-
-        {/* Day-of-week headers */}
-        <div className="grid grid-cols-7 border-b border-border">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-            <div key={day} className="py-2 text-center text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-              {day}
-            </div>
-          ))}
-        </div>
-
-        {/* Calendar grid */}
-        {loading ? (
-          <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">Loading appointments...</div>
-        ) : (
-          <div className="grid grid-cols-7">
-            {calendarDays.map((day, idx) => {
-              const count = getApptCount(day);
-              const inMonth = isSameMonth(day, currentMonth);
-              const isSelected = selectedDay ? isSameDay(day, selectedDay) : false;
-              const today = isToday(day);
-              const past = isPast(day) && !today;
-              const future = isFuture(day);
-
-              return (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    if (count > 0) setSelectedDay(isSelected ? null : day);
-                  }}
-                  className={`
-                    min-h-[72px] p-2 text-left border-b border-r border-border/50 transition-colors relative
-                    ${!inMonth ? 'opacity-30' : ''}
-                    ${isSelected ? 'bg-primary/10 ring-1 ring-inset ring-primary/30' : count > 0 ? 'hover:bg-accent/30 cursor-pointer' : 'cursor-default'}
-                    ${idx % 7 === 6 ? 'border-r-0' : ''}
-                    ${idx >= calendarDays.length - 7 ? 'border-b-0' : ''}
-                  `}
-                >
-                  {/* Day number */}
-                  <span className={`
-                    inline-flex items-center justify-center w-7 h-7 rounded-full text-sm font-medium
-                    ${today ? 'bg-primary text-primary-foreground' : 'text-foreground'}
-                    ${!inMonth ? 'text-muted-foreground' : ''}
-                  `}>
-                    {format(day, 'd')}
-                  </span>
-
-                  {/* Appointment dots/count */}
-                  {count > 0 && inMonth && (
-                    <div className="mt-1 flex flex-wrap gap-0.5">
-                      {count <= 3 ? (
-                        Array.from({ length: count }).map((_, i) => (
-                          <span
-                            key={i}
-                            className={`w-1.5 h-1.5 rounded-full ${past ? 'bg-muted-foreground/50' : future || today ? 'bg-blue-500' : 'bg-muted-foreground/50'}`}
-                          />
-                        ))
-                      ) : (
-                        <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${past && !today ? 'bg-muted text-muted-foreground' : 'bg-blue-100 text-blue-700'}`}>
-                          {count}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-blue-500" /> Upcoming
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-muted-foreground/50" /> Past
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-flex w-5 h-5 rounded-full bg-primary items-center justify-center text-[9px] text-primary-foreground font-bold">·</span> Today
-        </span>
-      </div>
-
-      {/* Selected day panel */}
-      {selectedDay && (
-        <div className="card-elevated overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">
-                {format(selectedDay, 'EEEE, MMMM d, yyyy')}
-              </h3>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-                {selectedDayAppts.length} appointment{selectedDayAppts.length !== 1 ? 's' : ''}
+        <div className="flex items-center gap-2">
+          {/* Multi-select client filter */}
+          <div className="relative" ref={filterRef}>
+            <button
+              onClick={() => setFilterOpen(o => !o)}
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-border bg-white hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <Users size={13} className="text-muted-foreground" />
+              <span className="font-medium">
+                {allSelected
+                  ? 'All Accounts'
+                  : selectedClients.size === 1
+                  ? Array.from(selectedClients)[0]
+                  : `${selectedClients.size} accounts`}
               </span>
+              {!allSelected && (
+                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold">
+                  {selectedClients.size}
+                </span>
+              )}
+              <ChevronDown size={13} className={`text-muted-foreground transition-transform ${filterOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {filterOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-64 bg-white border border-border rounded-xl shadow-lg z-30 overflow-hidden">
+                <button
+                  onClick={toggleAll}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors border-b border-border"
+                >
+                  <span className={`w-4 h-4 rounded flex items-center justify-center border flex-shrink-0 transition-colors ${allSelected ? 'bg-primary border-primary' : 'border-border'}`}>
+                    {allSelected && <Check size={10} className="text-white" strokeWidth={3} />}
+                  </span>
+                  <span className="text-sm font-semibold text-foreground">All Accounts</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{appointments.length}</span>
+                </button>
+                <div className="max-h-64 overflow-y-auto py-1">
+                  {clientNames.map(name => {
+                    const checked = selectedClients.has(name);
+                    const count = appointments.filter(a => a.client === name).length;
+                    return (
+                      <button
+                        key={name}
+                        onClick={() => toggleClient(name)}
+                        className="w-full flex items-center gap-3 px-4 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <span className={`w-4 h-4 rounded flex items-center justify-center border flex-shrink-0 transition-colors ${checked ? 'bg-primary border-primary' : 'border-border'}`}>
+                          {checked && <Check size={10} className="text-white" strokeWidth={3} />}
+                        </span>
+                        <span className="text-sm text-foreground truncate text-left">{name}</span>
+                        <span className="ml-auto text-xs text-muted-foreground flex-shrink-0">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => refresh()}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-border bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'This Month', value: stats.total,    icon: CalendarDays, color: 'text-foreground' },
+          { label: 'Upcoming',   value: stats.upcoming, icon: Clock,        color: 'text-primary' },
+          { label: 'Past',       value: stats.past,     icon: Users,        color: 'text-muted-foreground' },
+          { label: 'Showed Up',  value: stats.showed,   icon: TrendingUp,   color: 'text-green-600' },
+        ].map(s => (
+          <div key={s.label} className="card-elevated px-4 py-4 sm:px-5 sm:py-5">
+            <s.icon size={15} className="text-muted-foreground mb-3" strokeWidth={1.5} />
+            <div className={`text-2xl sm:text-[1.75rem] font-bold tracking-tight leading-none tabular-nums ${loading ? 'text-muted-foreground/30' : s.color}`}>
+              {loading ? '—' : s.value}
             </div>
-            <button onClick={() => setSelectedDay(null)} className="p-1.5 rounded-md hover:bg-muted transition-colors">
-              <X className="w-4 h-4 text-muted-foreground" />
+            <div className="text-[11px] sm:text-xs font-medium text-muted-foreground mt-2">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar + detail — two column on lg+ */}
+      <div className="flex flex-col lg:flex-row gap-4">
+
+        {/* Calendar card */}
+        <div className="card-elevated flex-1 min-w-0 overflow-hidden">
+
+          {/* Month nav */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <button
+              onClick={() => { setCurrentMonth(m => subMonths(m, 1)); setSelectedDay(null); }}
+              className="p-1.5 rounded-lg hover:bg-slate-50 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-foreground">{format(currentMonth, 'MMMM yyyy')}</span>
+              <button
+                onClick={() => { setCurrentMonth(new Date()); setSelectedDay(null); }}
+                className="text-[11px] font-semibold text-primary hover:text-primary/70 transition-colors px-2 py-1 rounded-md hover:bg-primary/5"
+              >
+                Today
+              </button>
+            </div>
+            <button
+              onClick={() => { setCurrentMonth(m => addMonths(m, 1)); setSelectedDay(null); }}
+              className="p-1.5 rounded-lg hover:bg-slate-50 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <ChevronRight size={16} />
             </button>
           </div>
 
-          <div className="divide-y divide-border">
-            {selectedDayAppts.length === 0 ? (
-              <p className="px-5 py-4 text-sm text-muted-foreground">No appointments on this day.</p>
-            ) : (
-              selectedDayAppts.map((appt, i) => (
-                <div key={i} className="px-5 py-3 flex flex-wrap items-start gap-x-6 gap-y-1.5 hover:bg-muted/20 transition-colors">
-                  <div className="flex items-center gap-2 min-w-[160px]">
-                    <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-sm font-semibold text-foreground">{appt.client || '—'}</span>
-                  </div>
-                  {appt.setter && (
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <User className="w-3.5 h-3.5 shrink-0" />
-                      <span>{appt.setter}</span>
-                    </div>
-                  )}
-                  {(appt.appointmentDate || appt.dateAdded) && (
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono-tabular">
-                      <Clock className="w-3.5 h-3.5 shrink-0" />
-                      <span>{appt.appointmentDate || appt.dateAdded}</span>
-                    </div>
-                  )}
-                  <ShowStatusBadge status={appt.showStatus} />
-                  {appt.leadValid && (
-                    <span className="text-xs text-muted-foreground">
-                      Lead: <span className="text-foreground font-medium">{appt.leadValid}</span>
-                    </span>
-                  )}
-                  {(appt.closedRevenue || 0) > 0 && (
-                    <span className="text-xs font-semibold text-emerald-600 font-mono-tabular">
-                      ${(appt.closedRevenue || 0).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-              ))
-            )}
+          {/* Day-of-week headers */}
+          <div className="grid grid-cols-7 border-b border-border bg-slate-50/60">
+            {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+              <div key={d} className="py-2.5 text-center text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">
+                {d}
+              </div>
+            ))}
           </div>
-        </div>
-      )}
 
-      {/* Agenda list — upcoming appointments across all months */}
-      <div className="card-elevated overflow-hidden">
-        <div className="px-5 py-4 border-b border-border">
-          <h3 className="text-sm font-semibold text-foreground">
-            All Appointments — {format(currentMonth, 'MMMM yyyy')}
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">All appointments scheduled in this month, sorted by date</p>
+          {/* Grid */}
+          {loading ? (
+            <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">
+              <RefreshCw size={14} className="animate-spin mr-2" />Loading…
+            </div>
+          ) : (
+            <div className="grid grid-cols-7">
+              {calendarDays.map((day, idx) => {
+                const inMonth = isSameMonth(day, currentMonth);
+                const todayDay = isToday(day);
+                const past    = isPast(day) && !todayDay;
+                const isSel   = selectedDay ? isSameDay(day, selectedDay) : false;
+                const key     = format(day, 'yyyy-MM-dd');
+                const count   = apptMap.get(key)?.length || 0;
+                const borderR = idx % 7 !== 6;
+                const borderB = idx < calendarDays.length - 7;
+
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => count > 0 && setSelectedDay(isSel ? null : day)}
+                    disabled={count === 0}
+                    className={[
+                      'min-h-[64px] p-2 text-left transition-colors',
+                      borderR ? 'border-r border-border/50' : '',
+                      borderB ? 'border-b border-border/50' : '',
+                      isSel   ? 'bg-primary/[0.06]' : '',
+                      count > 0 && !isSel ? 'hover:bg-slate-50 cursor-pointer' : '',
+                      count === 0 ? 'cursor-default' : '',
+                      !inMonth ? 'opacity-25' : '',
+                    ].join(' ')}
+                  >
+                    <span className={[
+                      'inline-flex items-center justify-center w-7 h-7 rounded-full text-sm font-semibold',
+                      todayDay ? 'bg-primary text-white' : '',
+                      isSel && !todayDay ? 'text-primary font-bold' : '',
+                      !todayDay && !isSel ? 'text-foreground' : '',
+                    ].join(' ')}>
+                      {format(day, 'd')}
+                    </span>
+
+                    {count > 0 && inMonth && (
+                      <div className="mt-1 flex items-center gap-0.5 flex-wrap">
+                        {count <= 4
+                          ? Array.from({ length: count }).map((_, i) => (
+                              <span key={i} className={`w-1.5 h-1.5 rounded-full ${past ? 'bg-slate-300' : 'bg-primary/60'}`} />
+                            ))
+                          : <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${past ? 'bg-slate-100 text-slate-400' : 'bg-primary/10 text-primary'}`}>{count}</span>
+                        }
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <AgendaList appointments={filteredAppointments} month={currentMonth} />
+
+        {/* Detail panel */}
+        <div className="card-elevated lg:w-80 flex-shrink-0 flex flex-col overflow-hidden">
+          {selectedDay && selectedAppts.length > 0 ? (
+            <>
+              <div className="px-5 py-4 border-b border-border">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  {format(selectedDay, 'EEE, MMM d')}
+                </p>
+                <p className="text-sm font-bold text-foreground mt-0.5">
+                  {selectedAppts.length} appointment{selectedAppts.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <div className="flex-1 overflow-y-auto divide-y divide-border">
+                {selectedAppts.map((appt, i) => {
+                  const d = parseDateSafe(appt.appointmentDate || appt.dateAdded);
+                  return (
+                    <div key={i} className="px-5 py-3.5 hover:bg-slate-50/60 transition-colors">
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground leading-tight">{appt.client || '—'}</p>
+                          {appt.setter && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{appt.setter}</p>
+                          )}
+                        </div>
+                        {d && (
+                          <span className="text-[11px] text-muted-foreground font-medium tabular-nums flex-shrink-0 mt-0.5">
+                            {format(d, 'h:mm a')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <StatusBadge status={appt.showStatus} />
+                        {(appt.closedRevenue || 0) > 0 && (
+                          <span className="text-xs font-semibold text-green-600 tabular-nums">
+                            ${appt.closedRevenue.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 text-center">
+              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                <CalendarDays size={20} className="text-muted-foreground/50" />
+              </div>
+              <p className="text-sm font-medium text-foreground">
+                {selectedDay ? 'No appointments' : 'Select a day'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {selectedDay
+                  ? `Nothing scheduled on ${format(selectedDay, 'MMM d')}`
+                  : 'Click any day with appointments to see details'
+                }
+              </p>
+            </div>
+          )}
+        </div>
+
       </div>
+
+      {/* Upcoming appointments list */}
+      <UpcomingList appointments={filtered} />
+
     </div>
   );
 }
 
-function AgendaList({ appointments, month }: { appointments: AppointmentRow[]; month: Date }) {
-  const monthStart = startOfMonth(month);
-  const monthEnd = endOfMonth(month);
+function UpcomingList({ appointments }: { appointments: AppointmentRow[] }) {
+  const now = new Date();
 
-  const sorted = useMemo(() => {
+  const upcoming = useMemo(() => {
     return appointments
       .map(a => ({ appt: a, date: parseDateSafe(a.appointmentDate || a.dateAdded) }))
-      .filter(({ date }) => date && date >= monthStart && date <= monthEnd)
-      .sort((a, b) => (a.date?.getTime() || 0) - (b.date?.getTime() || 0));
-  }, [appointments, month]);
+      .filter(({ date }) => date && date >= now)
+      .sort((a, b) => (a.date?.getTime() || 0) - (b.date?.getTime() || 0))
+      .slice(0, 20);
+  }, [appointments]);
 
-  if (sorted.length === 0) {
-    return (
-      <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-        No appointments in {format(month, 'MMMM yyyy')}.
-      </div>
-    );
-  }
-
-  // Group by date
-  const groups: { dateLabel: string; items: typeof sorted }[] = [];
-  let currentKey = '';
-  for (const item of sorted) {
-    const key = item.date ? format(item.date, 'yyyy-MM-dd') : 'unknown';
-    const label = item.date ? format(item.date, 'EEE, MMM d') : 'Unknown date';
-    if (key !== currentKey) {
-      groups.push({ dateLabel: label, items: [] });
-      currentKey = key;
-    }
-    groups[groups.length - 1].items.push(item);
-  }
+  if (upcoming.length === 0) return null;
 
   return (
-    <div className="overflow-y-auto max-h-[400px]">
-      {groups.map((group, gi) => (
-        <div key={gi}>
-          <div className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm px-5 py-1.5 flex items-center gap-2 border-b border-border/50">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{group.dateLabel}</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-background text-muted-foreground">{group.items.length}</span>
-          </div>
-          {group.items.map(({ appt }, i) => (
-            <div key={i} className="px-5 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/40 hover:bg-muted/20 transition-colors">
-              <span className="text-sm font-semibold text-foreground min-w-[140px]">{appt.client || '—'}</span>
-              {appt.setter && <span className="text-xs text-muted-foreground">{appt.setter}</span>}
-              <ShowStatusBadge status={appt.showStatus} />
-              {(appt.closedRevenue || 0) > 0 && (
-                <span className="text-xs font-semibold text-emerald-600 font-mono-tabular ml-auto">
-                  ${(appt.closedRevenue || 0).toLocaleString()}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
+    <div className="card-elevated overflow-hidden">
+      <div className="px-5 py-4 border-b border-border">
+        <h3 className="text-sm font-semibold text-foreground">Upcoming Appointments</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">Next {upcoming.length} scheduled across all accounts</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[500px]">
+          <thead>
+            <tr className="border-b border-border bg-slate-50">
+              {['Date & Time', 'Account', 'Setter', 'Status'].map(h => (
+                <th key={h} className="text-left text-[11px] font-semibold text-muted-foreground/70 px-5 py-3 uppercase tracking-wide">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {upcoming.map(({ appt, date }, i) => (
+              <tr key={i} className="border-b border-border/60 hover:bg-slate-50/60 transition-colors">
+                <td className="px-5 py-3 text-sm text-foreground whitespace-nowrap tabular-nums">
+                  {date && format(date, 'MMM d, yyyy')}
+                  {date && (
+                    <span className="text-muted-foreground ml-2">{format(date, 'h:mm a')}</span>
+                  )}
+                </td>
+                <td className="px-5 py-3 text-sm font-medium text-foreground">{appt.client || '—'}</td>
+                <td className="px-5 py-3 text-sm text-muted-foreground">{appt.setter || '—'}</td>
+                <td className="px-5 py-3"><StatusBadge status={appt.showStatus} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
