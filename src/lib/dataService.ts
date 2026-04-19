@@ -251,7 +251,8 @@ export function buildAccountSummaries(
   const campaignIdToAccount = new Map<string, string>();
   for (const [normalizedName, data] of accountMap.entries()) {
     for (const row of data.spendRows) {
-      if (row.campaignId) campaignIdToAccount.set(row.campaignId, normalizedName);
+      const trimmedId = (row.campaignId || '').trim();
+      if (trimmedId) campaignIdToAccount.set(trimmedId, normalizedName);
     }
   }
 
@@ -276,8 +277,9 @@ export function buildAccountSummaries(
     let matchedAccountKey: string | undefined;
 
     // Tier 1 — ID Matching
-    if (!isBlank(appt.campaignId)) {
-      matchedAccountKey = campaignIdToAccount.get(appt.campaignId);
+    const apptCampId = (appt.campaignId || '').trim();
+    if (apptCampId) {
+      matchedAccountKey = campaignIdToAccount.get(apptCampId);
     }
 
     // Tier 2 — Manual Alias
@@ -376,7 +378,7 @@ export function buildAccountSummaries(
   const summaries: AccountSummary[] = [];
   const aliasMap = new Map((settings?.accountAliases || []).map(a => [a.sheetName.trim().toLowerCase(), a]));
   const thresholds = settings?.perfThresholds;
-  const excludedCampaignIds = new Set(settings?.excludedCampaigns || []);
+  const excludedCampaignIds = new Set((settings?.excludedCampaigns || []).map(id => id.trim()));
 
   for (const [normalizedKey, data] of accountMap) {
     const accountName = data.originalName;
@@ -388,16 +390,17 @@ export function buildAccountSummaries(
 
     // Performance spend/leads from non-excluded campaigns only
     const performanceSpend = data.spendRows
-      .filter(r => !excludedCampaignIds.has(r.campaignId))
+      .filter(r => !excludedCampaignIds.has((r.campaignId || '').trim()))
       .reduce((s, r) => s + r.spent, 0);
     const performanceLeads = data.spendRows
-      .filter(r => !excludedCampaignIds.has(r.campaignId))
+      .filter(r => !excludedCampaignIds.has((r.campaignId || '').trim()))
       .reduce((s, r) => s + r.leads, 0);
 
     // Build campaigns within this account
     const campaignMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[] }>();
     for (const r of data.spendRows) {
-      const key = r.campaignId || r.campaign;
+      const key = (r.campaignId || '').trim() || (r.campaign || '').trim();
+      if (!key) continue;
       if (!campaignMap.has(key)) campaignMap.set(key, { spendRows: [], appts: [] });
       campaignMap.get(key)!.spendRows.push(r);
     }
@@ -410,26 +413,39 @@ export function buildAccountSummaries(
     const campAdIdMap = new Map<string, string>();
     for (const [cKey, cData] of campaignMap) {
       for (const r of cData.spendRows) {
-        if (r.campaignId) campIdMap.set(r.campaignId, cKey);
-        if (r.campaign) campNameMap.set(r.campaign.trim().toLowerCase(), cKey);
-        if (r.adsetName) campAdSetNameMap.set(r.adsetName.trim().toLowerCase(), cKey);
-        if (r.adName) campAdNameMap.set(r.adName.trim().toLowerCase(), cKey);
-        if (r.adId) campAdIdMap.set(r.adId, cKey);
+        const cId = (r.campaignId || '').trim();
+        const cName = (r.campaign || '').trim();
+        const asName = (r.adsetName || '').trim();
+        const aName = (r.adName || '').trim();
+        const aId = (r.adId || '').trim();
+        if (cId) campIdMap.set(cId, cKey);
+        if (cName) campNameMap.set(cName.toLowerCase(), cKey);
+        if (asName) campAdSetNameMap.set(asName.toLowerCase(), cKey);
+        if (aName) campAdNameMap.set(aName.toLowerCase(), cKey);
+        if (aId) campAdIdMap.set(aId, cKey);
       }
     }
 
     for (const a of data.appts) {
+      const aAdId = (a.adId || '').trim();
+      const aAdName = (a.adName || '').trim();
+      const aAdSetId = (a.adSetId || '').trim();
+      const aAdSetName = (a.adSetName || '').trim();
+      const aCampId = (a.campaignId || '').trim();
+      const aCampName = (a.campaignName || '').trim();
+
       let matchedCampaignKey: string | undefined;
-      if (!isBlank(a.adId)) matchedCampaignKey = campAdIdMap.get(a.adId);
-      if (!matchedCampaignKey && !isBlank(a.adName)) matchedCampaignKey = campAdNameMap.get(a.adName.trim().toLowerCase());
-      if (!matchedCampaignKey && !isBlank(a.adSetId)) {
+      // Priority: campaign ID (most direct) > adset ID > adset name > ad ID > ad name > campaign name
+      if (aCampId) matchedCampaignKey = campIdMap.get(aCampId);
+      if (!matchedCampaignKey && aAdSetId) {
         for (const [cKey, cData] of campaignMap) {
-          if (cData.spendRows.some(r => r.adsetId && r.adsetId === a.adSetId)) { matchedCampaignKey = cKey; break; }
+          if (cData.spendRows.some(r => (r.adsetId || '').trim() === aAdSetId)) { matchedCampaignKey = cKey; break; }
         }
       }
-      if (!matchedCampaignKey && !isBlank(a.adSetName)) matchedCampaignKey = campAdSetNameMap.get(a.adSetName.trim().toLowerCase());
-      if (!matchedCampaignKey && !isBlank(a.campaignId)) matchedCampaignKey = campIdMap.get(a.campaignId);
-      if (!matchedCampaignKey && !isBlank(a.campaignName)) matchedCampaignKey = campNameMap.get(a.campaignName.trim().toLowerCase());
+      if (!matchedCampaignKey && aAdSetName) matchedCampaignKey = campAdSetNameMap.get(aAdSetName.toLowerCase());
+      if (!matchedCampaignKey && aAdId) matchedCampaignKey = campAdIdMap.get(aAdId);
+      if (!matchedCampaignKey && aAdName) matchedCampaignKey = campAdNameMap.get(aAdName.toLowerCase());
+      if (!matchedCampaignKey && aCampName) matchedCampaignKey = campNameMap.get(aCampName.toLowerCase());
 
       if (matchedCampaignKey && campaignMap.has(matchedCampaignKey)) {
         campaignMap.get(matchedCampaignKey)!.appts.push(a);
@@ -450,7 +466,8 @@ export function buildAccountSummaries(
       // Build ad sets
       const adSetMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[] }>();
       for (const r of cData.spendRows) {
-        const key = r.adsetId || r.adsetName;
+        const key = (r.adsetId || '').trim() || (r.adsetName || '').trim();
+        if (!key) continue;
         if (!adSetMap.has(key)) adSetMap.set(key, { spendRows: [], appts: [] });
         adSetMap.get(key)!.spendRows.push(r);
       }
@@ -462,19 +479,29 @@ export function buildAccountSummaries(
       const asNameMap = new Map<string, string>();
       for (const [asKey, asData] of adSetMap) {
         for (const r of asData.spendRows) {
-          if (r.adId) asAdIdMap.set(r.adId, asKey);
-          if (r.adName) asAdNameMap.set(r.adName.trim().toLowerCase(), asKey);
-          if (r.adsetId) asIdMap.set(r.adsetId, asKey);
-          if (r.adsetName) asNameMap.set(r.adsetName.trim().toLowerCase(), asKey);
+          const aId = (r.adId || '').trim();
+          const aName = (r.adName || '').trim();
+          const asId = (r.adsetId || '').trim();
+          const asName = (r.adsetName || '').trim();
+          if (aId) asAdIdMap.set(aId, asKey);
+          if (aName) asAdNameMap.set(aName.toLowerCase(), asKey);
+          if (asId) asIdMap.set(asId, asKey);
+          if (asName) asNameMap.set(asName.toLowerCase(), asKey);
         }
       }
 
       for (const a of cData.appts) {
+        const aAdId = (a.adId || '').trim();
+        const aAdName = (a.adName || '').trim();
+        const aAdSetId = (a.adSetId || '').trim();
+        const aAdSetName = (a.adSetName || '').trim();
+
         let matchedAdSetKey: string | undefined;
-        if (!isBlank(a.adId)) matchedAdSetKey = asAdIdMap.get(a.adId);
-        if (!matchedAdSetKey && !isBlank(a.adName)) matchedAdSetKey = asAdNameMap.get(a.adName.trim().toLowerCase());
-        if (!matchedAdSetKey && !isBlank(a.adSetId)) matchedAdSetKey = asIdMap.get(a.adSetId);
-        if (!matchedAdSetKey && !isBlank(a.adSetName)) matchedAdSetKey = asNameMap.get(a.adSetName.trim().toLowerCase());
+        // Priority: adset ID (most direct) > adset name > ad ID > ad name
+        if (aAdSetId) matchedAdSetKey = asIdMap.get(aAdSetId);
+        if (!matchedAdSetKey && aAdSetName) matchedAdSetKey = asNameMap.get(aAdSetName.toLowerCase());
+        if (!matchedAdSetKey && aAdId) matchedAdSetKey = asAdIdMap.get(aAdId);
+        if (!matchedAdSetKey && aAdName) matchedAdSetKey = asAdNameMap.get(aAdName.toLowerCase());
 
         if (matchedAdSetKey && adSetMap.has(matchedAdSetKey)) {
           adSetMap.get(matchedAdSetKey)!.appts.push(a);
@@ -494,7 +521,8 @@ export function buildAccountSummaries(
         // Build individual ads within this ad set
         const adMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[] }>();
         for (const r of asData.spendRows) {
-          const key = r.adId || r.adName || 'unknown';
+          const key = (r.adId || '').trim() || (r.adName || '').trim();
+          if (!key) continue;
           if (!adMap.has(key)) adMap.set(key, { spendRows: [], appts: [] });
           adMap.get(key)!.spendRows.push(r);
         }
@@ -503,14 +531,18 @@ export function buildAccountSummaries(
         const adNameMap2 = new Map<string, string>();
         for (const [adKey, adData] of adMap) {
           for (const r of adData.spendRows) {
-            if (r.adId) adIdMap2.set(r.adId, adKey);
-            if (r.adName) adNameMap2.set(r.adName.trim().toLowerCase(), adKey);
+            const aId = (r.adId || '').trim();
+            const aName = (r.adName || '').trim();
+            if (aId) adIdMap2.set(aId, adKey);
+            if (aName) adNameMap2.set(aName.toLowerCase(), adKey);
           }
         }
         for (const a of asData.appts) {
+          const aAdId = (a.adId || '').trim();
+          const aAdName = (a.adName || '').trim();
           let matchedAdKey: string | undefined;
-          if (!isBlank(a.adId)) matchedAdKey = adIdMap2.get(a.adId);
-          if (!matchedAdKey && !isBlank(a.adName)) matchedAdKey = adNameMap2.get(a.adName.trim().toLowerCase());
+          if (aAdId) matchedAdKey = adIdMap2.get(aAdId);
+          if (!matchedAdKey && aAdName) matchedAdKey = adNameMap2.get(aAdName.toLowerCase());
           if (matchedAdKey && adMap.has(matchedAdKey)) {
             adMap.get(matchedAdKey)!.appts.push(a);
           }
@@ -575,7 +607,7 @@ export function buildAccountSummaries(
     // Collect appointments matched to excluded campaigns
     const excludedApptSet = new Set<AppointmentRow>();
     for (const [, cData] of campaignMap) {
-      const campaignId = cData.spendRows[0]?.campaignId || '';
+      const campaignId = (cData.spendRows[0]?.campaignId || '').trim();
       if (excludedCampaignIds.has(campaignId)) {
         for (const a of cData.appts) excludedApptSet.add(a);
       }
