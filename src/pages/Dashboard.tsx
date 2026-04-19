@@ -142,6 +142,13 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
     return next;
   });
 
+  const [expandedAdSets, setExpandedAdSets] = useState<Set<string>>(new Set());
+  const toggleAdSet = (id: string) => setExpandedAdSets(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
   // Dial activity stats (separate from funnel)
   const dialBookingRate = account.totalDials > 0 ? ((account.appointments / account.totalDials) * 100).toFixed(1) : '—';
   const dialsPerLeadFunnel = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '—';
@@ -321,20 +328,47 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                       <div className="border-t border-border">
                         {c.adSets.map((as, idx) => {
                           const asPerf = getPerfByProgram(program, as.cpl, as.costPerAppt, as.appointments);
+                          const asKey = as.adSetId || String(idx);
+                          const isAdSetExpanded = expandedAdSets.has(asKey);
                           return (
-                            <div key={as.adSetId || idx} className={`pl-4 pr-3 py-2 ${idx > 0 ? 'border-t border-border/50' : ''}`}>
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-xs text-foreground truncate">{as.adSetName}</span>
-                                {asPerf && <PerformanceBadge level={asPerf} />}
-                                <span className="text-[10px] text-muted-foreground">{as.adCount} ads</span>
+                            <div key={asKey} className={idx > 0 ? 'border-t border-border/50' : ''}>
+                              <div
+                                className="pl-4 pr-3 py-2 cursor-pointer hover:bg-muted/20 transition-colors"
+                                onClick={() => toggleAdSet(asKey)}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {isAdSetExpanded ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                                  <span className="text-xs text-foreground truncate">{as.adSetName}</span>
+                                  {asPerf && <PerformanceBadge level={asPerf} />}
+                                  <span className="text-[10px] text-muted-foreground">{as.adCount} ads</span>
+                                </div>
+                                <div className="flex flex-wrap gap-3 mt-1 pl-5">
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[11px] font-mono-tabular font-semibold">{formatCurrency(as.spend)}</span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.leads}</span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} /></span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.appointments}</span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} /></span></span>
+                                </div>
                               </div>
-                              <div className="flex flex-wrap gap-3 mt-1 pl-0">
-                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[11px] font-mono-tabular font-semibold">{formatCurrency(as.spend)}</span></span>
-                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.leads}</span></span>
-                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} /></span></span>
-                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.appointments}</span></span>
-                                <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} /></span></span>
-                              </div>
+                              {isAdSetExpanded && as.ads && as.ads.length > 0 && (
+                                <div className="border-t border-border/40 bg-muted/10">
+                                  {as.ads.map((ad, adIdx) => (
+                                    <div key={ad.adId || adIdx} className={`pl-10 pr-3 py-2 ${adIdx > 0 ? 'border-t border-border/30' : ''}`}>
+                                      <div className="flex items-center gap-1.5 min-w-0 mb-1">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 shrink-0" />
+                                        <span className="text-[11px] text-foreground truncate">{ad.adName || 'Unnamed Ad'}</span>
+                                      </div>
+                                      <div className="flex flex-wrap gap-3 pl-3">
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[10px] font-mono-tabular font-semibold">{formatCurrency(ad.spend)}</span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[10px] font-mono-tabular font-semibold">{ad.leads}</span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[10px] font-mono-tabular font-semibold"><CPLBadge value={ad.cpl} /></span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[10px] font-mono-tabular font-semibold">{ad.appointments}</span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[10px] font-mono-tabular font-semibold"><CostPerApptBadge value={ad.costPerAppt} /></span></span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           );
                         })}

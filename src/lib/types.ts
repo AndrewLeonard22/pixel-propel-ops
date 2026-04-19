@@ -118,6 +118,18 @@ export interface CampaignSummary {
   adSets: AdSetSummary[];
 }
 
+export interface AdSummary {
+  adName: string;
+  adId: string;
+  spend: number;
+  leads: number;
+  cpl: number;
+  appointments: number;
+  costPerAppt: number;
+  closed: number;
+  revenue: number;
+}
+
 export interface AdSetSummary {
   adSetName: string;
   adSetId: string;
@@ -131,6 +143,7 @@ export interface AdSetSummary {
   revenue: number;
   performance: 'good' | 'fair' | 'poor';
   adCount: number;
+  ads: AdSummary[];
 }
 
 export interface TeamMember {

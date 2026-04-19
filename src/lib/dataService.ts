@@ -1,4 +1,4 @@
-import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, TeamMember, PerformanceLevel, CallRow } from './types';
+import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, AdSummary, TeamMember, PerformanceLevel, CallRow } from './types';
 import { convertSheetUrlToCsv } from './config';
 
 // Parse CSV text into rows
@@ -490,7 +490,51 @@ export function buildAccountSummaries(
         const asRevenue = asData.appts.reduce((s, a) => s + a.closedRevenue, 0);
         const asCpl = asLeads > 0 ? asSpend / asLeads : 0;
         const asLeadPct = asLeads > 0 ? (asAppts / asLeads) * 100 : 0;
-        const adNames = new Set(asData.spendRows.map(r => r.adName || r.adId));
+
+        // Build individual ads within this ad set
+        const adMap = new Map<string, { spendRows: AdSpendRow[], appts: AppointmentRow[] }>();
+        for (const r of asData.spendRows) {
+          const key = r.adId || r.adName || 'unknown';
+          if (!adMap.has(key)) adMap.set(key, { spendRows: [], appts: [] });
+          adMap.get(key)!.spendRows.push(r);
+        }
+
+        const adIdMap2 = new Map<string, string>();
+        const adNameMap2 = new Map<string, string>();
+        for (const [adKey, adData] of adMap) {
+          for (const r of adData.spendRows) {
+            if (r.adId) adIdMap2.set(r.adId, adKey);
+            if (r.adName) adNameMap2.set(r.adName.trim().toLowerCase(), adKey);
+          }
+        }
+        for (const a of asData.appts) {
+          let matchedAdKey: string | undefined;
+          if (!isBlank(a.adId)) matchedAdKey = adIdMap2.get(a.adId);
+          if (!matchedAdKey && !isBlank(a.adName)) matchedAdKey = adNameMap2.get(a.adName.trim().toLowerCase());
+          if (matchedAdKey && adMap.has(matchedAdKey)) {
+            adMap.get(matchedAdKey)!.appts.push(a);
+          }
+        }
+
+        const ads: AdSummary[] = [];
+        for (const [adKey, adData] of adMap) {
+          const adSpend = adData.spendRows.reduce((s, r) => s + r.spent, 0);
+          const adLeads = adData.spendRows.reduce((s, r) => s + r.leads, 0);
+          const adAppts = adData.appts.length;
+          const adClosed = adData.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+          const adRevenue = adData.appts.reduce((s, a) => s + a.closedRevenue, 0);
+          ads.push({
+            adName: adData.spendRows[0]?.adName || adKey,
+            adId: adData.spendRows[0]?.adId || adKey,
+            spend: adSpend,
+            leads: adLeads,
+            cpl: adLeads > 0 ? adSpend / adLeads : 0,
+            appointments: adAppts,
+            costPerAppt: adAppts > 0 ? adSpend / adAppts : 0,
+            closed: adClosed,
+            revenue: adRevenue,
+          });
+        }
 
         adSets.push({
           adSetName: asData.spendRows[0]?.adsetName || asKey,
@@ -504,7 +548,8 @@ export function buildAccountSummaries(
           closed: asClosed,
           revenue: asRevenue,
           performance: getPerformance(asCpl, asLeadPct, thresholds, alias?.program, asAppts > 0 ? asSpend / asAppts : 0, asAppts),
-          adCount: adNames.size,
+          adCount: ads.length,
+          ads,
         });
       }
 
