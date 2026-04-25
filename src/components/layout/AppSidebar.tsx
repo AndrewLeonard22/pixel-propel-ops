@@ -1,4 +1,4 @@
-import { Home, TrendingUp, Target, UserCheck, Settings, Menu, X, CalendarDays } from 'lucide-react';
+import { Home, TrendingUp, Target, UserCheck, Settings, Menu, X, CalendarDays, PhoneCall } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 
@@ -7,6 +7,7 @@ const navItems = [
   { label: 'Appointments', path: '/calendar', icon: CalendarDays },
   { label: 'Team Performance', path: '/team', icon: TrendingUp },
   { label: 'Targets', path: '/targets', icon: Target },
+  { label: 'Call Center', path: '/call-center', icon: PhoneCall },
 ];
 
 export default function AppSidebar() {
