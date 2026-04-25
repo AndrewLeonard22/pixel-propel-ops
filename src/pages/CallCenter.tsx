@@ -392,10 +392,10 @@ export default function CallCenter() {
       if (name) names.add(name);
     }
     const allNames = Array.from(names).sort();
-    const allowed = settings.activeSetters || [];
-    if (allowed.length === 0) return allNames;
-    return allNames.filter(n => allowed.includes(n));
-  }, [callData, settings.activeSetters]);
+    const inactive = settings.inactiveSetters || [];
+    if (inactive.length === 0) return allNames;
+    return allNames.filter(n => !inactive.includes(n));
+  }, [callData, settings.inactiveSetters]);
 
   const dateRange = useMemo(() => {
     const now = new Date();

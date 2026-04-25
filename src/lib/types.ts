@@ -26,7 +26,7 @@ export interface AppSettings {
   anthropicApiKey: string;
   excludedCampaigns: string[];
   setterBonusRates: { setterName: string; rate: number }[];
-  activeSetters: string[];
+  inactiveSetters: string[];
 }
 
 export interface AdSpendRow {

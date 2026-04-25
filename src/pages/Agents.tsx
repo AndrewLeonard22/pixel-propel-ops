@@ -66,16 +66,16 @@ export default function Agents() {
       if (!groups.has(setter)) groups.set(setter, []);
       groups.get(setter)!.push(appt);
     }
-    const allowed = settings.activeSetters || [];
+    const inactive = settings.inactiveSetters || [];
     return Array.from(groups.entries())
-      .filter(([name]) => allowed.length === 0 || allowed.includes(name))
+      .filter(([name]) => !inactive.includes(name))
       .map(([name, appts]) => {
         const rateConfig = (settings.setterBonusRates || []).find(r => r.setterName === name);
         const rate = rateConfig?.rate ?? 5;
         return { name, appts, rate, total: appts.length * rate };
       })
       .sort((a, b) => b.total - a.total);
-  }, [eligibleAppointments, settings.setterBonusRates, settings.activeSetters]);
+  }, [eligibleAppointments, settings.setterBonusRates, settings.inactiveSetters]);
 
   const grandTotal = useMemo(() => setterGroups.reduce((s, g) => s + g.total, 0), [setterGroups]);
 

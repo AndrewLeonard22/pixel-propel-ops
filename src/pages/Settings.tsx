@@ -159,28 +159,16 @@ useEffect(() => {
     return Array.from(names).sort();
   }, [callData, appointments]);
 
-  // Auto-add any newly detected setters as active (when the user has already started managing the list)
-  useEffect(() => {
-    if (allSetterNames.length === 0) return;
+  const toggleSetter = useCallback((name: string) => {
     setForm(prev => {
-      const current = prev.activeSetters || [];
-      if (current.length === 0) return prev;
-      const newOnes = allSetterNames.filter(s => !current.includes(s));
-      if (newOnes.length === 0) return prev;
-      return { ...prev, activeSetters: [...current, ...newOnes].sort() };
-    });
-  }, [allSetterNames]);
-
-  const toggleSetter = useCallback((name: string, allNames: string[]) => {
-    setForm(prev => {
-      const current = prev.activeSetters || [];
-      // Empty means "all active" — materialise the full list on first toggle
-      const effective = current.length === 0 ? allNames : current;
-      const isActive = effective.includes(name);
-      const updated = isActive
-        ? effective.filter(s => s !== name)
-        : [...effective, name].sort();
-      return { ...prev, activeSetters: updated };
+      const inactive = prev.inactiveSetters || [];
+      const isInactive = inactive.includes(name);
+      return {
+        ...prev,
+        inactiveSetters: isInactive
+          ? inactive.filter(s => s !== name)   // re-activate
+          : [...inactive, name].sort(),         // deactivate
+      };
     });
   }, []);
 
@@ -539,8 +527,7 @@ useEffect(() => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {allSetterNames.map(name => {
-              const activeSetting = form.activeSetters || [];
-              const isActive = activeSetting.length === 0 || activeSetting.includes(name);
+              const isActive = !(form.inactiveSetters || []).includes(name);
               return (
                 <div key={name} className="flex items-center justify-between px-3 py-2.5 rounded-lg border bg-muted/20">
                   <span className="text-sm font-medium truncate">{name}</span>
@@ -548,7 +535,7 @@ useEffect(() => {
                     type="button"
                     role="switch"
                     aria-checked={isActive}
-                    onClick={() => toggleSetter(name, allSetterNames)}
+                    onClick={() => toggleSetter(name)}
                     className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${isActive ? 'bg-primary' : 'bg-muted'}`}
                   >
                     <span
