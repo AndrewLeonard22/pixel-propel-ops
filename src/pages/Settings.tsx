@@ -18,7 +18,7 @@ const REQUIRED_MAPPINGS = [
 ];
 
 export default function SettingsPage() {
-  const { settings, setSettings, adSpend, accounts, refresh } = useData();
+  const { settings, setSettings, adSpend, accounts, callData, appointments, refresh } = useData();
   const [form, setForm] = useState<AppSettings>(settings);
   const [showToken, setShowToken] = useState(false);
   const [sheetStatus, setSheetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -136,6 +136,7 @@ useEffect(() => {
     }));
   };
 
+  // Setters from Airtable appointments (for bonus rates section)
   const uniqueSetters = useMemo(() => {
     const names = new Set<string>();
     for (const account of accounts) {
@@ -145,6 +146,43 @@ useEffect(() => {
     }
     return Array.from(names).sort();
   }, [accounts]);
+
+  // All setter names ever seen across call data + Airtable appointments
+  const allSetterNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const row of callData) {
+      if (row.agentName?.trim()) names.add(row.agentName.trim());
+    }
+    for (const appt of appointments) {
+      if (appt.setter?.trim()) names.add(appt.setter.trim());
+    }
+    return Array.from(names).sort();
+  }, [callData, appointments]);
+
+  // Auto-add any newly detected setters as active (when the user has already started managing the list)
+  useEffect(() => {
+    if (allSetterNames.length === 0) return;
+    setForm(prev => {
+      const current = prev.activeSetters || [];
+      if (current.length === 0) return prev;
+      const newOnes = allSetterNames.filter(s => !current.includes(s));
+      if (newOnes.length === 0) return prev;
+      return { ...prev, activeSetters: [...current, ...newOnes].sort() };
+    });
+  }, [allSetterNames]);
+
+  const toggleSetter = useCallback((name: string, allNames: string[]) => {
+    setForm(prev => {
+      const current = prev.activeSetters || [];
+      // Empty means "all active" — materialise the full list on first toggle
+      const effective = current.length === 0 ? allNames : current;
+      const isActive = effective.includes(name);
+      const updated = isActive
+        ? effective.filter(s => s !== name)
+        : [...effective, name].sort();
+      return { ...prev, activeSetters: updated };
+    });
+  }, []);
 
   const updateSetterRate = (setterName: string, rate: number) => {
     setForm(prev => {
@@ -490,7 +528,41 @@ useEffect(() => {
         </section>
       )}
 
-      {/* Section 5: Setter Bonus Rates */}
+      {/* Section 5: Setters */}
+      {allSetterNames.length > 0 && (
+        <section className="card-elevated p-6 space-y-4">
+          <div>
+            <h2 className="font-semibold text-base">Setters</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Auto-detected from call data and appointments. Inactive setters are hidden from the Call Center and Agents pages.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {allSetterNames.map(name => {
+              const activeSetting = form.activeSetters || [];
+              const isActive = activeSetting.length === 0 || activeSetting.includes(name);
+              return (
+                <div key={name} className="flex items-center justify-between px-3 py-2.5 rounded-lg border bg-muted/20">
+                  <span className="text-sm font-medium truncate">{name}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isActive}
+                    onClick={() => toggleSetter(name, allSetterNames)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${isActive ? 'bg-primary' : 'bg-muted'}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${isActive ? 'translate-x-4' : 'translate-x-0'}`}
+                    />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Section 5b: Setter Bonus Rates */}
       {uniqueSetters.length > 0 && (
         <section className="card-elevated p-6 space-y-4">
           <div>

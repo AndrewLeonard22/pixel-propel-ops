@@ -391,8 +391,11 @@ export default function CallCenter() {
       const name = (row.agentName || '').trim();
       if (name) names.add(name);
     }
-    return Array.from(names).sort();
-  }, [callData]);
+    const allNames = Array.from(names).sort();
+    const allowed = settings.activeSetters || [];
+    if (allowed.length === 0) return allNames;
+    return allNames.filter(n => allowed.includes(n));
+  }, [callData, settings.activeSetters]);
 
   const dateRange = useMemo(() => {
     const now = new Date();
