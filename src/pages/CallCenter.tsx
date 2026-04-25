@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
 import { X, PhoneCall } from 'lucide-react';
-import type { CallRow, AppSettings } from '@/lib/types';
+import type { CallRow, AppointmentRow, AppSettings } from '@/lib/types';
 import {
   startOfDay, endOfDay,
   startOfWeek, endOfWeek,
@@ -20,13 +20,15 @@ interface SetterStats {
   agentName: string;
   totalDials: number;
   pickups: number;
+  noAnswers: number;
   pickupPct: number;
   conversations: number;
   convoPct: number;
   bookedAppts: number;
   abrPct: number;
   dialsPerBooking: number | null;
-  avgTalkTime: number | null; // minutes
+  avgTalkTime: number | null;
+  avgCallGap: number | null;
 }
 
 function parseDateSafe(dateStr: string): Date | null {
@@ -47,20 +49,42 @@ function isPickup(disposition: string): boolean {
   return d !== 'no answer' && d !== 'voicemail' && d !== '';
 }
 
-function computeSetterStats(agentName: string, rows: CallRow[]): SetterStats {
+function computeSetterStats(
+  agentName: string,
+  rows: CallRow[],
+  agentAppts: AppointmentRow[],
+): SetterStats {
   const totalDials = rows.length;
   const pickupRows = rows.filter(r => isPickup(r.callDisposition));
   const pickups = pickupRows.length;
+  const noAnswers = rows.filter(r => (r.callDisposition || '').toLowerCase().trim() === 'no answer').length;
   const pickupPct = totalDials > 0 ? (pickups / totalDials) * 100 : 0;
   const conversations = pickupRows.filter(r => r.callDuration >= 90).length;
   const convoPct = pickups > 0 ? (conversations / pickups) * 100 : 0;
-  const bookedAppts = rows.filter(r => (r.callDisposition || '').toLowerCase().includes('booked')).length;
+  const bookedAppts = agentAppts.length;
   const abrPct = pickups > 0 ? (bookedAppts / pickups) * 100 : 0;
   const dialsPerBooking = bookedAppts > 0 ? totalDials / bookedAppts : null;
   const avgTalkTime = pickups > 0
     ? pickupRows.reduce((s, r) => s + r.callDuration, 0) / pickups / 60
     : null;
-  return { agentName, totalDials, pickups, pickupPct, conversations, convoPct, bookedAppts, abrPct, dialsPerBooking, avgTalkTime };
+
+  // end-of-call → start-of-next gap, capped at 60 min to exclude end-of-day breaks
+  const sorted = [...rows]
+    .map(r => ({ start: parseDateSafe(r.timestamp)?.getTime() ?? 0, dur: r.callDuration * 1000 }))
+    .filter(r => r.start > 0)
+    .sort((a, b) => a.start - b.start);
+  const gaps: number[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = (sorted[i].start - (sorted[i - 1].start + sorted[i - 1].dur)) / 60000;
+    if (gap >= 0 && gap < 60) gaps.push(gap);
+  }
+  const avgCallGap = gaps.length > 0 ? gaps.reduce((s, g) => s + g, 0) / gaps.length : null;
+
+  return {
+    agentName, totalDials, pickups, noAnswers, pickupPct,
+    conversations, convoPct, bookedAppts, abrPct, dialsPerBooking,
+    avgTalkTime, avgCallGap,
+  };
 }
 
 function getAccountNameForLocation(ghlLocationName: string, settings: AppSettings): string {
@@ -114,12 +138,22 @@ function SetterCard({ stats, onClick }: { stats: SetterStats; onClick: () => voi
 
       <div className="grid grid-cols-2 gap-3">
         <StatItem label="Dials Made" value={String(stats.totalDials)} />
-        <StatItem label="Avg Talk Time" value={stats.avgTalkTime !== null ? `${f(stats.avgTalkTime)}m` : '—'} />
+        <StatItem
+          label="Avg Talk Time"
+          value={stats.avgTalkTime !== null ? `${f(stats.avgTalkTime)}m` : '—'}
+        />
+        <StatItem
+          label="Avg Call Gap"
+          value={stats.avgCallGap !== null ? `${f(stats.avgCallGap)}m` : '—'}
+        />
+        <StatItem label="Answers" value={String(stats.pickups)} />
+        <StatItem label="No Answers" value={String(stats.noAnswers)} />
         <StatItem
           label="Pickup %"
           value={stats.totalDials > 0 ? `${f(stats.pickupPct)}%` : '—'}
           colorClass={stats.totalDials > 0 ? pctColor(stats.pickupPct, 25, 15) : undefined}
         />
+        <StatItem label="90+ Second Convos" value={String(stats.conversations)} />
         <StatItem
           label="Convo %"
           value={stats.pickups > 0 ? `${f(stats.convoPct)}%` : '—'}
@@ -190,6 +224,7 @@ function TrendChart({ callData, activeSetters }: { callData: CallRow[]; activeSe
 function SetterDetailPanel({
   agentName,
   filteredCalls,
+  filteredAppts,
   allCalls,
   settings,
   dateLabel,
@@ -197,33 +232,48 @@ function SetterDetailPanel({
 }: {
   agentName: string;
   filteredCalls: CallRow[];
+  filteredAppts: AppointmentRow[];
   allCalls: CallRow[];
   settings: AppSettings;
   dateLabel: string;
   onClose: () => void;
 }) {
-  const stats = computeSetterStats(agentName, filteredCalls);
+  const stats = computeSetterStats(agentName, filteredCalls, filteredAppts);
   const f = (n: number) => n.toFixed(1);
 
   const byAccount = useMemo(() => {
-    const map = new Map<string, { dials: number; booked: number }>();
+    const map = new Map<string, { dials: number }>();
     for (const call of filteredCalls) {
       const loc = (call.ghlLocationName || '').trim();
       const name = getAccountNameForLocation(loc, settings);
-      const entry = map.get(name) || { dials: 0, booked: 0 };
+      const entry = map.get(name) || { dials: 0 };
       entry.dials++;
-      if ((call.callDisposition || '').toLowerCase().includes('booked')) entry.booked++;
       map.set(name, entry);
     }
+    // booked per account from Airtable appointments
+    const bookedByAccount = new Map<string, number>();
+    for (const appt of filteredAppts) {
+      const client = (appt.client || '').trim();
+      const accountName = client
+        ? (settings.accountAliases.find(a =>
+            a.airtableName.trim().toLowerCase() === client.toLowerCase() ||
+            a.sheetName.trim().toLowerCase() === client.toLowerCase()
+          )?.sheetName ?? client)
+        : '(Unknown)';
+      bookedByAccount.set(accountName, (bookedByAccount.get(accountName) ?? 0) + 1);
+    }
     return Array.from(map.entries())
-      .map(([name, v]) => ({
-        name,
-        dials: v.dials,
-        booked: v.booked,
-        dialsPerBooking: v.booked > 0 ? (v.dials / v.booked).toFixed(1) : '—',
-      }))
+      .map(([name, v]) => {
+        const booked = bookedByAccount.get(name) ?? 0;
+        return {
+          name,
+          dials: v.dials,
+          booked,
+          dialsPerBooking: booked > 0 ? (v.dials / booked).toFixed(1) : '—',
+        };
+      })
       .sort((a, b) => b.dials - a.dials);
-  }, [filteredCalls, settings]);
+  }, [filteredCalls, filteredAppts, settings]);
 
   const last30 = useMemo(() => {
     const today = new Date();
@@ -244,8 +294,12 @@ function SetterDetailPanel({
   const kpis = [
     { label: 'Dials Made', value: String(stats.totalDials) },
     { label: 'Avg Talk Time', value: stats.avgTalkTime !== null ? `${f(stats.avgTalkTime)} min` : '—' },
-    { label: 'Pickups', value: stats.totalDials > 0 ? `${stats.pickups} (${f(stats.pickupPct)}%)` : '—' },
-    { label: 'Conversations (90s+)', value: stats.pickups > 0 ? `${stats.conversations} (${f(stats.convoPct)}%)` : '—' },
+    { label: 'Avg Call Gap', value: stats.avgCallGap !== null ? `${f(stats.avgCallGap)} min` : '—' },
+    { label: 'Answers', value: String(stats.pickups) },
+    { label: 'No Answers', value: String(stats.noAnswers) },
+    { label: 'Pickup %', value: stats.totalDials > 0 ? `${f(stats.pickupPct)}%` : '—' },
+    { label: '90+ Second Convos', value: String(stats.conversations) },
+    { label: 'Convo %', value: stats.pickups > 0 ? `${f(stats.convoPct)}%` : '—' },
     { label: 'Booked Appts', value: String(stats.bookedAppts) },
     { label: 'ABR %', value: stats.pickups > 0 ? `${f(stats.abrPct)}%` : '—' },
     { label: 'Dials Per Booking', value: stats.dialsPerBooking !== null ? f(stats.dialsPerBooking) : '—' },
@@ -330,7 +384,7 @@ function SetterDetailPanel({
 }
 
 export default function CallCenter() {
-  const { callData, settings, loading } = useData();
+  const { callData, appointments, settings, loading } = useData();
   const navigate = useNavigate();
 
   const [datePreset, setDatePreset] = useState<DatePreset>('this_month');
@@ -393,6 +447,18 @@ export default function CallCenter() {
     });
   }, [callData, dateRange]);
 
+  // Appointments filtered to the active date range (by dateAdded or appointmentDate)
+  const rangeAppts = useMemo(() => {
+    const { from, to } = dateRange;
+    return appointments.filter(a => {
+      const d = parseDateSafe(a.dateAdded || a.appointmentDate);
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+  }, [appointments, dateRange]);
+
   const todayCalls = useMemo(() => {
     const now = new Date();
     const dayStart = startOfDay(now);
@@ -403,17 +469,38 @@ export default function CallCenter() {
     });
   }, [callData]);
 
+  // Today's appointments booked (by setter)
+  const todayBookedByAgent = useMemo(() => {
+    const now = new Date();
+    const dayStart = startOfDay(now);
+    const dayEnd = endOfDay(now);
+    const map = new Map<string, number>();
+    for (const a of appointments) {
+      const d = parseDateSafe(a.dateAdded || a.appointmentDate);
+      if (!d || d < dayStart || d > dayEnd) continue;
+      const setter = (a.setter || '').trim();
+      if (!setter) continue;
+      map.set(setter, (map.get(setter) ?? 0) + 1);
+    }
+    return map;
+  }, [appointments]);
+
   const setterStats = useMemo(() => {
-    const groups = new Map<string, CallRow[]>();
-    for (const setter of activeSetters) groups.set(setter, []);
+    const callGroups = new Map<string, CallRow[]>();
+    for (const setter of activeSetters) callGroups.set(setter, []);
     for (const call of filteredCalls) {
       const name = (call.agentName || '').trim();
-      if (groups.has(name)) groups.get(name)!.push(call);
+      if (callGroups.has(name)) callGroups.get(name)!.push(call);
     }
-    return Array.from(groups.entries())
-      .map(([name, rows]) => computeSetterStats(name, rows))
+    return Array.from(callGroups.entries())
+      .map(([name, rows]) => {
+        const agentAppts = rangeAppts.filter(
+          a => (a.setter || '').trim().toLowerCase() === name.toLowerCase()
+        );
+        return computeSetterStats(name, rows, agentAppts);
+      })
       .sort((a, b) => b.totalDials - a.totalDials);
-  }, [filteredCalls, activeSetters]);
+  }, [filteredCalls, rangeAppts, activeSetters]);
 
   const todayStatsByAgent = useMemo(() => {
     const map = new Map<string, { dials: number; booked: number }>();
@@ -422,11 +509,16 @@ export default function CallCenter() {
       if (!name) continue;
       const entry = map.get(name) || { dials: 0, booked: 0 };
       entry.dials++;
-      if ((call.callDisposition || '').toLowerCase().includes('booked')) entry.booked++;
       map.set(name, entry);
     }
+    // merge in today's booked appointments
+    for (const [setter, count] of todayBookedByAgent) {
+      const entry = map.get(setter) || { dials: 0, booked: 0 };
+      entry.booked = count;
+      map.set(setter, entry);
+    }
     return map;
-  }, [todayCalls]);
+  }, [todayCalls, todayBookedByAgent]);
 
   if (loading) {
     return (
@@ -470,6 +562,10 @@ export default function CallCenter() {
 
   const selectedSetterCalls = selectedSetter
     ? filteredCalls.filter(r => (r.agentName || '').trim() === selectedSetter)
+    : [];
+
+  const selectedSetterAppts = selectedSetter
+    ? rangeAppts.filter(a => (a.setter || '').trim().toLowerCase() === selectedSetter.toLowerCase())
     : [];
 
   return (
@@ -572,6 +668,7 @@ export default function CallCenter() {
         <SetterDetailPanel
           agentName={selectedSetter}
           filteredCalls={selectedSetterCalls}
+          filteredAppts={selectedSetterAppts}
           allCalls={callData}
           settings={settings}
           dateLabel={dateLabel}
