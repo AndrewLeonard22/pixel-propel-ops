@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
 import { X, PhoneCall } from 'lucide-react';
-import type { CallRow, AppointmentRow, AppSettings } from '@/lib/types';
+import type { CallRow, AppointmentRow } from '@/lib/types';
 import {
   startOfDay, endOfDay,
   startOfWeek, endOfWeek,
@@ -18,14 +18,13 @@ type DatePreset = 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom'
 
 interface SetterStats {
   agentName: string;
-  totalDials: number;
+  dialsMade: number;
   pickups: number;
-  noAnswers: number;
   pickupPct: number;
-  conversations: number;
+  convos90Plus: number;
   convoPct: number;
-  bookedAppts: number;
-  abrPct: number;
+  bookings: number;
+  convoToBookPct: number;
   dialsPerBooking: number | null;
   avgTalkTime: number | null;
   avgCallGap: number | null;
@@ -44,28 +43,28 @@ function parseDateSafe(dateStr: string): Date | null {
   return null;
 }
 
-function isPickup(disposition: string): boolean {
-  const d = (disposition || '').toLowerCase().trim();
-  return d !== 'no answer' && d !== 'voicemail' && d !== '';
-}
-
 function computeSetterStats(
   agentName: string,
   rows: CallRow[],
   agentAppts: AppointmentRow[],
 ): SetterStats {
-  const totalDials = rows.length;
-  const pickupRows = rows.filter(r => isPickup(r.callDisposition));
-  const pickups = pickupRows.length;
-  const noAnswers = rows.filter(r => (r.callDisposition || '').toLowerCase().trim() === 'no answer').length;
-  const pickupPct = totalDials > 0 ? (pickups / totalDials) * 100 : 0;
-  const conversations = pickupRows.filter(r => r.callDuration >= 90).length;
-  const convoPct = pickups > 0 ? (conversations / pickups) * 100 : 0;
-  const bookedAppts = agentAppts.length;
-  const abrPct = pickups > 0 ? (bookedAppts / pickups) * 100 : 0;
-  const dialsPerBooking = bookedAppts > 0 ? totalDials / bookedAppts : null;
-  const avgTalkTime = pickups > 0
-    ? pickupRows.reduce((s, r) => s + r.callDuration, 0) / pickups / 60
+  const dialsMade = rows.length;
+  const noAnswers = rows.filter(r => (r.callDisposition || '').trim().toLowerCase() === 'no answer').length;
+  const badNumbers = rows.filter(r => (r.callDisposition || '').trim().toLowerCase() === 'bad number').length;
+  const pickups = dialsMade - noAnswers - badNumbers;
+  const pickupPct = (dialsMade - badNumbers) > 0 ? (pickups / (dialsMade - badNumbers)) * 100 : 0;
+  const convos90Plus = rows.filter(r => r.callDuration >= 90).length;
+  const convoPct = pickups > 0 ? (convos90Plus / pickups) * 100 : 0;
+  const bookings = agentAppts.length;
+  const convoToBookPct = convos90Plus > 0 ? (bookings / convos90Plus) * 100 : 0;
+  const dialsPerBooking = bookings > 0 ? dialsMade / bookings : null;
+
+  const pickupRows = rows.filter(r => {
+    const d = (r.callDisposition || '').trim().toLowerCase();
+    return d !== 'no answer' && d !== 'bad number';
+  });
+  const avgTalkTime = pickupRows.length > 0
+    ? pickupRows.reduce((s, r) => s + r.callDuration, 0) / pickupRows.length / 60
     : null;
 
   // end-of-call → start-of-next gap, capped at 60 min to exclude end-of-day breaks
@@ -81,22 +80,10 @@ function computeSetterStats(
   const avgCallGap = gaps.length > 0 ? gaps.reduce((s, g) => s + g, 0) / gaps.length : null;
 
   return {
-    agentName, totalDials, pickups, noAnswers, pickupPct,
-    conversations, convoPct, bookedAppts, abrPct, dialsPerBooking,
-    avgTalkTime, avgCallGap,
+    agentName, dialsMade, pickups, pickupPct,
+    convos90Plus, convoPct, bookings, convoToBookPct,
+    dialsPerBooking, avgTalkTime, avgCallGap,
   };
-}
-
-function getAccountNameForLocation(ghlLocationName: string, settings: AppSettings): string {
-  const key = (ghlLocationName || '').trim().toLowerCase();
-  if (!key) return '(Unknown)';
-  const match = settings.accountAliases.find(a => {
-    const sheetKey = (a.sheetName || '').trim().toLowerCase();
-    const airtableKey = (a.airtableName || '').trim().toLowerCase();
-    return sheetKey === key || airtableKey === key ||
-      sheetKey.includes(key) || key.includes(sheetKey);
-  });
-  return match?.sheetName || ghlLocationName;
 }
 
 const CHART_COLORS = [
@@ -112,9 +99,9 @@ function pctColor(pct: number, good: number, ok: number): string {
 
 function StatItem({ label, value, colorClass }: { label: string; value: string; colorClass?: string }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{label}</span>
-      <span className={`text-sm font-bold font-mono-tabular ${colorClass || 'text-foreground'}`}>{value}</span>
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide leading-none">{label}</span>
+      <span className={`text-sm font-bold font-mono-tabular leading-tight ${colorClass || 'text-foreground'}`}>{value}</span>
     </div>
   );
 }
@@ -123,50 +110,58 @@ function SetterCard({ stats, onClick }: { stats: SetterStats; onClick: () => voi
   const f = (n: number) => n.toFixed(1);
   return (
     <div
-      className="card-elevated p-5 cursor-pointer hover:ring-1 hover:ring-ring/20 transition-all"
+      className="card-elevated cursor-pointer hover:ring-1 hover:ring-ring/20 transition-all overflow-hidden"
       onClick={onClick}
     >
-      <div className="flex items-center justify-between mb-4">
+      {/* Header: name + hero dials/bookings */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border/60">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold shrink-0">
             {(stats.agentName || '?').charAt(0).toUpperCase()}
           </div>
           <span className="font-semibold text-sm text-foreground">{stats.agentName}</span>
         </div>
-        <PhoneCall className="w-4 h-4 text-muted-foreground" />
+        <div className="flex items-center gap-5">
+          <div className="text-right">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide leading-none mb-0.5">Dials</p>
+            <p className="text-xl font-bold font-mono-tabular text-foreground leading-none">{stats.dialsMade}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide leading-none mb-0.5">Bookings</p>
+            <p className="text-xl font-bold font-mono-tabular text-emerald-600 leading-none">{stats.bookings}</p>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-        <StatItem label="Dials Made" value={String(stats.totalDials)} />
-        <StatItem
-          label="Avg Talk Time"
-          value={stats.avgTalkTime !== null ? `${f(stats.avgTalkTime)}m` : '—'}
-        />
-        <StatItem
-          label="Avg Call Gap"
-          value={stats.avgCallGap !== null ? `${f(stats.avgCallGap)}m` : '—'}
-        />
-        <StatItem label="Answers" value={String(stats.pickups)} />
-        <StatItem label="No Answers" value={String(stats.noAnswers)} />
+      {/* 8-stat grid: 4 cols × 2 rows */}
+      <div className="px-5 py-4 grid grid-cols-4 gap-x-3 gap-y-4">
+        <StatItem label="Pickups" value={String(stats.pickups)} />
         <StatItem
           label="Pickup %"
-          value={stats.totalDials > 0 ? `${f(stats.pickupPct)}%` : '—'}
-          colorClass={stats.totalDials > 0 ? pctColor(stats.pickupPct, 25, 15) : undefined}
+          value={stats.dialsMade > 0 ? `${f(stats.pickupPct)}%` : '—'}
+          colorClass={stats.dialsMade > 0 ? pctColor(stats.pickupPct, 25, 15) : undefined}
         />
-        <StatItem label="90+ Second Convos" value={String(stats.conversations)} />
+        <StatItem label="90s+ Convos" value={String(stats.convos90Plus)} />
         <StatItem
           label="Convo %"
           value={stats.pickups > 0 ? `${f(stats.convoPct)}%` : '—'}
           colorClass={stats.pickups > 0 ? pctColor(stats.convoPct, 40, 20) : undefined}
         />
-        <StatItem label="Booked Appts" value={String(stats.bookedAppts)} />
         <StatItem
-          label="ABR %"
-          value={stats.pickups > 0 ? `${f(stats.abrPct)}%` : '—'}
-          colorClass={stats.pickups > 0 ? pctColor(stats.abrPct, 8, 3) : undefined}
+          label="Talk Time"
+          value={stats.avgTalkTime !== null ? `${f(stats.avgTalkTime)}m` : '—'}
         />
         <StatItem
-          label="Dials Per Booking"
+          label="Call Gap"
+          value={stats.avgCallGap !== null ? `${f(stats.avgCallGap)}m` : '—'}
+        />
+        <StatItem
+          label="Convo→Book"
+          value={stats.convos90Plus > 0 ? `${f(stats.convoToBookPct)}%` : '—'}
+          colorClass={stats.convos90Plus > 0 ? pctColor(stats.convoToBookPct, 8, 3) : undefined}
+        />
+        <StatItem
+          label="Dials/Book"
           value={stats.dialsPerBooking !== null ? f(stats.dialsPerBooking) : '—'}
         />
       </div>
@@ -226,7 +221,6 @@ function SetterDetailPanel({
   filteredCalls,
   filteredAppts,
   allCalls,
-  settings,
   dateLabel,
   onClose,
 }: {
@@ -234,7 +228,6 @@ function SetterDetailPanel({
   filteredCalls: CallRow[];
   filteredAppts: AppointmentRow[];
   allCalls: CallRow[];
-  settings: AppSettings;
   dateLabel: string;
   onClose: () => void;
 }) {
@@ -293,16 +286,15 @@ function SetterDetailPanel({
   }, [allCalls, agentName]);
 
   const kpis = [
-    { label: 'Dials Made', value: String(stats.totalDials) },
+    { label: 'Dials Made', value: String(stats.dialsMade) },
+    { label: 'Pickups', value: String(stats.pickups) },
+    { label: 'Pickup %', value: stats.dialsMade > 0 ? `${f(stats.pickupPct)}%` : '—' },
+    { label: '90+ Second Convos', value: String(stats.convos90Plus) },
+    { label: 'Convo %', value: stats.pickups > 0 ? `${f(stats.convoPct)}%` : '—' },
     { label: 'Avg Talk Time', value: stats.avgTalkTime !== null ? `${f(stats.avgTalkTime)} min` : '—' },
     { label: 'Avg Call Gap', value: stats.avgCallGap !== null ? `${f(stats.avgCallGap)} min` : '—' },
-    { label: 'Answers', value: String(stats.pickups) },
-    { label: 'No Answers', value: String(stats.noAnswers) },
-    { label: 'Pickup %', value: stats.totalDials > 0 ? `${f(stats.pickupPct)}%` : '—' },
-    { label: '90+ Second Convos', value: String(stats.conversations) },
-    { label: 'Convo %', value: stats.pickups > 0 ? `${f(stats.convoPct)}%` : '—' },
-    { label: 'Booked Appts', value: String(stats.bookedAppts) },
-    { label: 'ABR %', value: stats.pickups > 0 ? `${f(stats.abrPct)}%` : '—' },
+    { label: 'Bookings', value: String(stats.bookings) },
+    { label: 'Convo-to-Book %', value: stats.convos90Plus > 0 ? `${f(stats.convoToBookPct)}%` : '—' },
     { label: 'Dials Per Booking', value: stats.dialsPerBooking !== null ? f(stats.dialsPerBooking) : '—' },
   ];
 
@@ -316,7 +308,7 @@ function SetterDetailPanel({
         <div className="sticky top-0 z-10 bg-card border-b px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-foreground">{agentName}</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">{stats.totalDials} dials · {dateLabel}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{stats.dialsMade} dials · {dateLabel}</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted transition-colors">
             <X className="w-5 h-5 text-muted-foreground" />
@@ -326,9 +318,9 @@ function SetterDetailPanel({
         <div className="p-6 space-y-6">
           {/* KPI summary */}
           <div className="grid grid-cols-2 gap-3">
-            {kpis.map(({ label, value }) => (
-              <div key={label} className="card-elevated p-3">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
+            {kpis.map(({ label, value }, i) => (
+              <div key={label} className={`card-elevated p-3 ${i === kpis.length - 1 && kpis.length % 2 !== 0 ? 'col-span-2' : ''}`}>
+                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
                 <p className="text-lg font-bold font-mono-tabular text-foreground">{value}</p>
               </div>
             ))}
@@ -500,7 +492,7 @@ export default function CallCenter() {
         );
         return computeSetterStats(name, rows, agentAppts);
       })
-      .sort((a, b) => b.totalDials - a.totalDials);
+      .sort((a, b) => b.dialsMade - a.dialsMade);
   }, [filteredCalls, rangeAppts, activeSetters]);
 
   const todayStatsByAgent = useMemo(() => {
@@ -570,12 +562,12 @@ export default function CallCenter() {
     : [];
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 max-w-[1400px]">
       {/* Page header + date filter */}
-      <div className="flex flex-wrap items-end justify-between gap-4 pb-2 border-b border-border">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Call Center</h1>
-          <p className="text-sm text-muted-foreground mt-1">Setter activity and performance</p>
+          <h1 className="text-xl font-bold text-foreground">Call Center</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Setter activity and performance</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -610,46 +602,46 @@ export default function CallCenter() {
       </div>
 
       {/* SECTION 1 — Today's Snapshot */}
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Today's Snapshot</h2>
-        <div className="flex flex-wrap gap-4">
-          <div className="card-elevated p-6 min-w-[180px]">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Total Dials Today</p>
-            <p className="kpi-number text-foreground">{todayCalls.length}</p>
+      <section>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Today's Snapshot</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="card-elevated p-4">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Total Dials</p>
+            <p className="kpi-number text-foreground leading-none">{todayCalls.length}</p>
           </div>
           {activeSetters.map(setter => {
             const s = todayStatsByAgent.get(setter) || { dials: 0, booked: 0 };
             return (
-              <div key={setter} className="card-elevated p-5 min-w-[160px]">
-                <div className="flex items-center gap-2.5 mb-3">
-                  <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[11px] font-bold shrink-0">
+              <div key={setter} className="card-elevated p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold shrink-0">
                     {setter.charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-sm font-semibold truncate text-foreground">{setter}</span>
+                  <span className="text-xs font-semibold truncate text-foreground">{setter}</span>
                 </div>
-                <div className="flex gap-5 text-xs">
+                <div className="flex gap-4">
                   <div>
-                    <p className="text-muted-foreground">Dials</p>
-                    <p className="font-bold font-mono-tabular text-foreground text-sm mt-1">{s.dials}</p>
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide leading-none mb-1">Dials</p>
+                    <p className="text-xl font-bold font-mono-tabular text-foreground leading-none">{s.dials}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Bookings</p>
-                    <p className="font-bold font-mono-tabular text-foreground text-sm mt-1">{s.booked}</p>
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide leading-none mb-1">Booked</p>
+                    <p className="text-xl font-bold font-mono-tabular text-emerald-600 leading-none">{s.booked}</p>
                   </div>
                 </div>
               </div>
             );
           })}
         </div>
-      </div>
+      </section>
 
       {/* SECTION 2 — Setter Performance Grid */}
-      <div>
-        <div className="mb-5">
+      <section>
+        <div className="mb-4">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Setter Performance</h2>
-          <p className="text-sm text-muted-foreground mt-1">{dateLabel}</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{dateLabel}</p>
         </div>
-        {setterStats.length === 0 || setterStats.every(s => s.totalDials === 0) ? (
+        {setterStats.length === 0 || setterStats.every(s => s.dialsMade === 0) ? (
           <p className="text-sm text-muted-foreground text-center py-10">No calls in this date range.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -662,7 +654,7 @@ export default function CallCenter() {
             ))}
           </div>
         )}
-      </div>
+      </section>
 
       {/* SECTION 3 — 14-Day Trend */}
       <TrendChart callData={callData} activeSetters={activeSetters} />
@@ -674,7 +666,6 @@ export default function CallCenter() {
           filteredCalls={selectedSetterCalls}
           filteredAppts={selectedSetterAppts}
           allCalls={callData}
-          settings={settings}
           dateLabel={dateLabel}
           onClose={() => setSelectedSetter(null)}
         />
