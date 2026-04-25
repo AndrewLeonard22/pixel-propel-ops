@@ -136,7 +136,7 @@ function SetterCard({ stats, onClick }: { stats: SetterStats; onClick: () => voi
         <PhoneCall className="w-4 h-4 text-muted-foreground" />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-4">
         <StatItem label="Dials Made" value={String(stats.totalDials)} />
         <StatItem
           label="Avg Talk Time"
@@ -570,10 +570,13 @@ export default function CallCenter() {
     : [];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       {/* Page header + date filter */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-xl font-bold text-foreground">Call Center</h1>
+      <div className="flex flex-wrap items-end justify-between gap-4 pb-2 border-b border-border">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Call Center</h1>
+          <p className="text-sm text-muted-foreground mt-1">Setter activity and performance</p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={datePreset}
@@ -608,30 +611,30 @@ export default function CallCenter() {
 
       {/* SECTION 1 — Today's Snapshot */}
       <div>
-        <h2 className="text-sm font-semibold text-foreground mb-3">Today's Snapshot</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Today's Snapshot</h2>
         <div className="flex flex-wrap gap-4">
-          <div className="card-elevated p-5 min-w-[160px]">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Total Dials Today</p>
+          <div className="card-elevated p-6 min-w-[180px]">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Total Dials Today</p>
             <p className="kpi-number text-foreground">{todayCalls.length}</p>
           </div>
           {activeSetters.map(setter => {
             const s = todayStatsByAgent.get(setter) || { dials: 0, booked: 0 };
             return (
-              <div key={setter} className="card-elevated p-4 min-w-[140px]">
-                <div className="flex items-center gap-2 mb-2.5">
-                  <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold shrink-0">
+              <div key={setter} className="card-elevated p-5 min-w-[160px]">
+                <div className="flex items-center gap-2.5 mb-3">
+                  <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[11px] font-bold shrink-0">
                     {setter.charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-xs font-semibold truncate text-foreground">{setter}</span>
+                  <span className="text-sm font-semibold truncate text-foreground">{setter}</span>
                 </div>
-                <div className="flex gap-4 text-xs">
+                <div className="flex gap-5 text-xs">
                   <div>
                     <p className="text-muted-foreground">Dials</p>
-                    <p className="font-bold font-mono-tabular text-foreground mt-0.5">{s.dials}</p>
+                    <p className="font-bold font-mono-tabular text-foreground text-sm mt-1">{s.dials}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Bookings</p>
-                    <p className="font-bold font-mono-tabular text-foreground mt-0.5">{s.booked}</p>
+                    <p className="font-bold font-mono-tabular text-foreground text-sm mt-1">{s.booked}</p>
                   </div>
                 </div>
               </div>
@@ -642,9 +645,9 @@ export default function CallCenter() {
 
       {/* SECTION 2 — Setter Performance Grid */}
       <div>
-        <div className="mb-4">
-          <h2 className="text-sm font-semibold text-foreground">Setter Performance</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">{dateLabel}</p>
+        <div className="mb-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Setter Performance</h2>
+          <p className="text-sm text-muted-foreground mt-1">{dateLabel}</p>
         </div>
         {setterStats.length === 0 || setterStats.every(s => s.totalDials === 0) ? (
           <p className="text-sm text-muted-foreground text-center py-10">No calls in this date range.</p>
