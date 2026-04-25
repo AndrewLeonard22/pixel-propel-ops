@@ -242,25 +242,26 @@ function SetterDetailPanel({
   const f = (n: number) => n.toFixed(1);
 
   const byAccount = useMemo(() => {
+    // Group dials by raw ghlLocationName (trimmed only, no normalization)
     const map = new Map<string, { dials: number }>();
     for (const call of filteredCalls) {
-      const loc = (call.ghlLocationName || '').trim();
-      const name = getAccountNameForLocation(loc, settings);
+      const name = (call.ghlLocationName || '').trim() || '(Unknown)';
       const entry = map.get(name) || { dials: 0 };
       entry.dials++;
       map.set(name, entry);
     }
-    // booked per account from Airtable appointments
+    // Match appt.client directly to ghlLocationName (case-insensitive, trimmed)
     const bookedByAccount = new Map<string, number>();
     for (const appt of filteredAppts) {
       const client = (appt.client || '').trim();
-      const accountName = client
-        ? (settings.accountAliases.find(a =>
-            a.airtableName.trim().toLowerCase() === client.toLowerCase() ||
-            a.sheetName.trim().toLowerCase() === client.toLowerCase()
-          )?.sheetName ?? client)
-        : '(Unknown)';
-      bookedByAccount.set(accountName, (bookedByAccount.get(accountName) ?? 0) + 1);
+      if (!client) continue;
+      const clientLower = client.toLowerCase();
+      for (const key of map.keys()) {
+        if (key.toLowerCase() === clientLower) {
+          bookedByAccount.set(key, (bookedByAccount.get(key) ?? 0) + 1);
+          break;
+        }
+      }
     }
     return Array.from(map.entries())
       .map(([name, v]) => {
@@ -273,7 +274,7 @@ function SetterDetailPanel({
         };
       })
       .sort((a, b) => b.dials - a.dials);
-  }, [filteredCalls, filteredAppts, settings]);
+  }, [filteredCalls, filteredAppts]);
 
   const last30 = useMemo(() => {
     const today = new Date();
