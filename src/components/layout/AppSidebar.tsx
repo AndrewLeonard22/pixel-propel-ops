@@ -5,9 +5,9 @@ import { useState } from 'react';
 const navItems = [
   { label: 'Dashboard', path: '/', icon: Home },
   { label: 'Appointments', path: '/calendar', icon: CalendarDays },
+  { label: 'Call Center', path: '/call-center', icon: PhoneCall },
   { label: 'Team Performance', path: '/team', icon: TrendingUp },
   { label: 'Targets', path: '/targets', icon: Target },
-  { label: 'Call Center', path: '/call-center', icon: PhoneCall },
 ];
 
 export default function AppSidebar() {
