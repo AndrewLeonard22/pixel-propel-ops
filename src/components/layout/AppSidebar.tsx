@@ -6,7 +6,7 @@ const navItems = [
   { label: 'Dashboard', path: '/', icon: Home },
   { label: 'Appointments', path: '/calendar', icon: CalendarDays },
   { label: 'Call Center', path: '/call-center', icon: PhoneCall },
-  { label: 'Team Performance', path: '/team', icon: TrendingUp },
+  { label: 'Media Buying', path: '/team', icon: TrendingUp },
   { label: 'Targets', path: '/targets', icon: Target },
 ];
 
