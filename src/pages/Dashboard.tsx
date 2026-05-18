@@ -8,9 +8,7 @@ import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSu
 import { saveSettings, saveAccountMappings, loadAccountMappings, getAccountMapping } from '@/lib/config';
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check, X } from 'lucide-react';
 import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow, AccountMapping, AppSettings } from '@/lib/types';
-import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
-
-type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
+import DateRangePicker, { type DateRange, ALL_TIME } from '@/components/DateRangePicker';
 
 interface AccountGroup {
   label: string;
@@ -40,11 +38,16 @@ function AccountSection({ group, onSelect }: { group: AccountGroup; onSelect: (a
 
 function parseDateSafe(dateStr: string): Date | null {
   if (!dateStr) return null;
+  // ISO date-only strings (YYYY-MM-DD) must be forced to local time — without
+  // the time suffix, JS parses them as UTC midnight, which shifts the date back
+  // by the local UTC offset (e.g. one full day behind in US timezones).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return new Date(dateStr + 'T00:00:00');
   const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
   let d = new Date(normalized);
   if (!isNaN(d.getTime())) return d;
   const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
   if (dateOnly && dateOnly !== dateStr) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return new Date(dateOnly + 'T00:00:00');
     d = new Date(dateOnly);
     if (!isNaN(d.getTime())) return d;
   }
@@ -68,6 +71,12 @@ function CPLBadge({ value }: { value: number }) {
 function CostPerApptBadge({ value }: { value: number }) {
   const color = value === 0 ? 'text-muted-foreground' : value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
   return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
+}
+
+function LeadToApptBadge({ value }: { value: number }) {
+  if (value === 0) return <span className="font-mono-tabular text-muted-foreground">—</span>;
+  const color = value >= 10 ? 'text-success' : value >= 5 ? 'text-warning' : 'text-destructive';
+  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatPercent(value)}</span>;
 }
 
 function getPerfByProgram(program: string, cpl: number, costPerAppt: number, appointments: number): PerformanceLevel | null {
@@ -106,6 +115,9 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell"><CPLBadge value={account.cpl} /></td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.totalDials)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">
+        <LeadToApptBadge value={account.leadPercent} />
+      </td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} /></td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.closed)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatCurrency(account.revenue)}</td>
@@ -567,36 +579,12 @@ export default function Dashboard() {
   const [search, setSearch] = useState('');
   const [perfFilter, setPerfFilter] = useState<'all' | PerformanceLevel>('all');
   const [accountFilter, setAccountFilter] = useState('all');
-  const [datePreset, setDatePreset] = useState<DatePreset>('all');
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange>(ALL_TIME);
   const [selectedAccountName, setSelectedAccountName] = useState<string | null>(null);
 
-  const dateRange = useMemo(() => {
-    const now = new Date();
-    switch (datePreset) {
-      case 'this_month':
-        return { from: startOfMonth(now), to: endOfMonth(now) };
-      case 'last_month': {
-        const last = subMonths(now, 1);
-        return { from: startOfMonth(last), to: endOfMonth(last) };
-      }
-      case 'last_3_months':
-        return { from: startOfMonth(subMonths(now, 2)), to: endOfMonth(now) };
-      case 'custom':
-        return {
-          from: customFrom ? new Date(customFrom) : undefined,
-          to: customTo ? new Date(customTo) : undefined,
-        };
-      default:
-        return { from: undefined, to: undefined };
-    }
-  }, [datePreset, customFrom, customTo]);
-
   const dateFilteredAccounts = useMemo(() => {
-    if (!dateRange.from && !dateRange.to) return accounts;
-    const from = dateRange.from;
-    const to = dateRange.to;
+    const { from, to } = dateRange;
+    if (!from && !to) return accounts;
     const filteredSpend = adSpend.filter(row => {
       const d = parseDateSafe(row.date);
       if (!d) return false;
@@ -664,6 +652,7 @@ export default function Dashboard() {
       spend, leads,
       cpl: perfLeads > 0 ? perfSpend / perfLeads : 0,
       appts, dials,
+      leadToApptPct: perfLeads > 0 ? (appts / perfLeads) * 100 : 0,
       costPerAppt: dfyAppts > 0 ? dfyPerfSpend / dfyAppts : 0,
       closed, revenue,
     };
@@ -731,6 +720,7 @@ export default function Dashboard() {
           <KPICard label="Avg CPL" value={formatCurrency(totals.cpl)} />
           <KPICard label="Total Dials" value={formatNumber(totals.dials)} />
           <KPICard label="Total Appts" value={formatNumber(totals.appts)} />
+          <KPICard label="Lead → Appt %" value={totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} />
           <KPICard label="Avg Cost/Appt" value={formatCurrency(totals.costPerAppt)} />
           <KPICard label="Closed Deals" value={formatNumber(totals.closed)} />
           <KPICard label="Total Revenue" value={formatCurrency(totals.revenue)} />
@@ -769,34 +759,7 @@ export default function Dashboard() {
           <option value="fair">Fair</option>
           <option value="poor">Poor</option>
         </select>
-        <select
-          value={datePreset}
-          onChange={e => setDatePreset(e.target.value as DatePreset)}
-          className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-        >
-          <option value="all">All Time</option>
-          <option value="this_month">This Month</option>
-          <option value="last_month">Last Month</option>
-          <option value="last_3_months">Last 3 Months</option>
-          <option value="custom">Custom Range</option>
-        </select>
-        {datePreset === 'custom' && (
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={customFrom}
-              onChange={e => setCustomFrom(e.target.value)}
-              className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-            />
-            <span className="text-muted-foreground text-sm">to</span>
-            <input
-              type="date"
-              value={customTo}
-              onChange={e => setCustomTo(e.target.value)}
-              className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-            />
-          </div>
-        )}
+        <DateRangePicker value={dateRange} onChange={setDateRange} includeAllTime />
       </div>
 
       {/* Unmatched Appointments */}
@@ -831,6 +794,7 @@ export default function Dashboard() {
                   <th className="text-right px-3 align-middle hidden md:table-cell">CPL</th>
                   <th className="text-right px-3 align-middle hidden md:table-cell">Dials</th>
                   <th className="text-right px-3 align-middle">Appts</th>
+                  <th className="text-right px-3 align-middle hidden md:table-cell">L→A %</th>
                   <th className="text-right px-3 align-middle">Cost/Appt</th>
                   <th className="text-right px-3 align-middle hidden md:table-cell">Closed</th>
                   <th className="text-right px-3 align-middle hidden md:table-cell">Revenue</th>

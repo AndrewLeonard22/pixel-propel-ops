@@ -204,7 +204,7 @@ export function getPerformance(
 }
 
 // Levenshtein distance for fuzzy matching (Tier 4)
-function levenshteinDistance(a: string, b: string): number {
+export function levenshteinDistance(a: string, b: string): number {
   const m = a.length, n = b.length;
   const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
     Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
@@ -219,14 +219,21 @@ function levenshteinDistance(a: string, b: string): number {
   return dp[m][n];
 }
 
-function levenshteinSimilarity(a: string, b: string): number {
+export function levenshteinSimilarity(a: string, b: string): number {
   const maxLen = Math.max(a.length, b.length);
   if (maxLen === 0) return 1;
   return 1 - levenshteinDistance(a, b) / maxLen;
 }
 
-function normalizeName(s: string): string {
-  return s.toLowerCase().trim().replace(/\b(llc|inc|corp)\b/gi, '').replace(/\s+/g, ' ').trim();
+export function normalizeName(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/\s*&\s*/g, ' and ')               // "X & Y" → "x and y"
+    .replace(/\b(llc|inc|corp|co\.?)\b/gi, '')  // strip legal suffixes
+    .replace(/[^\w\s]/g, ' ')                    // remove remaining punctuation
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function buildAccountSummaries(
@@ -346,10 +353,10 @@ export function buildAccountSummaries(
   }
 
   // --- Dial counting from call center data ---
-  // Build a map of normalized ghlLocationName → { dials, totalDuration }
+  // Keys use normalizeName so "&" vs "and", punctuation differences, and legal suffixes all collapse
   const dialMap = new Map<string, { dials: number; totalDuration: number }>();
   for (const call of callData || []) {
-    const key = (call.ghlLocationName || '').trim().toLowerCase();
+    const key = normalizeName(call.ghlLocationName || '');
     if (!key) continue;
     const entry = dialMap.get(key) || { dials: 0, totalDuration: 0 };
     entry.dials++;
@@ -357,21 +364,58 @@ export function buildAccountSummaries(
     dialMap.set(key, entry);
   }
 
-  // Build reverse lookup: for each account, collect all name keys that could match dial data
-  const accountDialKeys = new Map<string, string[]>(); // normalizedAccountKey → list of dial lookup keys
+  // Build lookup keys per account using normalizeName for consistency
+  const accountDialKeys = new Map<string, string[]>();
   for (const [normalizedKey, data] of accountMap) {
-    const keys: string[] = [normalizedKey];
-    // Add Airtable alias name
+    const keys: string[] = [];
+    const addKey = (raw: string) => {
+      const n = normalizeName(raw);
+      if (n && !keys.includes(n)) keys.push(n);
+    };
+    addKey(data.originalName);
     const alias = (settings?.accountAliases || []).find(a => a.sheetName.trim().toLowerCase() === normalizedKey);
-    if (alias) {
-      const airtableName = (alias.airtableName || alias.sheetName || '').trim().toLowerCase();
-      if (airtableName && !keys.includes(airtableName)) keys.push(airtableName);
-    }
-    // Add any client names resolved to this account during Tier 3
+    if (alias) addKey(alias.airtableName || alias.sheetName || '');
     for (const [clientKey, acctKey] of clientNameToAccount) {
-      if (acctKey === normalizedKey && !keys.includes(clientKey)) keys.push(clientKey);
+      if (acctKey === normalizedKey) addKey(clientKey);
     }
     accountDialKeys.set(normalizedKey, keys);
+  }
+
+  // Pass 1 — exact match (after normalization)
+  const claimedDialKeys = new Set<string>();
+  const accountDialTotals = new Map<string, { dials: number; totalDuration: number }>();
+  for (const [normalizedKey] of accountMap) {
+    const keys = accountDialKeys.get(normalizedKey) || [];
+    let dials = 0, totalDuration = 0;
+    for (const dk of keys) {
+      const entry = dialMap.get(dk);
+      if (entry) {
+        dials += entry.dials;
+        totalDuration += entry.totalDuration;
+        claimedDialKeys.add(dk);
+      }
+    }
+    accountDialTotals.set(normalizedKey, { dials, totalDuration });
+  }
+
+  // Pass 2 — fuzzy match any ghlLocationName that wasn't claimed above
+  const accountNameIndex = Array.from(accountMap.entries()).map(([key, data]) => ({
+    key,
+    normalized: normalizeName(data.originalName),
+  }));
+
+  for (const [dialKey, dialData] of dialMap) {
+    if (claimedDialKeys.has(dialKey)) continue;
+    const scores = accountNameIndex
+      .map(an => ({ key: an.key, score: levenshteinSimilarity(dialKey, an.normalized) }))
+      .sort((a, b) => b.score - a.score);
+    if (!scores.length || scores[0].score < 0.75) continue;
+    const secondScore = scores.length > 1 ? scores[1].score : 0;
+    if (scores[0].score - secondScore < 0.10) continue; // require a clear winner
+    const existing = accountDialTotals.get(scores[0].key) || { dials: 0, totalDuration: 0 };
+    existing.dials += dialData.dials;
+    existing.totalDuration += dialData.totalDuration;
+    accountDialTotals.set(scores[0].key, existing);
   }
 
   // 4. Build final summaries
@@ -627,17 +671,9 @@ export function buildAccountSummaries(
     const costPerAppt = totalAppts > 0 ? performanceSpend / totalAppts : 0;
     const qualPercent = totalAppts > 0 ? (qualified / totalAppts) * 100 : 0;
 
-    // Dial data for this account
-    const dialKeys = accountDialKeys.get(normalizedKey) || [];
-    let matchedDials = 0;
-    let matchedDuration = 0;
-    for (const dk of dialKeys) {
-      const entry = dialMap.get(dk);
-      if (entry) {
-        matchedDials += entry.dials;
-        matchedDuration += entry.totalDuration;
-      }
-    }
+    // Dial data — pre-computed above via exact + fuzzy matching
+    const { dials: matchedDials, totalDuration: matchedDuration } =
+      accountDialTotals.get(normalizedKey) || { dials: 0, totalDuration: 0 };
 
     summaries.push({
       accountName,

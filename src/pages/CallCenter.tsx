@@ -5,16 +5,15 @@ import type { CallRow, AppointmentRow } from '@/lib/types';
 import {
   startOfDay, endOfDay,
   startOfWeek, endOfWeek,
-  startOfMonth, endOfMonth,
-  subMonths, subDays, format,
+  subDays, format,
 } from 'date-fns';
+import DateRangePicker, { type DateRange, thisMonthRange } from '@/components/DateRangePicker';
+import { normalizeName, levenshteinSimilarity } from '@/lib/dataService';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, LabelList, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
-
-type DatePreset = 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom';
 
 interface SetterStats {
   agentName: string;
@@ -32,11 +31,14 @@ interface SetterStats {
 
 function parseDateSafe(dateStr: string): Date | null {
   if (!dateStr) return null;
+  // ISO date-only strings must be forced to local time to avoid UTC-offset shift
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return new Date(dateStr + 'T00:00:00');
   const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
   let d = new Date(normalized);
   if (!isNaN(d.getTime())) return d;
   const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
   if (dateOnly && dateOnly !== dateStr) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return new Date(dateOnly + 'T00:00:00');
     d = new Date(dateOnly);
     if (!isNaN(d.getTime())) return d;
   }
@@ -169,49 +171,196 @@ function SetterCard({ stats, onClick }: { stats: SetterStats; onClick: () => voi
   );
 }
 
-function TrendChart({ callData, activeSetters }: { callData: CallRow[]; activeSetters: string[] }) {
-  const chartData = useMemo(() => {
-    const today = new Date();
-    const dates = Array.from({ length: 14 }, (_, i) => subDays(today, 13 - i));
-    return dates.map(date => {
+function TrendChart({ callData, activeSetters, appointments }: {
+  callData: CallRow[];
+  activeSetters: string[];
+  appointments: AppointmentRow[];
+}) {
+  const today = new Date();
+  const todayStr = format(today, 'yyyy-MM-dd');
+
+  const days = useMemo(
+    () => Array.from({ length: 14 }, (_, i) => subDays(today, 13 - i)),
+    [],
+  );
+
+  // Per-day per-setter dials + bookings
+  const data = useMemo(() => {
+    return days.map(date => {
       const dayStart = startOfDay(date);
       const dayEnd = endOfDay(date);
-      const entry: Record<string, number | string> = { date: format(date, 'MMM d') };
+      const label = format(date, 'M/d');
+      const isToday = format(date, 'yyyy-MM-dd') === todayStr;
+      let totalDials = 0;
+      let totalBookings = 0;
+      const bySetterDials: Record<string, number> = {};
+      const bySetterBookings: Record<string, number> = {};
       for (const setter of activeSetters) {
-        entry[setter] = callData.filter(r => {
+        const dials = callData.filter(r => {
           const d = parseDateSafe(r.timestamp);
           return d && d >= dayStart && d <= dayEnd && (r.agentName || '').trim() === setter;
         }).length;
+        const normalizedSetter = normalizeName(setter);
+        const bookings = appointments.filter(a => {
+          const d = parseDateSafe(a.dateAdded || a.appointmentDate);
+          return d && d >= dayStart && d <= dayEnd &&
+            normalizeName((a.setter || '').trim()) === normalizedSetter;
+        }).length;
+        bySetterDials[setter] = dials;
+        bySetterBookings[setter] = bookings;
+        totalDials += dials;
+        totalBookings += bookings;
       }
-      return entry;
+      return { label, isToday, bySetterDials, bySetterBookings, totalDials, totalBookings };
     });
-  }, [callData, activeSetters]);
+  }, [callData, activeSetters, appointments, days]);
 
   if (activeSetters.length === 0) return null;
 
+  // Flat data for the bar chart (one entry per day)
+  const chartData = data.map(d => {
+    const entry: Record<string, number | string> = { date: d.label, total: d.totalDials };
+    for (const setter of activeSetters) entry[setter] = d.bySetterDials[setter] ?? 0;
+    return entry;
+  });
+
+  // Column totals (all 14 days) per setter
+  const setterTotals = Object.fromEntries(
+    activeSetters.map(s => [
+      s,
+      {
+        dials: data.reduce((n, d) => n + (d.bySetterDials[s] ?? 0), 0),
+        bookings: data.reduce((n, d) => n + (d.bySetterBookings[s] ?? 0), 0),
+      },
+    ]),
+  );
+  const grandDials = data.reduce((n, d) => n + d.totalDials, 0);
+  const grandBookings = data.reduce((n, d) => n + d.totalBookings, 0);
+
   return (
     <div className="card-elevated p-5">
-      <h2 className="text-sm font-semibold text-foreground mb-4">Daily Dials — Last 14 Days</h2>
-      <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={chartData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-          <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} verticalAlign="top" />
-          {activeSetters.map((setter, i) => (
-            <Line
-              key={setter}
-              type="monotone"
-              dataKey={setter}
-              stroke={CHART_COLORS[i % CHART_COLORS.length]}
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4 }}
-            />
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-sm font-semibold text-foreground">Daily Activity — Last 14 Days</h2>
+        <div className="flex items-center gap-4">
+          {activeSetters.map((s, i) => (
+            <div key={s} className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
+              <span className="text-[11px] text-muted-foreground">{s.split(' ')[0]}</span>
+            </div>
           ))}
-        </LineChart>
+        </div>
+      </div>
+
+      {/* Stacked bar chart */}
+      <ResponsiveContainer width="100%" height={160}>
+        <BarChart data={chartData} margin={{ top: 18, right: 4, left: -22, bottom: 0 }} barCategoryGap="30%">
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+          <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 10 }} allowDecimals={false} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid hsl(var(--border))' }} cursor={{ fill: 'hsl(var(--accent))', opacity: 0.4 }} />
+          {activeSetters.map((s, i) => {
+            const isTop = i === activeSetters.length - 1;
+            return (
+              <Bar key={s} dataKey={s} stackId="s" fill={CHART_COLORS[i % CHART_COLORS.length]} radius={isTop ? [3, 3, 0, 0] : [0, 0, 0, 0]}>
+                {isTop && (
+                  <LabelList dataKey="total" position="top" style={{ fontSize: 10, fontWeight: 600, fill: 'hsl(var(--muted-foreground))' }} formatter={(v: number) => v > 0 ? v : ''} />
+                )}
+              </Bar>
+            );
+          })}
+        </BarChart>
       </ResponsiveContainer>
+
+      {/* Horizontal breakdown — dates as columns, setters as rows */}
+      <div className="mt-5 overflow-x-auto">
+        <table className="border-collapse text-xs w-full" style={{ minWidth: `${14 * 40 + 160}px` }}>
+          {/* Date header row */}
+          <thead>
+            <tr className="border-b-2 border-border">
+              <th className="text-left pb-2 pr-2 w-20 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Setter</th>
+              <th className="text-left pb-2 pr-3 w-16 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"></th>
+              {data.map((d, i) => (
+                <th key={i} className={`text-center pb-2 px-1 text-[10px] font-semibold min-w-[36px] ${d.isToday ? 'text-primary' : 'text-muted-foreground'}`}>
+                  {d.label}
+                  {d.isToday && <div className="w-1 h-1 rounded-full bg-primary mx-auto mt-0.5" />}
+                </th>
+              ))}
+              <th className="text-center pb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-l border-border">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* One dials row + one bookings row per setter */}
+            {activeSetters.flatMap((setter, si) => {
+              const color = CHART_COLORS[si % CHART_COLORS.length];
+              const totals = setterTotals[setter];
+              const isLastSetter = si === activeSetters.length - 1;
+              return [
+                // Dials row
+                <tr key={`${setter}-d`} className="border-b border-border/30">
+                  <td className="py-1.5 pr-2 font-semibold text-foreground text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: color }} />
+                      {setter.split(' ')[0]}
+                    </div>
+                  </td>
+                  <td className="py-1.5 pr-3 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Dials</td>
+                  {data.map((d, di) => {
+                    const v = d.bySetterDials[setter] ?? 0;
+                    return (
+                      <td key={di} className={`text-center px-1 py-1.5 font-mono-tabular ${d.isToday ? 'bg-primary/5' : ''} ${v === 0 ? 'text-muted-foreground/25' : 'text-foreground'}`}>
+                        {v > 0 ? v : '—'}
+                      </td>
+                    );
+                  })}
+                  <td className="text-center px-3 py-1.5 font-mono-tabular font-semibold text-foreground border-l border-border">
+                    {totals.dials || '—'}
+                  </td>
+                </tr>,
+                // Bookings row
+                <tr key={`${setter}-b`} className={isLastSetter ? 'border-b-2 border-border' : 'border-b border-border'}>
+                  <td className="py-1 pr-2" />
+                  <td className="py-1 pr-3 text-[10px] font-medium text-emerald-600 uppercase tracking-wider">Booked</td>
+                  {data.map((d, di) => {
+                    const v = d.bySetterBookings[setter] ?? 0;
+                    return (
+                      <td key={di} className={`text-center px-1 py-1 font-mono-tabular ${d.isToday ? 'bg-primary/5' : ''} ${v === 0 ? 'text-muted-foreground/25' : 'text-emerald-600 font-semibold'}`}>
+                        {v > 0 ? v : '—'}
+                      </td>
+                    );
+                  })}
+                  <td className="text-center px-3 py-1 font-mono-tabular font-semibold text-emerald-600 border-l border-border">
+                    {totals.bookings > 0 ? totals.bookings : '—'}
+                  </td>
+                </tr>,
+              ];
+            })}
+            {/* Totals rows */}
+            <tr className="bg-muted/30 border-b border-border/40">
+              <td className="py-1.5 pr-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total</td>
+              <td className="py-1.5 pr-3 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Dials</td>
+              {data.map((d, di) => (
+                <td key={di} className={`text-center px-1 py-1.5 font-mono-tabular font-semibold ${d.isToday ? 'bg-primary/10' : ''} ${d.totalDials === 0 ? 'text-muted-foreground/25' : 'text-foreground'}`}>
+                  {d.totalDials > 0 ? d.totalDials : '—'}
+                </td>
+              ))}
+              <td className="text-center px-3 py-1.5 font-mono-tabular font-bold text-foreground border-l border-border">{grandDials || '—'}</td>
+            </tr>
+            <tr className="bg-muted/30">
+              <td className="py-1 pr-2" />
+              <td className="py-1 pr-3 text-[10px] font-medium text-emerald-600 uppercase tracking-wider">Booked</td>
+              {data.map((d, di) => (
+                <td key={di} className={`text-center px-1 py-1 font-mono-tabular font-semibold ${d.isToday ? 'bg-primary/10' : ''} ${d.totalBookings === 0 ? 'text-muted-foreground/25' : 'text-emerald-600'}`}>
+                  {d.totalBookings > 0 ? d.totalBookings : '—'}
+                </td>
+              ))}
+              <td className="text-center px-3 py-1 font-mono-tabular font-bold text-emerald-600 border-l border-border">
+                {grandBookings > 0 ? grandBookings : '—'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -235,32 +384,47 @@ function SetterDetailPanel({
   const f = (n: number) => n.toFixed(1);
 
   const byAccount = useMemo(() => {
-    // Group dials by raw ghlLocationName (trimmed only, no normalization)
-    const map = new Map<string, { dials: number }>();
+    // Group dials keyed by normalizeName(ghlLocationName) so "&"/"and" etc. collapse
+    const map = new Map<string, { dials: number; rawName: string }>();
     for (const call of filteredCalls) {
-      const name = (call.ghlLocationName || '').trim() || '(Unknown)';
-      const entry = map.get(name) || { dials: 0 };
+      const rawName = (call.ghlLocationName || '').trim() || '(Unknown)';
+      const key = normalizeName(rawName) || rawName.toLowerCase();
+      const entry = map.get(key) || { dials: 0, rawName };
       entry.dials++;
-      map.set(name, entry);
+      map.set(key, entry);
     }
-    // Match appt.client directly to ghlLocationName (case-insensitive, trimmed)
-    const bookedByAccount = new Map<string, number>();
+
+    // Match appt.client → account via exact-normalized then fuzzy fallback
+    const bookedByKey = new Map<string, number>();
+    const accountKeys = Array.from(map.keys());
     for (const appt of filteredAppts) {
       const client = (appt.client || '').trim();
       if (!client) continue;
-      const clientLower = client.toLowerCase();
-      for (const key of map.keys()) {
-        if (key.toLowerCase() === clientLower) {
-          bookedByAccount.set(key, (bookedByAccount.get(key) ?? 0) + 1);
-          break;
+      const normalizedClient = normalizeName(client);
+
+      // Exact match after normalization
+      if (map.has(normalizedClient)) {
+        bookedByKey.set(normalizedClient, (bookedByKey.get(normalizedClient) ?? 0) + 1);
+        continue;
+      }
+
+      // Fuzzy fallback (same thresholds as dial matching in dataService)
+      const scores = accountKeys
+        .map(k => ({ key: k, score: levenshteinSimilarity(normalizedClient, k) }))
+        .sort((a, b) => b.score - a.score);
+      if (scores.length > 0 && scores[0].score >= 0.75) {
+        const secondScore = scores.length > 1 ? scores[1].score : 0;
+        if (scores[0].score - secondScore >= 0.10) {
+          bookedByKey.set(scores[0].key, (bookedByKey.get(scores[0].key) ?? 0) + 1);
         }
       }
     }
+
     return Array.from(map.entries())
-      .map(([name, v]) => {
-        const booked = bookedByAccount.get(name) ?? 0;
+      .map(([key, v]) => {
+        const booked = bookedByKey.get(key) ?? 0;
         return {
-          name,
+          name: v.rawName,
           dials: v.dials,
           booked,
           dialsPerBooking: booked > 0 ? (v.dials / booked).toFixed(1) : '—',
@@ -380,9 +544,7 @@ export default function CallCenter() {
   const { callData, appointments, settings, loading } = useData();
   const navigate = useNavigate();
 
-  const [datePreset, setDatePreset] = useState<DatePreset>('this_month');
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange>(thisMonthRange);
   const [selectedSetter, setSelectedSetter] = useState<string | null>(null);
 
   const activeSetters = useMemo(() => {
@@ -397,39 +559,7 @@ export default function CallCenter() {
     return allNames.filter(n => !inactive.includes(n));
   }, [callData, settings.inactiveSetters]);
 
-  const dateRange = useMemo(() => {
-    const now = new Date();
-    switch (datePreset) {
-      case 'today':
-        return { from: startOfDay(now), to: endOfDay(now) };
-      case 'this_week':
-        return { from: startOfWeek(now, { weekStartsOn: 1 }), to: endOfWeek(now, { weekStartsOn: 1 }) };
-      case 'this_month':
-        return { from: startOfMonth(now), to: endOfMonth(now) };
-      case 'last_month': {
-        const last = subMonths(now, 1);
-        return { from: startOfMonth(last), to: endOfMonth(last) };
-      }
-      case 'custom':
-        return {
-          from: customFrom ? startOfDay(new Date(customFrom + 'T00:00:00')) : undefined,
-          to: customTo ? endOfDay(new Date(customTo + 'T00:00:00')) : undefined,
-        };
-    }
-  }, [datePreset, customFrom, customTo]);
-
-  const dateLabel = useMemo(() => {
-    const now = new Date();
-    switch (datePreset) {
-      case 'today': return format(now, 'MMMM d, yyyy');
-      case 'this_week': return `Week of ${format(startOfWeek(now, { weekStartsOn: 1 }), 'MMM d, yyyy')}`;
-      case 'this_month': return format(now, 'MMMM yyyy');
-      case 'last_month': return format(subMonths(now, 1), 'MMMM yyyy');
-      case 'custom':
-        if (customFrom && customTo) return `${customFrom} → ${customTo}`;
-        return 'Custom Range';
-    }
-  }, [datePreset, customFrom, customTo]);
+  const dateLabel = dateRange.label;
 
   const filteredCalls = useMemo(() => {
     const { from, to } = dateRange;
@@ -490,8 +620,9 @@ export default function CallCenter() {
     }
     return Array.from(callGroups.entries())
       .map(([name, rows]) => {
+        const normalizedName = normalizeName(name);
         const agentAppts = rangeAppts.filter(
-          a => (a.setter || '').trim().toLowerCase() === name.toLowerCase()
+          a => normalizeName((a.setter || '').trim()) === normalizedName
         );
         return computeSetterStats(name, rows, agentAppts);
       })
@@ -507,11 +638,20 @@ export default function CallCenter() {
       entry.dials++;
       map.set(name, entry);
     }
-    // merge in today's booked appointments
+    // Merge today's booked appointments — match setter name to call-center agent name
+    // using normalizeName so minor spelling/punctuation differences don't break it
     for (const [setter, count] of todayBookedByAgent) {
-      const entry = map.get(setter) || { dials: 0, booked: 0 };
+      const normalizedSetter = normalizeName(setter);
+      let matchedKey: string | null = map.has(setter) ? setter : null;
+      if (!matchedKey) {
+        for (const k of map.keys()) {
+          if (normalizeName(k) === normalizedSetter) { matchedKey = k; break; }
+        }
+      }
+      const key = matchedKey ?? setter;
+      const entry = map.get(key) || { dials: 0, booked: 0 };
       entry.booked = count;
-      map.set(setter, entry);
+      map.set(key, entry);
     }
     return map;
   }, [todayCalls, todayBookedByAgent]);
@@ -572,36 +712,7 @@ export default function CallCenter() {
           <h1 className="text-xl font-bold text-foreground">Call Center</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Setter activity and performance</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={datePreset}
-            onChange={e => setDatePreset(e.target.value as DatePreset)}
-            className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-          >
-            <option value="today">Today</option>
-            <option value="this_week">This Week</option>
-            <option value="this_month">This Month</option>
-            <option value="last_month">Last Month</option>
-            <option value="custom">Custom Range</option>
-          </select>
-          {datePreset === 'custom' && (
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={customFrom}
-                onChange={e => setCustomFrom(e.target.value)}
-                className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-              />
-              <span className="text-sm text-muted-foreground">to</span>
-              <input
-                type="date"
-                value={customTo}
-                onChange={e => setCustomTo(e.target.value)}
-                className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-              />
-            </div>
-          )}
-        </div>
+        <DateRangePicker value={dateRange} onChange={setDateRange} />
       </div>
 
       {/* SECTION 1 — Today's Snapshot */}
@@ -660,7 +771,7 @@ export default function CallCenter() {
       </section>
 
       {/* SECTION 3 — 14-Day Trend */}
-      <TrendChart callData={callData} activeSetters={activeSetters} />
+      <TrendChart callData={callData} activeSetters={activeSetters} appointments={appointments} />
 
       {/* Setter Detail Panel */}
       {selectedSetter && (
