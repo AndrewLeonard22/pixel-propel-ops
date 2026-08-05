@@ -230,6 +230,89 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
 }
 
 /**
+ * ACCOUNT IDENTITY — the account column is UNTYPED and this names what is in it.
+ *
+ * The feed carries no account_id field. `Account Name` holds three different things:
+ *   a human name          "Backyard Paradiso"
+ *   a META ACCOUNT ID     "10170221, USD"   — Meta's display for an account nobody named.
+ *                         4 of 61 labels, all historical: every one stopped on or before
+ *                         2025-12-31, because each was NAMED and the id form then vanished.
+ *   a whitespace twin     "Co-Lights " vs "Co-Lights" — 2 pairs in the live feed
+ *
+ * ⚠️ An id-form label is a PREDICTION, not just an observation: it marks an account nobody
+ * has named in Meta, and the day somebody names it the history SPLITS — old rows keep the
+ * id, new rows get the name. That is not hypothetical; it has already happened three times.
+ */
+export type AccountLabelKind = 'name' | 'meta-account-id';
+
+export interface AccountLabel {
+  raw: string;
+  key: string;
+  kind: AccountLabelKind;
+  metaAccountId?: string;
+}
+
+/** Grouping key. trim+lowercase, which is what the aggregator already does — so this is
+ *  behaviour-preserving, and it collapses the whitespace twins as a side effect. */
+export function accountKey(raw: string | undefined | null): string {
+  return String(raw ?? '').trim().toLowerCase();
+}
+
+export function classifyAccountLabel(raw: string | undefined | null): AccountLabel {
+  const r = String(raw ?? '').trim();
+  const m = r.match(/^(\d{6,})\s*,\s*[A-Z]{3}$/);
+  return m
+    ? { raw: r, key: accountKey(r), kind: 'meta-account-id', metaAccountId: m[1] }
+    : { raw: r, key: accountKey(r), kind: 'name' };
+}
+
+/**
+ * DETERMINISTIC ROW KEY, used to deduplicate BEFORE aggregating.
+ *
+ * Uses dateISO rather than the raw date string, so 8/4/2026 and 2026-08-04 — the same day
+ * from two different tabs — collapse to one key instead of surviving as two rows.
+ */
+export function adSpendRowKey(r: AdSpendRow): string {
+  return [
+    r.dateISO || r.date,
+    accountKey(r.accountName),
+    (r.campaignId || '').trim(),
+    (r.adsetId || '').trim(),
+    (r.adId || '').trim(),
+  ].join('\u0000');
+}
+
+export interface DedupeResult {
+  rows: AdSpendRow[];
+  /** ENUMERATED, not counted: a count says something was dropped, only the values say what. */
+  removed: { key: string; accountName: string; date: string }[];
+}
+
+/**
+ * Drop exact duplicate rows before they are summed.
+ *
+ * ⚠️ MEASURED BOUND, carry it: the live feed has ZERO duplicates on this key — 38,944 rows,
+ * 38,944 distinct keys. So this is BEHAVIOUR-NEUTRAL TODAY and exists for the prospective
+ * case: a re-export, an appended refresh or a Windsor backfill introduces them and nothing
+ * else in the pipeline would notice. Do NOT report that we have a duplicate problem.
+ */
+export function dedupeAdSpendRows(rows: AdSpendRow[]): DedupeResult {
+  const seen = new Set<string>();
+  const out: AdSpendRow[] = [];
+  const removed: DedupeResult['removed'] = [];
+  for (const r of rows) {
+    const k = adSpendRowKey(r);
+    if (seen.has(k)) {
+      removed.push({ key: k, accountName: r.accountName, date: r.dateISO || r.date });
+      continue;
+    }
+    seen.add(k);
+    out.push(r);
+  }
+  return { rows: out, removed };
+}
+
+/**
  * ONE OUTCOME PER SOURCE — the seam that stops a single failure taking the others down.
  *
  * `refresh()` currently awaits all three fetches inside a single Promise.all, which REJECTS
