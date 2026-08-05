@@ -65,10 +65,10 @@ function loadSettingsFromLocal(): AppSettings {
         ? JSON.parse(aliasStored) 
         : parsedSettings.accountAliases;
 
-    // stripCredentials on the way IN: a browser that stored settings before this
+    // sanitizeSettings on the way IN: a browser that stored settings before this
     // change still has the tokens in localStorage. Without this they are read
     // back into memory and written out again on the next save.
-    return stripCredentials({
+    return sanitizeSettings({
       ...DEFAULT_SETTINGS,
       ...parsedSettings,
       accountAliases: Array.isArray(parsedMappings) ? parsedMappings : DEFAULT_SETTINGS.accountAliases,
@@ -79,9 +79,9 @@ function loadSettingsFromLocal(): AppSettings {
 }
 
 function saveSettingsToLocal(settings: AppSettings): void {
-  // stripCredentials on the way OUT: localStorage is plaintext and readable by
+  // sanitizeSettings on the way OUT: localStorage is plaintext and readable by
   // every script on the page, including any the host injects.
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(stripCredentials(settings)));
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(sanitizeSettings(settings)));
   localStorage.setItem('accountAliases', JSON.stringify(settings.accountAliases || []));
 }
 
@@ -142,7 +142,7 @@ export async function loadSettingsAsync(): Promise<AppSettings> {
     // NOT CHANGED HERE: making this a validity test rather than a presence test
     // is order item ①b / ⑥ and belongs to the lane that owns source state.
     if (dbSettings && typeof dbSettings === 'object' && dbSettings.googleSheetUrl !== undefined) {
-      const merged = stripCredentials({
+      const merged = sanitizeSettings({
         ...DEFAULT_SETTINGS,
         ...dbSettings,
         // Always use the latest default column mappings merged with any user customizations
@@ -229,6 +229,11 @@ export function isClobber(r: ClobberReport): boolean {
  * client-side guard is the only thing standing between a stale render and the row.
  */
 export async function saveSettings(settings: AppSettings): Promise<void> {
+  // @anvil's clobber guard (order ①) and the credential sanitiser (order ②) are
+  // DIFFERENT CHECKS and both belong here — they were written independently and the
+  // rebase put them on the same lines. One asks "would this write DESTROY config?",
+  // the other asks "does this write carry something we must never STORE?". A write can
+  // fail either test alone.
   const current = await fetchSetting<AppSettings>('app_settings');
   const report = detectClobber(current, settings);
   if (isClobber(report)) {
@@ -239,11 +244,11 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
     );
   }
 
-  // The credential keys are stripped at BOTH sinks, not once before the call.
+  // Sanitised at BOTH sinks, not once before the call.
   // Stripping once and passing the clean object to both would be tidier and
   // would silently stop protecting whichever sink someone adds next.
   saveSettingsToLocal(settings);
-  await upsertSetting('app_settings', stripCredentials(settings));
+  await upsertSetting('app_settings', sanitizeSettings(settings));
 }
 
 /** Synchronous load account mappings from localStorage */
@@ -418,12 +423,50 @@ export function isConfigured(settings: AppSettings): boolean {
  * Contract: returns a copy with the credential keys absent. Never throws.
  * Adding a credential to AppSettings in future must add its key here.
  */
-export const CREDENTIAL_KEYS = ['airtableToken', 'anthropicApiKey'] as const;
+/**
+ * Every key the application is permitted to persist.
+ *
+ * ⭐ THIS IS AN ALLOWLIST AND THE INVERSION IS THE POINT. The first version of
+ * this guard held a list of FORBIDDEN keys — a hand-maintained registry, where a
+ * new `metaAccessToken` or `ghlToken` walks straight through because the safe
+ * behaviour required somebody to remember to register it.
+ *
+ * A NEW FIELD MUST FAIL UNTIL IT IS DECLARED, NOT PASS UNTIL SOMEONE REMEMBERS.
+ *
+ * Kept deliberately in step with `allowed_config_keys` in
+ * supabase/migrations/20260806000000_lock_down_app_settings.sql. The database is
+ * the authority — this is the client half, so a bad write fails early and
+ * visibly rather than as a 400 from PostgREST.
+ */
+export const ALLOWED_CONFIG_KEYS = [
+  'googleSheetUrl', 'googleSheetTab',
+  'callCenterSheetUrl', 'callCenterSheetTab',
+  'airtableBaseId', 'airtableTableName',
+  'columnMappings', 'accountAliases', 'perfThresholds',
+  'excludedCampaigns', 'setterBonusRates',
+  'activeSetters', 'inactiveSetters',
+  'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays',
+] as const;
 
-export function stripCredentials<T>(settings: T): T {
+/**
+ * Keep only declared configuration keys.
+ *
+ * ⚠️ POPULATION, STATED RATHER THAN IMPLIED: this filters TOP-LEVEL KEYS with
+ * EXACT CASE. It does NOT inspect nested objects — a credential hidden at
+ * `columnMappings.token` passes this function. That case is covered in the
+ * database by a credential-SHAPE check over the whole serialised value, which
+ * sees nesting and casing because it matches the shape of the secret rather
+ * than the name of its key. Neither check covers the other.
+ *
+ * Contract: returns a copy containing only allowed keys. Never throws.
+ */
+export function sanitizeSettings<T>(settings: T): T {
   if (!settings || typeof settings !== 'object') return settings;
-  const clean = { ...(settings as Record<string, unknown>) };
-  for (const key of CREDENTIAL_KEYS) delete clean[key];
+  const allowed = new Set<string>(ALLOWED_CONFIG_KEYS as readonly string[]);
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(settings as Record<string, unknown>)) {
+    if (allowed.has(key)) clean[key] = value;
+  }
   return clean as T;
 }
 
