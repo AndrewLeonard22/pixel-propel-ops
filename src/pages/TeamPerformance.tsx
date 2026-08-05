@@ -5,21 +5,13 @@ import { TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import { formatCurrency, formatNumber, formatPercent, buildAccountSummaries, buildTeamPerformance } from '@/lib/dataService';
 import { startOfMonth, endOfMonth, subMonths, format } from 'date-fns';
+// ⑤ shared date parser. The local copy removed here handed ISO date-only strings to
+// new Date(), which parses them as UTC MIDNIGHT and renders the PREVIOUS calendar day
+// west of UTC. Harmless today (the derived tab is all M/D/YYYY) and load-bearing the
+// moment ③ repoints to the raw tab, which is 581/581 ISO.
+import { parseSourceDate as parseDateSafe } from '@/lib/dates';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
-
-function parseDateSafe(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
-  let d = new Date(normalized);
-  if (!isNaN(d.getTime())) return d;
-  const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
-  if (dateOnly && dateOnly !== dateStr) {
-    d = new Date(dateOnly);
-    if (!isNaN(d.getTime())) return d;
-  }
-  return null;
-}
 
 export default function MediaBuying() {
   const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh } = useData();
