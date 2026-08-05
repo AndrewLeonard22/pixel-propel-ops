@@ -329,21 +329,20 @@ useEffect(() => {
       {/* Section: AI Assistant */}
       <section className="card-elevated p-6 space-y-4">
         <h2 className="font-semibold text-base">AI Assistant</h2>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Anthropic API Key</label>
-          <div className="relative mt-1">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={form.anthropicApiKey}
-              onChange={e => updateForm({ anthropicApiKey: e.target.value })}
-              placeholder="sk-ant-..."
-              className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 pr-10"
-            />
-            <button type="button" onClick={() => setShowToken(!showToken)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">Required for the AI chat assistant. Get your key at console.anthropic.com</p>
+        {/*
+          The Anthropic API key input is GONE ON PURPOSE — do not restore it.
+          Anything typed here was saved into `app_settings`, a table readable by
+          the anon role, i.e. by anyone on the internet. Leaving an empty box here
+          would be worse than useless: a user seeing a blank key field on a broken
+          dashboard re-enters the key, and that write re-opens the exact hole.
+          The key is a server-side secret now. Rotation happens there.
+        */}
+        <div className="rounded-lg border border-muted bg-muted/30 p-3">
+          <p className="text-sm font-medium text-foreground">API key is managed server-side</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            The Anthropic key is no longer stored in application settings and cannot be
+            entered here. It lives in server-side secrets, where the browser cannot read it.
+          </p>
         </div>
       </section>
 
@@ -369,23 +368,20 @@ useEffect(() => {
             className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
           />
         </div>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Personal Access Token</label>
-          <div className="relative mt-1">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={form.airtableToken}
-              onChange={e => updateForm({ airtableToken: e.target.value })}
-              placeholder="pat..."
-              className="w-full px-3 py-2 pr-10 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-            <button onClick={() => setShowToken(!showToken)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
+        {/*
+          The Airtable Personal Access Token input is GONE ON PURPOSE — see the
+          note in the AI Assistant section above. Same reasoning, same table.
+        */}
+        <div className="rounded-lg border border-muted bg-muted/30 p-3">
+          <p className="text-sm font-medium text-foreground">Access token is managed server-side</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            The Airtable token is no longer stored in application settings and cannot be
+            entered here. It lives in server-side secrets, where the browser cannot read it.
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={testAirtable} disabled={!form.airtableBaseId || !form.airtableToken || airtableStatus === 'loading'}
+          {/* `!form.airtableToken` was a third condition here; the field no longer exists. */}
+          <button onClick={testAirtable} disabled={!form.airtableBaseId || airtableStatus === 'loading'}
             className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50">
             {airtableStatus === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Test Connection'}
           </button>

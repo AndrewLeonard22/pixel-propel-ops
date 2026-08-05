@@ -5,7 +5,12 @@ export interface AppSettings {
   callCenterSheetTab: string;
   airtableBaseId: string;
   airtableTableName: string;
-  airtableToken: string;
+  // ⛔ NO CREDENTIAL FIELDS IN AppSettings. This object is persisted to the
+  // `app_settings` table, which is readable by the anon role — i.e. by anyone,
+  // because this app has no authentication and its publishable key ships in the
+  // browser bundle. `airtableToken` and `anthropicApiKey` lived here and were
+  // retrievable from the open internet. They now live in server-side secrets.
+  // The DB trigger `app_settings_reject_unsafe` rejects them if re-added.
   columnMappings: Record<string, string>;
   showPausedAccounts: boolean;
   showChurnedAccounts: boolean;
@@ -23,7 +28,6 @@ export interface AppSettings {
     poorCpl: number;
     poorLeadPercent: number;
   };
-  anthropicApiKey: string;
   excludedCampaigns: string[];
   setterBonusRates: { setterName: string; rate: number }[];
   inactiveSetters: string[];
