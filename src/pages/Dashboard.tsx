@@ -9,6 +9,7 @@ import { saveSettings, saveAccountMappings, loadAccountMappings, getAccountMappi
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check, X } from 'lucide-react';
 import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow, AccountMapping, AppSettings } from '@/lib/types';
 import DateRangePicker, { type DateRange, ALL_TIME } from '@/components/DateRangePicker';
+import { hasUsableData } from '@/lib/sourceStatus';
 
 interface AccountGroup {
   label: string;
@@ -573,7 +574,7 @@ function UnmatchedSection({
 }
 
 export default function Dashboard() {
-  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, refresh, setSettings } = useData();
+  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, settingsLoaded, sources, refresh, setSettings } = useData();
   const [assignedClients, setAssignedClients] = useState<Set<string>>(new Set());
   const [recentlyAssigned, setRecentlyAssigned] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -696,6 +697,26 @@ export default function Dashboard() {
     ];
   }, [filteredAccounts]);
 
+  // Whether a KPI may print a number at all. `hasUsableData` is true for valid and for
+  // stale (real data, just older) — it is false for failed and not-configured, where the
+  // only honest render is an em dash.
+  const spendOk = hasUsableData(sources.windsor.state);
+  const apptsOk = hasUsableData(sources.airtable.state);
+  const callsOk = hasUsableData(sources.callCenter.state);
+
+  // "Not configured" is a claim about the user's setup. Until the settings have come back
+  // from the database we have not looked, and on a cold browser (new device, cleared
+  // storage, private window) the local cache is empty, so this used to assert a definite
+  // negative for the length of a network round trip.
+  if (!settingsLoaded) {
+    return (
+      <div className="space-y-6 w-full">
+        <h1 className="text-xl font-bold">Dashboard</h1>
+        <KPISkeleton />
+      </div>
+    );
+  }
+
   if (!configured) {
     return (
       <div className="max-w-2xl mx-auto mt-20">
@@ -708,22 +729,28 @@ export default function Dashboard() {
     <div className="space-y-6 w-full">
       <h1 className="text-xl font-bold">Dashboard</h1>
 
-      {error && <ErrorBanner message={error} onRetry={refresh} />}
+      {/* WRAPPED, not onRetry={refresh}: React hands a bare handler reference its click
+          event as the first argument, which refresh read as an override settings object —
+          it then failed its own isConfigured guard and returned without starting anything.
+          The Retry button did nothing at all. */}
+      {error && <ErrorBanner message={error} onRetry={() => refresh()} />}
 
-      {/* KPIs */}
+      {/* KPIs — a number is only printed when the source behind it actually delivered.
+          A dead source reads "—", never "$0.00". Andrew's question is "is this zero real,
+          or did something fail", and on this row it used to be unanswerable for 8 of 9. */}
       {loading ? (
         <KPISkeleton />
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KPICard label="Total Spend" value={formatCurrency(totals.spend)} />
-          <KPICard label="Total Leads" value={formatNumber(totals.leads)} />
-          <KPICard label="Avg CPL" value={formatCurrency(totals.cpl)} />
-          <KPICard label="Total Dials" value={formatNumber(totals.dials)} />
-          <KPICard label="Total Appts" value={formatNumber(totals.appts)} />
-          <KPICard label="Lead → Appt %" value={totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} />
-          <KPICard label="Avg Cost/Appt" value={formatCurrency(totals.costPerAppt)} />
-          <KPICard label="Closed Deals" value={formatNumber(totals.closed)} />
-          <KPICard label="Total Revenue" value={formatCurrency(totals.revenue)} />
+          <KPICard label="Total Spend" value={spendOk ? formatCurrency(totals.spend) : '—'} />
+          <KPICard label="Total Leads" value={spendOk ? formatNumber(totals.leads) : '—'} />
+          <KPICard label="Avg CPL" value={spendOk && totals.cpl > 0 ? formatCurrency(totals.cpl) : '—'} />
+          <KPICard label="Total Dials" value={callsOk ? formatNumber(totals.dials) : '—'} />
+          <KPICard label="Total Appts" value={apptsOk ? formatNumber(totals.appts) : '—'} />
+          <KPICard label="Lead → Appt %" value={spendOk && apptsOk && totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} />
+          <KPICard label="Avg Cost/Appt" value={spendOk && apptsOk && totals.costPerAppt > 0 ? formatCurrency(totals.costPerAppt) : '—'} />
+          <KPICard label="Closed Deals" value={apptsOk ? formatNumber(totals.closed) : '—'} />
+          <KPICard label="Total Revenue" value={apptsOk ? formatCurrency(totals.revenue) : '—'} />
         </div>
       )}
 

@@ -9,6 +9,7 @@ import {
 } from 'date-fns';
 import DateRangePicker, { type DateRange, thisMonthRange } from '@/components/DateRangePicker';
 import { normalizeName, levenshteinSimilarity } from '@/lib/dataService';
+import { hasUsableData } from '@/lib/sourceStatus';
 import {
   BarChart, Bar, LabelList, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, LineChart, Line,
@@ -545,7 +546,10 @@ export function SetterDetailPanel({
 }
 
 export default function CallCenter() {
-  const { callData, appointments, settings, loading } = useData();
+  const { callData, appointments, settings, loading, sources } = useData();
+  const callSource = sources.callCenter;
+  // Whether the numbers on this page came from a real read of the sheet.
+  const callsOk = hasUsableData(callSource.state);
   const navigate = useNavigate();
 
   const [dateRange, setDateRange] = useState<DateRange>(thisMonthRange);
@@ -678,17 +682,29 @@ export default function CallCenter() {
     );
   }
 
-  if (!settings.callCenterSheetUrl || callData.length === 0) {
+  if (!callsOk || callData.length === 0) {
     return (
       <div className="max-w-lg mx-auto mt-20 text-center space-y-4">
         <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto">
           <PhoneCall className="w-8 h-8 text-muted-foreground" />
         </div>
-        <h2 className="text-lg font-semibold text-foreground">No call data yet</h2>
+        <h2 className="text-lg font-semibold text-foreground">
+          {callSource.state === 'not-configured' ? 'Call centre not connected' : callsOk ? 'No calls in this sheet' : 'Call data could not be loaded'}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          {!settings.callCenterSheetUrl
-            ? 'Connect your call center sheet in Settings to see setter performance.'
-            : 'No call records found. Check that your call center sheet URL and tab name are correct.'}
+          {/* Three different realities, three different sentences. The old copy had one
+              sentence for all of them, and it told the user to check the "tab name" —
+              advice that cannot work, because convertSheetUrlToCsv ignores the configured
+              tab entirely and reads the gid from the URL (dead control, filed to @anvil).
+              ⚠️ "No calls in this sheet" is still not fully earned: fetchCallCenterData
+              returns [] for a 403, a 404 and a network error alike, so a FAILURE currently
+              arrives here as an empty success. Patch proposed to @anvil; when that fetcher
+              throws, this branch becomes exact with no change here. */}
+          {callSource.state === 'not-configured'
+            ? `Add your call centre sheet in Settings to see setter performance. Missing: ${callSource.missingSettings.join(', ')}.`
+            : callsOk
+              ? 'The sheet loaded and contained no call rows. If you expected calls, check that the sheet URL points at the tab holding them — the tab name field in Settings is not currently used to select it.'
+              : `The call centre sheet could not be read${callSource.error ? `: ${callSource.error}` : ''}. No calls are shown — this is not a report of zero calls.`}
         </p>
         <button
           onClick={() => navigate('/settings')}

@@ -52,7 +52,8 @@ export default function Campaigns() {
   return (
     <div className="space-y-6 max-w-[1400px]">
       <h1 className="text-xl font-bold">Campaigns</h1>
-      {error && <ErrorBanner message={error} onRetry={refresh} />}
+      {/* wrapped — a bare reference is called with the click event, which refresh read as override settings and silently refused */}
+      {error && <ErrorBanner message={error} onRetry={() => refresh()} />}
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative">
