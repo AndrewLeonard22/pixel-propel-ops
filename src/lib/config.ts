@@ -198,6 +198,47 @@ export async function saveAccountMappings(mappings: any[]): Promise<void> {
   await upsertSetting('account_mappings', mappings);
 }
 
+/**
+ * Which of the three data sources are configured, judged independently.
+ *
+ * CONTRACT
+ *   - windsor    needs only googleSheetUrl. It is a public CSV export and takes no credential.
+ *   - airtable   needs BOTH airtableBaseId and airtableToken; either alone cannot fetch.
+ *   - callCenter needs only callCenterSheetUrl. Public CSV export, no credential.
+ *   - Returns false for a field that is present-but-empty. A wiped settings row stores ''
+ *     rather than undefined, so a presence check (`!== undefined`) would report it configured.
+ *
+ * WHY THIS EXISTS
+ *   isConfigured() below is a single AND across all three sources, so an absent Airtable
+ *   token suppresses Windsor and the call centre too — neither of which needs it. That
+ *   becomes load-bearing the moment the Airtable token is moved server-side, because the
+ *   client then legitimately holds no token and every source goes dark at once.
+ */
+export interface SourceConfigStatus {
+  windsor: boolean;
+  airtable: boolean;
+  callCenter: boolean;
+}
+
+export function configuredSources(settings: AppSettings): SourceConfigStatus {
+  return {
+    windsor: !!settings.googleSheetUrl,
+    airtable: !!(settings.airtableBaseId && settings.airtableToken),
+    callCenter: !!settings.callCenterSheetUrl,
+  };
+}
+
+/** True when at least one source can be fetched. Use this to decide whether to refresh at all. */
+export function anySourceConfigured(settings: AppSettings): boolean {
+  const s = configuredSources(settings);
+  return s.windsor || s.airtable || s.callCenter;
+}
+
+/**
+ * Legacy all-three gate. UNCHANGED in behaviour — four routed pages still call it to decide
+ * whether to render a ConfigBanner. Prefer configuredSources() for anything new; this cannot
+ * distinguish "nothing configured" from "two of three configured".
+ */
 export function isConfigured(settings: AppSettings): boolean {
   return !!(settings.googleSheetUrl && settings.airtableBaseId && settings.airtableToken);
 }
