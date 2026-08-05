@@ -1,5 +1,5 @@
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, AdSummary, TeamMember, PerformanceLevel, CallRow } from './types';
-import { convertSheetUrlToCsv } from './config';
+import { convertSheetUrlToCsv, isSourceConfigured } from './config';
 
 // Parse CSV text into rows
 function parseCsv(text: string): Record<string, string>[] {
@@ -156,9 +156,14 @@ export async function fetchCallCenterData(settings: AppSettings): Promise<CallRo
 }
 
 export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[] }> {
-  const { airtableBaseId, airtableTableName, airtableToken, columnMappings } = settings;
-  
-  if (!airtableBaseId || !airtableToken) throw new Error('Airtable not configured');
+  const { airtableBaseId, airtableTableName, columnMappings } = settings;
+
+  if (!airtableBaseId) throw new Error('Airtable not configured');
+  // @apprentice order ②: the token is a server-side secret now and the browser cannot
+  // hold one. Until the proxy exists this path fails LOUDLY rather than returning [] and
+  // reading as "zero appointments" — a dead source must never render as a real zero.
+  // Safe to throw because fetchAllSources() isolates each source; see the note there.
+  throw new Error('Airtable requires the server-side proxy, which is not deployed yet');
   
   const allRecords: AppointmentRow[] = [];
   let offset: string | undefined;
@@ -173,7 +178,7 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
     if (offset) url.searchParams.set('offset', offset);
     
     const response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${airtableToken}` },
+      // Authorization is set by the proxy; the browser never sees the token.
     });
     
     if (!response.ok) throw new Error(`Airtable error: ${response.status}`);
@@ -222,6 +227,57 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
   } while (offset);
   
   return { records: allRecords, fields };
+}
+
+/**
+ * ONE OUTCOME PER SOURCE — the seam that stops a single failure taking the others down.
+ *
+ * `refresh()` currently awaits all three fetches inside a single Promise.all, which REJECTS
+ * on the first rejection and therefore DISCARDS payloads that already arrived. Measured on
+ * production: with a real sheet URL restored and Airtable unavailable, Windsor is fetched
+ * successfully — one request — and the screen still renders $0.00 and an Airtable error.
+ * A partial restore reads as total failure.
+ *
+ * This returns a SETTLED result per source, and distinguishes three states the old shape
+ * could not tell apart:
+ *   ok             we asked and got an answer
+ *   not-configured we never asked, and that is a legitimate state, not a failure
+ *   failed         we asked and it broke — carries the reason
+ *
+ * "not-configured" and "failed" being separate is Andrew's requirement that a dead source
+ * must not render as a zero: an empty list is only honest when the status is `ok`.
+ */
+export type SourceOutcome<T> =
+  | { status: 'ok'; data: T }
+  | { status: 'not-configured' }
+  | { status: 'failed'; error: string };
+
+export interface AllSourcesResult {
+  googleSheet: SourceOutcome<AdSpendRow[]>;
+  airtable: SourceOutcome<{ records: AppointmentRow[]; fields: string[] }>;
+  callCenter: SourceOutcome<CallRow[]>;
+}
+
+async function settle<T>(
+  configured: boolean,
+  fetcher: () => Promise<T>,
+): Promise<SourceOutcome<T>> {
+  if (!configured) return { status: 'not-configured' };
+  try {
+    return { status: 'ok', data: await fetcher() };
+  } catch (e) {
+    return { status: 'failed', error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function fetchAllSources(settings: AppSettings): Promise<AllSourcesResult> {
+  // allSettled, never all — one rejection must not discard the others' payloads.
+  const [googleSheet, airtable, callCenter] = await Promise.all([
+    settle(isSourceConfigured(settings, 'googleSheet'), () => fetchGoogleSheetData(settings)),
+    settle(isSourceConfigured(settings, 'airtable'), () => fetchAirtableData(settings)),
+    settle(isSourceConfigured(settings, 'callCenter'), () => fetchCallCenterData(settings)),
+  ]);
+  return { googleSheet, airtable, callCenter };
 }
 
 function isBlank(val: string | null | undefined): boolean {

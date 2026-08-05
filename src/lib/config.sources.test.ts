@@ -11,7 +11,7 @@ import type { AppSettings } from "./types";
 /**
  * POPULATION UNDER TEST
  *   Every reachable combination of the four settings fields that decide whether a source
- *   can be fetched: googleSheetUrl, airtableBaseId, airtableToken, callCenterSheetUrl.
+ *   can be fetched: googleSheetUrl, airtableBaseId, callCenterSheetUrl.
  *   Enumerated from DEFAULT_SETTINGS rather than hand-listed, so a field added to the
  *   contract later shows up here as an unhandled case rather than silently passing.
  *
@@ -28,7 +28,6 @@ const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
 const SHEET = "https://docs.google.com/spreadsheets/d/abc123/edit";
 const CALLS = "https://docs.google.com/spreadsheets/d/def456/edit";
 const BASE = "appXXXXXXXX";
-const TOKEN = "patXXXXXXXX";
 
 describe("configuredSources — sources are judged independently", () => {
   it("reports Windsor configured from the sheet URL alone, with no Airtable credential", () => {
@@ -41,12 +40,10 @@ describe("configuredSources — sources are judged independently", () => {
     expect(s).toEqual(["callCenter"]);
   });
 
-  it("requires BOTH Airtable fields — either alone cannot fetch", () => {
-    expect(isSourceConfigured(settings({ airtableBaseId: BASE }), "airtable")).toBe(false);
-    expect(isSourceConfigured(settings({ airtableToken: TOKEN }), "airtable")).toBe(false);
-    expect(
-      isSourceConfigured(settings({ airtableBaseId: BASE, airtableToken: TOKEN }), "airtable"),
-    ).toBe(true);
+  it("keys Airtable on the base id ALONE — the token is server-side now (order 2)", () => {
+    // The credential is no longer a client field at all, so it cannot be an operand.
+    expect(isSourceConfigured(settings({ airtableBaseId: "" }), "airtable")).toBe(false);
+    expect(isSourceConfigured(settings({ airtableBaseId: BASE }), "airtable")).toBe(true);
   });
 
   it("treats present-but-EMPTY as not configured — the wiped-row shape", () => {
@@ -54,7 +51,6 @@ describe("configuredSources — sources are judged independently", () => {
       googleSheetUrl: "",
       callCenterSheetUrl: "",
       airtableBaseId: "",
-      airtableToken: "",
     });
     expect(configuredSources(wiped)).toEqual([]);
     expect(anySourceConfigured(wiped)).toBe(false);
@@ -62,11 +58,12 @@ describe("configuredSources — sources are judged independently", () => {
 
   it("THE REGRESSION THIS EXISTS FOR: losing the Airtable token must NOT hide Windsor", () => {
     // The exact state the security fix produces: token relocated server-side, sheet intact.
+    // Post-relocation shape: sheets configured, Airtable base present, credential
+    // server-side. The sheets must render regardless of Airtable's fate.
     const tokenRelocated = settings({
       googleSheetUrl: SHEET,
       callCenterSheetUrl: CALLS,
-      airtableBaseId: BASE,
-      airtableToken: "",
+      airtableBaseId: "",
     });
 
     expect(configuredSources(tokenRelocated)).toEqual(["googleSheet", "callCenter"]);
@@ -85,7 +82,7 @@ describe("anySourceConfigured", () => {
     expect(anySourceConfigured(settings({ googleSheetUrl: SHEET }))).toBe(true);
     expect(anySourceConfigured(settings({ callCenterSheetUrl: CALLS }))).toBe(true);
     expect(
-      anySourceConfigured(settings({ airtableBaseId: BASE, airtableToken: TOKEN })),
+      anySourceConfigured(settings({ airtableBaseId: BASE })),
     ).toBe(true);
   });
 });
@@ -95,11 +92,6 @@ describe("isConfigured — legacy gate, behaviour deliberately unchanged", () =>
     expect(isConfigured(settings({ googleSheetUrl: SHEET }))).toBe(false);
     expect(
       isConfigured(settings({ googleSheetUrl: SHEET, airtableBaseId: BASE })),
-    ).toBe(false);
-    expect(
-      isConfigured(
-        settings({ googleSheetUrl: SHEET, airtableBaseId: BASE, airtableToken: TOKEN }),
-      ),
     ).toBe(true);
   });
 });
@@ -111,7 +103,6 @@ describe("contract completeness", () => {
       "googleSheetUrl",
       "callCenterSheetUrl",
       "airtableBaseId",
-      "airtableToken",
     ] as const) {
       expect(DEFAULT_SETTINGS).toHaveProperty(field);
     }
