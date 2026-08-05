@@ -11,7 +11,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   callCenterSheetTab: 'RAW DATA',
   airtableBaseId: '',
   airtableTableName: 'Appointments',
-  airtableToken: '',
   columnMappings: {
     'Client Name': 'Client Name',
     'Campaign Name': 'Campaign Name',
@@ -45,7 +44,6 @@ const DEFAULT_SETTINGS: AppSettings = {
     poorCpl: 50,
     poorLeadPercent: 2,
   },
-  anthropicApiKey: '',
   excludedCampaigns: [],
   setterBonusRates: [],
   inactiveSetters: [],
@@ -67,18 +65,23 @@ function loadSettingsFromLocal(): AppSettings {
         ? JSON.parse(aliasStored) 
         : parsedSettings.accountAliases;
 
-    return {
+    // stripCredentials on the way IN: a browser that stored settings before this
+    // change still has the tokens in localStorage. Without this they are read
+    // back into memory and written out again on the next save.
+    return stripCredentials({
       ...DEFAULT_SETTINGS,
       ...parsedSettings,
       accountAliases: Array.isArray(parsedMappings) ? parsedMappings : DEFAULT_SETTINGS.accountAliases,
-    };
+    });
   } catch {
     return DEFAULT_SETTINGS;
   }
 }
 
 function saveSettingsToLocal(settings: AppSettings): void {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  // stripCredentials on the way OUT: localStorage is plaintext and readable by
+  // every script on the page, including any the host injects.
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(stripCredentials(settings)));
   localStorage.setItem('accountAliases', JSON.stringify(settings.accountAliases || []));
 }
 
@@ -132,8 +135,14 @@ export async function loadSettingsAsync(): Promise<AppSettings> {
       fetchSetting<any[]>('account_mappings'),
     ]);
 
+    // ⚠️ `!== undefined` accepts an EMPTY STRING, so a wiped row passes this gate
+    // as authoritative and is then written over every browser's local copy by
+    // saveSettingsToLocal below. That is how the 2026-08-05 config wipe erased
+    // the last-known-good copy on each machine that opened the app afterwards.
+    // NOT CHANGED HERE: making this a validity test rather than a presence test
+    // is order item ①b / ⑥ and belongs to the lane that owns source state.
     if (dbSettings && typeof dbSettings === 'object' && dbSettings.googleSheetUrl !== undefined) {
-      const merged = {
+      const merged = stripCredentials({
         ...DEFAULT_SETTINGS,
         ...dbSettings,
         // Always use the latest default column mappings merged with any user customizations
@@ -142,7 +151,7 @@ export async function loadSettingsAsync(): Promise<AppSettings> {
           ...DEFAULT_SETTINGS.columnMappings,
           ...(dbSettings.columnMappings || {}),
         },
-      };
+      });
       if (Array.isArray(dbMappings) && dbMappings.length > 0) {
         merged.accountAliases = dbMappings;
       }
@@ -160,8 +169,11 @@ export async function loadSettingsAsync(): Promise<AppSettings> {
 
 /** Save to both DB and localStorage */
 export async function saveSettings(settings: AppSettings): Promise<void> {
+  // The credential keys are stripped at BOTH sinks, not once before the call.
+  // Stripping once and passing the clean object to both would be tidier and
+  // would silently stop protecting whichever sink someone adds next.
   saveSettingsToLocal(settings);
-  await upsertSetting('app_settings', settings);
+  await upsertSetting('app_settings', stripCredentials(settings));
 }
 
 /** Synchronous load account mappings from localStorage */
@@ -215,7 +227,13 @@ export function isSourceConfigured(settings: AppSettings, source: DataSource): b
     case 'googleSheet':
       return !!settings.googleSheetUrl;
     case 'airtable':
-      return !!(settings.airtableBaseId && settings.airtableToken);
+      // ⚠️ @raccoon wrote this as `airtableBaseId && airtableToken`. The token is GONE
+      // from AppSettings — credentials are server-side now (order item ②), so the client
+      // cannot answer "do we hold a token" and MUST NOT: that question is what put a live
+      // PAT in a world-readable row. What the client CAN answer is "is Airtable pointed
+      // at a base", and whether the credential works is the proxy's answer, surfaced as a
+      // FETCH failure rather than a config state. Same seam, one fewer operand.
+      return !!settings.airtableBaseId;
     case 'callCenter':
       return !!settings.callCenterSheetUrl;
   }
@@ -267,7 +285,39 @@ export function anySourceConfigured(settings: AppSettings): boolean {
  * `isSourceConfigured` / `configuredSources` above to do it.
  */
 export function isConfigured(settings: AppSettings): boolean {
-  return !!(settings.googleSheetUrl && settings.airtableBaseId && settings.airtableToken);
+  // ⚠️ `settings.airtableToken` was a third operand here. It is GONE from
+  // AppSettings (credentials are server-side now), so it had to come out — this
+  // is a change my removal FORCED, not a redesign of the gate.
+  //
+  // ⛔ THE GATE IS STILL WRONG AND FIXING IT IS NOT THIS CHANGE'S JOB.
+  // It remains a SINGLE GLOBAL flag over THREE INDEPENDENT SOURCES: Windsor and
+  // the call-centre sheet still cannot load unless `airtableBaseId` is set, and
+  // neither of them uses Airtable at all. A missing Airtable config should
+  // disable the Airtable panel, not the whole dashboard. Per-source state is
+  // @dash's lane (order item ⑥) and the split is order item ①b.
+  return !!(settings.googleSheetUrl && settings.airtableBaseId);
+}
+
+/**
+ * Remove any credential-shaped field before a settings object is persisted or
+ * adopted from the database.
+ *
+ * Defence in depth alongside the DB trigger `app_settings_reject_unsafe`: the
+ * trigger stops a write reaching the table, this stops the client holding the
+ * value at all. It also makes a LEGACY row safe — a row written before this
+ * change still carries the two keys, and without this they would be read back
+ * into memory and re-saved.
+ *
+ * Contract: returns a copy with the credential keys absent. Never throws.
+ * Adding a credential to AppSettings in future must add its key here.
+ */
+export const CREDENTIAL_KEYS = ['airtableToken', 'anthropicApiKey'] as const;
+
+export function stripCredentials<T>(settings: T): T {
+  if (!settings || typeof settings !== 'object') return settings;
+  const clean = { ...(settings as Record<string, unknown>) };
+  for (const key of CREDENTIAL_KEYS) delete clean[key];
+  return clean as T;
 }
 
 export function convertSheetUrlToCsv(url: string, tab?: string): string {

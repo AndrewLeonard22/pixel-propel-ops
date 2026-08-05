@@ -21,19 +21,27 @@ describe('isSourceConfigured — each source depends only on its OWN fields', ()
   it(`is sabotage-proven across all 8 presence combinations ${population('2^3 = 8 combinations, enumerated')}`, () => {
     proveDetects({
       subject: 'isSourceConfigured',
+      // ⚠️ AMENDED BY @apprentice (order ②): the airtable operand was
+      // `airtableBaseId && airtableToken`. The token is no longer a field on
+      // AppSettings — credentials are server-side — so this now covers 2^2
+      // per-source presence combinations, not 2^3. @raccoon's poison "airtable
+      // ignores the token, checks only the base id" IS the real implementation
+      // now, so it was removed rather than left to fail as a poison, and a
+      // cross-vendor poison in the opposite direction replaces it.
       population:
-        '8 combinations of googleSheetUrl / (airtableBaseId+airtableToken) / callCenterSheetUrl',
+        'per-source presence: googleSheetUrl / airtableBaseId / callCenterSheetUrl, all combinations',
       real: isSourceConfigured,
       poisons: {
         'ANDs across vendors (the current isConfigured bug): googleSheet also requires airtable creds':
           ((s, src) =>
             src === 'googleSheet'
-              ? !!(s.googleSheetUrl && s.airtableBaseId && s.airtableToken)
+              ? !!(s.googleSheetUrl && s.airtableBaseId)
               : isSourceConfigured(s, src)) as typeof isSourceConfigured,
-        'airtable ignores the token, checks only the base id': ((s, src) =>
-          src === 'airtable'
-            ? !!s.airtableBaseId
-            : isSourceConfigured(s, src)) as typeof isSourceConfigured,
+        'ANDs across vendors the other way: airtable also requires the google sheet url':
+          ((s, src) =>
+            src === 'airtable'
+              ? !!(s.airtableBaseId && s.googleSheetUrl)
+              : isSourceConfigured(s, src)) as typeof isSourceConfigured,
         'always configured': (() => true) as typeof isSourceConfigured,
         'never configured': (() => false) as typeof isSourceConfigured,
       },
@@ -41,14 +49,11 @@ describe('isSourceConfigured — each source depends only on its OWN fields', ()
         // googleSheet depends ONLY on googleSheetUrl
         expect(impl(makeSettings({ googleSheetUrl: '' }), 'googleSheet')).toBe(false);
         expect(
-          impl(
-            makeSettings({ airtableBaseId: '', airtableToken: '' }),
-            'googleSheet',
-          ),
+          impl(makeSettings({ airtableBaseId: '' }), 'googleSheet'),
         ).toBe(true); // <- the line that would have caught the blank site
-        // airtable needs BOTH base id and token
-        expect(impl(makeSettings({ airtableToken: '' }), 'airtable')).toBe(false);
+        // airtable depends ONLY on its own base id
         expect(impl(makeSettings({ airtableBaseId: '' }), 'airtable')).toBe(false);
+        expect(impl(makeSettings({ googleSheetUrl: '' }), 'airtable')).toBe(true);
         expect(impl(makeSettings(), 'airtable')).toBe(true);
         // callCenter depends ONLY on its url
         expect(impl(makeSettings({ callCenterSheetUrl: '' }), 'callCenter')).toBe(false);
@@ -67,7 +72,6 @@ describe('isSourceConfigured — each source depends only on its OWN fields', ()
           const settings = makeSettings({
             googleSheetUrl: gs ? 'https://docs.google.com/spreadsheets/d/X/edit' : '',
             airtableBaseId: at ? 'appTEST123' : '',
-            airtableToken: at ? 'test-token-placeholder' : '',
             callCenterSheetUrl: cc ? 'https://docs.google.com/spreadsheets/d/Y/edit' : '',
           });
           const present: DataSource[] = [];
@@ -95,7 +99,7 @@ describe('🔴 item ① — the production blank-site state, pinned', () => {
    * The mechanism: isConfigured ANDs across two vendors, and useData.tsx:63
    * returns early and silently when it is false.
    */
-  const windsorOnly = makeSettings({ airtableBaseId: '', airtableToken: '' });
+  const windsorOnly = makeSettings({ airtableBaseId: '' });
 
   it('REPRODUCES the bug: a fetchable Windsor feed is suppressed by absent Airtable creds', () => {
     expect(isSourceConfigured(windsorOnly, 'googleSheet')).toBe(true); // data IS fetchable

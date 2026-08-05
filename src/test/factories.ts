@@ -25,9 +25,9 @@ export function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings 
     callCenterSheetTab: 'RAW DATA',
     airtableBaseId: 'appTEST123',
     airtableTableName: 'Appointments',
-    // NOT a credential: a syntactically-shaped placeholder so tests exercise the
-    // presence branch. Never put a real token in a fixture.
-    airtableToken: 'test-token-placeholder',
+    // ⛔ `airtableToken` was here. It is no longer a field on AppSettings — credentials
+    // are server-side (order ②). A fixture cannot set what the type does not have, and
+    // that is the point: the shape of the fixture now makes the leak unrepresentable.
     columnMappings: {},
     showPausedAccounts: true,
     showChurnedAccounts: true,
@@ -39,7 +39,6 @@ export function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings 
       poorCpl: 50,
       poorLeadPercent: 2,
     },
-    anthropicApiKey: '',
     excludedCampaigns: [],
     setterBonusRates: [],
     inactiveSetters: [],
