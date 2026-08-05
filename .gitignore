@@ -27,3 +27,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# tsc -b build artifacts (the DoD gate command generates these)
+*.tsbuildinfo
