@@ -11,7 +11,7 @@ import DateRangePicker, { type DateRange, thisMonthRange } from '@/components/Da
 import { normalizeName, levenshteinSimilarity } from '@/lib/dataService';
 import {
   BarChart, Bar, LabelList, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer,
+  Tooltip, ResponsiveContainer, LineChart, Line,
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 
@@ -365,7 +365,11 @@ function TrendChart({ callData, activeSetters, appointments }: {
   );
 }
 
-function SetterDetailPanel({
+// Exported ONLY so the regression lock in CallCenter.setterPanel.test.tsx can mount it
+// directly. It crashed the whole app via a missing recharts import (see that test); the
+// lock has to reach the component that throws, and the page short-circuits to its
+// empty state before this panel is reachable whenever callData is empty.
+export function SetterDetailPanel({
   agentName,
   filteredCalls,
   filteredAppts,
