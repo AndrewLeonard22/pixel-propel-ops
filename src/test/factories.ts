@@ -51,6 +51,9 @@ export function makeAdSpendRow(overrides: Partial<AdSpendRow> = {}): AdSpendRow 
   return {
     month: '',
     date: '8/4/2026',
+    // Kept CONSISTENT with `date` by default. A fixture whose two date fields disagree
+    // would let a bug that reads the wrong one pass unnoticed; override both together.
+    dateISO: '2026-08-04',
     campaign: 'Test Campaign',
     campaignId: '111',
     adsetName: 'Test Adset',
