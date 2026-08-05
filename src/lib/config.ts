@@ -168,7 +168,77 @@ export async function loadSettingsAsync(): Promise<AppSettings> {
 }
 
 /** Save to both DB and localStorage */
+/**
+ * Fields whose loss is DESTRUCTIVE rather than an ordinary edit. Enumerated deliberately:
+ * these are the connection settings and the curated lists that no refresh can rebuild.
+ */
+const PROTECTED_SCALARS = ['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId'] as const;
+const PROTECTED_LISTS = [
+  'excludedCampaigns',
+  'setterBonusRates',
+  'inactiveSetters',
+  'accountAliases',
+] as const;
+
+export interface ClobberReport {
+  blankedScalars: string[];
+  emptiedLists: string[];
+}
+
+/**
+ * Would writing `next` over `current` DESTROY curated configuration?
+ *
+ * saveSettings is a FULL-OBJECT REPLACE of a row shared by every browser. If component
+ * state is stale — and it is, for the window between the synchronous localStorage read
+ * and the asynchronous DB read — a single click writes DEFAULT_SETTINGS over the row and
+ * every field it lacked is gone. That is not hypothetical: it happened at
+ * 2026-08-05T22:18:48Z and destroyed 32 excluded campaigns, 6 setters and 4 inactive
+ * setters, with no error and no warning.
+ *
+ * ⚠️ WHY A THRESHOLD AND NOT "REFUSE ANY BLANKING": clearing ONE field is a legitimate
+ * edit a user may intend. Blanking SEVERAL AT ONCE is the signature of a whole-object
+ * clobber, because a person does not empty three unrelated settings in a single save.
+ * The threshold is the discriminator between an edit and an accident.
+ */
+export function detectClobber(current: AppSettings | null, next: AppSettings): ClobberReport {
+  const blankedScalars: string[] = [];
+  const emptiedLists: string[] = [];
+  if (!current) return { blankedScalars, emptiedLists };
+
+  for (const k of PROTECTED_SCALARS) {
+    if (String(current[k] ?? '').trim() && !String(next[k] ?? '').trim()) blankedScalars.push(k);
+  }
+  for (const k of PROTECTED_LISTS) {
+    const before = current[k];
+    const after = next[k];
+    if (Array.isArray(before) && before.length > 0 && Array.isArray(after) && after.length === 0) {
+      emptiedLists.push(k);
+    }
+  }
+  return { blankedScalars, emptiedLists };
+}
+
+export function isClobber(r: ClobberReport): boolean {
+  return r.blankedScalars.length + r.emptiedLists.length >= 2;
+}
+
+/**
+ * Save to both sinks — REFUSING a write that would wholesale-destroy curated config.
+ *
+ * The database has a trigger for this (order ②) but it is NOT YET APPLIED, so today this
+ * client-side guard is the only thing standing between a stale render and the row.
+ */
 export async function saveSettings(settings: AppSettings): Promise<void> {
+  const current = await fetchSetting<AppSettings>('app_settings');
+  const report = detectClobber(current, settings);
+  if (isClobber(report)) {
+    const lost = [...report.blankedScalars, ...report.emptiedLists].join(', ');
+    throw new Error(
+      `Refusing to save: this would erase configuration that is currently set (${lost}). ` +
+        'This usually means the page saved before it finished loading. Reload and try again.',
+    );
+  }
+
   // The credential keys are stripped at BOTH sinks, not once before the call.
   // Stripping once and passing the clean object to both would be tidier and
   // would silently stop protecting whichever sink someone adds next.
