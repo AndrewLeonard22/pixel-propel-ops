@@ -133,7 +133,8 @@ export default function MediaBuying() {
         </div>
       </div>
 
-      {error && <ErrorBanner message={error} onRetry={refresh} />}
+      {/* wrapped — a bare reference is called with the click event, which refresh read as override settings and silently refused */}
+      {error && <ErrorBanner message={error} onRetry={() => refresh()} />}
 
       {loading ? <TableSkeleton rows={4} /> : team.length === 0 ? <EmptyState message="No media buyer data for this period." /> : (
         <>

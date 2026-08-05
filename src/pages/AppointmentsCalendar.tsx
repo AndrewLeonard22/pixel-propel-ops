@@ -10,6 +10,7 @@ import {
   isPast, parseISO,
 } from 'date-fns';
 import type { AppointmentRow } from '@/lib/types';
+import { hasUsableData } from '@/lib/sourceStatus';
 
 function parseDateSafe(dateStr: string): Date | null {
   if (!dateStr) return null;
@@ -44,7 +45,10 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function AppointmentsCalendar() {
-  const { appointments, loading, refresh } = useData();
+  const { appointments, loading, refresh, sources } = useData();
+  // Whether the appointment numbers on this page mean anything. False when Airtable
+  // failed or was never connected — in which case the honest render is an em dash.
+  const apptsOk = hasUsableData(sources.airtable.state);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set());
@@ -231,8 +235,11 @@ export default function AppointmentsCalendar() {
         ].map(s => (
           <div key={s.label} className="card-elevated px-4 py-4 sm:px-5 sm:py-5">
             <s.icon size={15} className="text-muted-foreground mb-3" strokeWidth={1.5} />
-            <div className={`text-2xl sm:text-[1.75rem] font-bold tracking-tight leading-none tabular-nums ${loading ? 'text-muted-foreground/30' : s.color}`}>
-              {loading ? '—' : s.value}
+            {/* An Airtable failure must not read as "you had zero appointments". This page
+                already rendered an em dash while LOADING — the same honesty was simply
+                never extended to the state that lasts until someone notices. */}
+            <div className={`text-2xl sm:text-[1.75rem] font-bold tracking-tight leading-none tabular-nums ${loading || !apptsOk ? 'text-muted-foreground/30' : s.color}`}>
+              {loading || !apptsOk ? '—' : s.value}
             </div>
             <div className="text-[11px] sm:text-xs font-medium text-muted-foreground mt-2">{s.label}</div>
           </div>
