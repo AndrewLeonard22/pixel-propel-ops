@@ -134,25 +134,41 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
   }));
 }
 
+/**
+ * A DEAD CALL-CENTRE SOURCE MUST NOT RENDER AS "no calls were made".
+ *
+ * This used to swallow FOUR distinct failures into the same empty array — never
+ * configured, unparseable URL, HTTP error, and any network throw — so a 403 was
+ * indistinguishable from a quiet day. @bird drove it on production: total dials went
+ * 15,302 -> 0 with no error, no banner, and "Updated" still advancing.
+ *
+ * It now THROWS, which is safe because fetchAllSources() settles each source
+ * independently and turns a throw into { status: 'failed' } for that source alone.
+ * Before that isolation existed, throwing here would have taken the other two down.
+ *
+ * `not configured` stays a RETURN rather than a throw: it is a legitimate state, not a
+ * failure, and fetchAllSources reports it as such before this function is ever called.
+ */
 export async function fetchCallCenterData(settings: AppSettings): Promise<CallRow[]> {
   if (!settings.callCenterSheetUrl) return [];
-  try {
-    const csvUrl = convertSheetUrlToCsv(settings.callCenterSheetUrl, settings.callCenterSheetTab);
-    if (!csvUrl) return [];
-    const response = await fetch(csvUrl);
-    if (!response.ok) return [];
-    const text = await response.text();
-    const rows = parseCsv(text);
-    return rows.map(r => ({
-      timestamp: r['Timestamp'] || '',
-      ghlLocationName: r['ghl_location_name'] || '',
-      agentName: r['Agent Name'] || '',
-      callDuration: parseNumber(r['Call Duration']),
-      callDisposition: r['call_dispostion'] || r['call_disposition'] || '',
-    }));
-  } catch {
-    return [];
+
+  const csvUrl = convertSheetUrlToCsv(settings.callCenterSheetUrl, settings.callCenterSheetTab);
+  if (!csvUrl) throw new Error('Call centre sheet URL is not a valid Google Sheets link');
+
+  const response = await fetch(csvUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch call centre sheet: ${response.status}`);
   }
+
+  const text = await response.text();
+  const rows = parseCsv(text);
+  return rows.map(r => ({
+    timestamp: r['Timestamp'] || '',
+    ghlLocationName: r['ghl_location_name'] || '',
+    agentName: r['Agent Name'] || '',
+    callDuration: parseNumber(r['Call Duration']),
+    callDisposition: r['call_dispostion'] || r['call_disposition'] || '',
+  }));
 }
 
 export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[] }> {

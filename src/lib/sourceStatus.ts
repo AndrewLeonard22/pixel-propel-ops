@@ -63,15 +63,15 @@ const REQUIREMENTS: Record<SourceKey, { label: string; fields: { key: keyof AppS
     label: 'Ad spend (Google Sheet)',
     fields: [{ key: 'googleSheetUrl', label: 'Google Sheet URL' }],
   },
-  // fetchAirtableData refuses on !airtableBaseId || !airtableToken.
+  // fetchAirtableData refuses on !airtableBaseId. The token is no longer a client field
+  // at all — it is a server-side secret (order ②), so it cannot be a missing-setting the
+  // user is asked to supply, and listing it here would send them to add what they must not.
   airtable: {
     label: 'Appointments (Airtable)',
-    fields: [
-      { key: 'airtableBaseId', label: 'Airtable base ID' },
-      { key: 'airtableToken', label: 'Airtable token' },
-    ],
+    fields: [{ key: 'airtableBaseId', label: 'Airtable base ID' }],
   },
-  // fetchCallCenterData returns [] on !settings.callCenterSheetUrl.
+  // fetchCallCenterData now THROWS on an unusable URL or a non-OK response, so a dead
+  // call centre reaches this as `failed` rather than as an empty success.
   callCenter: {
     label: 'Calls (call-centre sheet)',
     fields: [{ key: 'callCenterSheetUrl', label: 'Call centre sheet URL' }],

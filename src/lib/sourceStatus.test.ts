@@ -38,11 +38,10 @@ const CONFIGURED: AppSettings = {
   googleSheetUrl: 'https://docs.google.com/spreadsheets/d/SHEET/edit',
   callCenterSheetUrl: 'https://docs.google.com/spreadsheets/d/CALLS/edit',
   airtableBaseId: 'appBASE',
-  airtableToken: 'tok',
 };
 
 const spendRow: AdSpendRow = {
-  month: 'August', date: '8/4/2026', campaign: 'C', campaignId: '1',
+  month: 'August', date: '8/4/2026', dateISO: '2026-08-04', campaign: 'C', campaignId: '1',
   adsetName: 'AS', adsetId: '2', adName: 'A', adId: '3',
   spent: 1234.5, leads: 7, accountName: 'Testerman Pro Wash',
 };
@@ -62,7 +61,8 @@ describe('per-source configuration is derived independently', () => {
   it('names WHICH settings are missing rather than counting them', () => {
     const blank = { ...DEFAULT_SETTINGS };
     expect(missingSettingsFor('windsor', blank)).toEqual(['Google Sheet URL']);
-    expect(missingSettingsFor('airtable', blank)).toEqual(['Airtable base ID', 'Airtable token']);
+    // The token is no longer a client field (order ②), so it cannot be a missing SETTING.
+    expect(missingSettingsFor('airtable', blank)).toEqual(['Airtable base ID']);
     expect(missingSettingsFor('callCenter', blank)).toEqual(['Call centre sheet URL']);
     // CONTROL: a configured source reports nothing missing, so the assertion above is
     // discriminating and not just "this function returns a non-empty list".
@@ -75,14 +75,16 @@ describe('per-source configuration is derived independently', () => {
     expect(isSourceConfigured('airtable', s)).toBe(true); // CONTROL: unaffected
   });
 
-  it('THE PRODUCTION INCIDENT: a missing Airtable token leaves Windsor configured', () => {
-    // 2026-08-05 — an empty airtableToken took the whole product down. Under the old
-    // single `isConfigured(googleSheetUrl && airtableBaseId && airtableToken)` this
-    // settings object answered "not configured" for everything.
-    const tokenWiped = { ...CONFIGURED, airtableToken: '' };
-    expect(isSourceConfigured('windsor', tokenWiped)).toBe(true);
-    expect(isSourceConfigured('callCenter', tokenWiped)).toBe(true);
-    expect(isSourceConfigured('airtable', tokenWiped)).toBe(false);
+  it('THE PRODUCTION INCIDENT: a missing Airtable field leaves Windsor configured', () => {
+    // 2026-08-05 — an empty Airtable credential took the whole product down. Under the old
+    // single `isConfigured(googleSheetUrl && airtableBaseId && airtableToken)` this state
+    // rendered zero requests to Windsor. The credential has since become server-side, so
+    // the operand that reproduces the incident today is the BASE ID.
+    const airtableGone = { ...CONFIGURED, airtableBaseId: '' };
+
+    expect(isSourceConfigured('windsor', airtableGone)).toBe(true);
+    expect(isSourceConfigured('callCenter', airtableGone)).toBe(true);
+    expect(isSourceConfigured('airtable', airtableGone)).toBe(false);
   });
 });
 

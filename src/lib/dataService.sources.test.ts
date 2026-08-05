@@ -95,6 +95,35 @@ describe("fetchAllSources — one outcome per source", () => {
     expect(r.callCenter.status).toBe("ok");
   });
 
+  it("BIRD-008: a DEAD call centre reports FAILED, never an empty success", async () => {
+    // Drove on production: total dials 15,302 -> 0 with no error and no banner, because
+    // fetchCallCenterData swallowed a 403, a 404, a network throw and a bad URL alike.
+    vi.stubGlobal(
+      "fetch",
+      mockFetch(url =>
+        url.includes("TESTCALLID") ? { ok: false } : { ok: true, body: SHEET_CSV },
+      ),
+    );
+
+    const r = await fetchAllSources(makeSettings());
+
+    expect(r.callCenter.status).toBe("failed");
+    if (r.callCenter.status === "failed") {
+      expect(r.callCenter.error).toMatch(/call centre sheet/i);
+    }
+    // ANTI-VACUITY: Windsor still succeeded, so this is isolation and not a blanket failure.
+    expect(r.googleSheet.status).toBe("ok");
+  });
+
+  it("an unusable call-centre URL is a FAILURE, not an empty day", async () => {
+    vi.stubGlobal("fetch", mockFetch(() => ({ ok: true, body: SHEET_CSV })));
+
+    const r = await fetchAllSources(makeSettings({ callCenterSheetUrl: "not-a-sheet-link" }));
+
+    expect(r.callCenter.status).toBe("failed");
+    expect(r.googleSheet.status).toBe("ok");
+  });
+
   it("ANTI-VACUITY CONTROL: with every source healthy, all three report ok", async () => {
     vi.stubGlobal(
       "fetch",

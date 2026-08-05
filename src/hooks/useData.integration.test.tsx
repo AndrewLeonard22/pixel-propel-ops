@@ -74,7 +74,7 @@ import { DataProvider } from './useData';
 import Dashboard from '@/pages/Dashboard';
 
 const spendRow: AdSpendRow = {
-  month: 'August', date: '8/4/2026', campaign: 'Camp', campaignId: '111',
+  month: 'August', date: '8/4/2026', dateISO: '2026-08-04', campaign: 'Camp', campaignId: '111',
   adsetName: 'AS', adsetId: '211', adName: 'Ad', adId: '311',
   spent: 5000, leads: 100, accountName: 'Testerman Pro Wash',
 };
