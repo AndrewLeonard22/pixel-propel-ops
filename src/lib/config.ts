@@ -198,46 +198,73 @@ export async function saveAccountMappings(mappings: any[]): Promise<void> {
   await upsertSetting('account_mappings', mappings);
 }
 
+/** The three independent data sources the tracker reads. */
+export type DataSource = 'googleSheet' | 'airtable' | 'callCenter';
+
+export const DATA_SOURCES: DataSource[] = ['googleSheet', 'airtable', 'callCenter'];
+
 /**
- * Which of the three data sources are configured, judged independently.
+ * Is ONE source configured? Each source depends only on its OWN fields.
  *
- * CONTRACT
- *   - windsor    needs only googleSheetUrl. It is a public CSV export and takes no credential.
- *   - airtable   needs BOTH airtableBaseId and airtableToken; either alone cannot fetch.
- *   - callCenter needs only callCenterSheetUrl. Public CSV export, no credential.
- *   - Returns false for a field that is present-but-empty. A wiped settings row stores ''
- *     rather than undefined, so a presence check (`!== undefined`) would report it configured.
- *
- * WHY THIS EXISTS
- *   isConfigured() below is a single AND across all three sources, so an absent Airtable
- *   token suppresses Windsor and the call centre too — neither of which needs it. That
- *   becomes load-bearing the moment the Airtable token is moved server-side, because the
- *   client then legitimately holds no token and every source goes dark at once.
+ * This is the seam that lets a missing Airtable token stop Airtable WITHOUT stopping
+ * the Windsor spend feed. `isConfigured` below still requires all three, on purpose —
+ * see the warning there before changing it.
  */
-export interface SourceConfigStatus {
-  windsor: boolean;
-  airtable: boolean;
-  callCenter: boolean;
+export function isSourceConfigured(settings: AppSettings, source: DataSource): boolean {
+  switch (source) {
+    case 'googleSheet':
+      return !!settings.googleSheetUrl;
+    case 'airtable':
+      return !!(settings.airtableBaseId && settings.airtableToken);
+    case 'callCenter':
+      return !!settings.callCenterSheetUrl;
+  }
 }
 
-export function configuredSources(settings: AppSettings): SourceConfigStatus {
-  return {
-    windsor: !!settings.googleSheetUrl,
-    airtable: !!(settings.airtableBaseId && settings.airtableToken),
-    callCenter: !!settings.callCenterSheetUrl,
-  };
-}
-
-/** True when at least one source can be fetched. Use this to decide whether to refresh at all. */
-export function anySourceConfigured(settings: AppSettings): boolean {
-  const s = configuredSources(settings);
-  return s.windsor || s.airtable || s.callCenter;
+/** Which sources can be fetched with the config we actually have. */
+export function configuredSources(settings: AppSettings): DataSource[] {
+  return DATA_SOURCES.filter(s => isSourceConfigured(settings, s));
 }
 
 /**
- * Legacy all-three gate. UNCHANGED in behaviour — four routed pages still call it to decide
- * whether to render a ConfigBanner. Prefer configuredSources() for anything new; this cannot
- * distinguish "nothing configured" from "two of three configured".
+ * ⚠️ REQUIRES ALL THREE SOURCES, ACROSS TWO UNRELATED VENDORS.
+ *
+ * This is why production renders "Configure your data sources" with ZERO requests and
+ * NO error: `useData.tsx:63` returns early and silently when this is false, so a missing
+ * Airtable credential suppresses the Google Sheets spend feed as well.
+ *
+ * 🔴 DO NOT relax this to `configuredSources(settings).length > 0` ON ITS OWN.
+ * `refresh()` fetches all three inside a single `Promise.all`, and `fetchAirtableData`
+ * THROWS 'Airtable not configured' when the token is absent. Relaxing the gate alone
+ * turns a blank page into a red error banner with still-zero data, because Promise.all
+ * discards the Google Sheets rows that WERE fetchable.
+ *
+ * True when AT LEAST ONE source can be fetched.
+ *
+ * ⚠️ Read the warning on `isConfigured` below before wiring this into `refresh()`:
+ * relaxing the GATE without also making the FETCH per-source turns a blank page into an
+ * error banner with still-zero data, because `Promise.all` discards the rows that WERE
+ * fetchable. Gate and fetch must change together.
+ */
+export function anySourceConfigured(settings: AppSettings): boolean {
+  return configuredSources(settings).length > 0;
+}
+
+/**
+ * ⚠️ REQUIRES ALL THREE SOURCES, ACROSS TWO UNRELATED VENDORS.
+ *
+ * This is why production renders "Configure your data sources" with ZERO requests and
+ * NO error: `useData.tsx:63` returns early and silently when this is false, so a missing
+ * Airtable credential suppresses the Google Sheets spend feed as well.
+ *
+ * 🔴 DO NOT relax this to `configuredSources(settings).length > 0` ON ITS OWN.
+ * `refresh()` fetches all three inside a single `Promise.all`, and `fetchAirtableData`
+ * THROWS 'Airtable not configured' when the token is absent. Relaxing the gate alone
+ * turns a blank page into a red error banner with still-zero data, because Promise.all
+ * discards the Google Sheets rows that WERE fetchable.
+ *
+ * The gate and the fetch must be made per-source in the SAME change. Use
+ * `isSourceConfigured` / `configuredSources` above to do it.
  */
 export function isConfigured(settings: AppSettings): boolean {
   return !!(settings.googleSheetUrl && settings.airtableBaseId && settings.airtableToken);

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  isSourceConfigured,
   configuredSources,
   anySourceConfigured,
   isConfigured,
@@ -32,22 +33,19 @@ const TOKEN = "patXXXXXXXX";
 describe("configuredSources — sources are judged independently", () => {
   it("reports Windsor configured from the sheet URL alone, with no Airtable credential", () => {
     const s = configuredSources(settings({ googleSheetUrl: SHEET }));
-    expect(s.windsor).toBe(true);
-    expect(s.airtable).toBe(false);
-    expect(s.callCenter).toBe(false);
+    expect(s).toEqual(["googleSheet"]);
   });
 
   it("reports the call centre configured from its URL alone", () => {
     const s = configuredSources(settings({ callCenterSheetUrl: CALLS }));
-    expect(s.callCenter).toBe(true);
-    expect(s.windsor).toBe(false);
+    expect(s).toEqual(["callCenter"]);
   });
 
   it("requires BOTH Airtable fields — either alone cannot fetch", () => {
-    expect(configuredSources(settings({ airtableBaseId: BASE })).airtable).toBe(false);
-    expect(configuredSources(settings({ airtableToken: TOKEN })).airtable).toBe(false);
+    expect(isSourceConfigured(settings({ airtableBaseId: BASE }), "airtable")).toBe(false);
+    expect(isSourceConfigured(settings({ airtableToken: TOKEN }), "airtable")).toBe(false);
     expect(
-      configuredSources(settings({ airtableBaseId: BASE, airtableToken: TOKEN })).airtable,
+      isSourceConfigured(settings({ airtableBaseId: BASE, airtableToken: TOKEN }), "airtable"),
     ).toBe(true);
   });
 
@@ -58,11 +56,7 @@ describe("configuredSources — sources are judged independently", () => {
       airtableBaseId: "",
       airtableToken: "",
     });
-    expect(configuredSources(wiped)).toEqual({
-      windsor: false,
-      airtable: false,
-      callCenter: false,
-    });
+    expect(configuredSources(wiped)).toEqual([]);
     expect(anySourceConfigured(wiped)).toBe(false);
   });
 
@@ -75,9 +69,8 @@ describe("configuredSources — sources are judged independently", () => {
       airtableToken: "",
     });
 
-    expect(configuredSources(tokenRelocated).windsor).toBe(true);
-    expect(configuredSources(tokenRelocated).callCenter).toBe(true);
-    expect(configuredSources(tokenRelocated).airtable).toBe(false);
+    expect(configuredSources(tokenRelocated)).toEqual(["googleSheet", "callCenter"]);
+    expect(isSourceConfigured(tokenRelocated, "airtable")).toBe(false);
     expect(anySourceConfigured(tokenRelocated)).toBe(true);
 
     // ANTI-VACUITY CONTROL: the legacy gate really does go dark on this same input,
