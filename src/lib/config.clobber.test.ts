@@ -27,6 +27,19 @@ import type { AppSettings } from "./types";
  *   This is a CLIENT-side guard. It cannot stop another tab, another browser, curl, or the
  *   Supabase console. The durable fix is the DB trigger (order ②), which is NOT YET
  *   APPLIED; until it is, this is the only thing between a stale render and the row.
+ *
+ * SABOTAGE PROOF — 5 arms, each anchor asserted UNIQUE, each edit md5-verified to have
+ * landed (an edit that silently misses reports GREEN and reads exactly like a pass), each
+ * run unpiped so $? is vitest's. Restore returned the clean md5 and 14/14.
+ *
+ *   S1  threshold >= 2 → >= 1        3 RED   refuses legitimate single-field edits
+ *   S2  threshold >= 2 → >= 99       5 RED   guard defined, can never trip
+ *   S3  list axis blinded            3 RED   only scalars register
+ *   S4  guard never CALLED           3 RED   ← and all 8 pure tests stayed GREEN
+ *   S5  .trim() dropped              1 RED   "   " counts as configured
+ *
+ * S4 is the load-bearing one. It is the shape of a guard that ships doing nothing, and the
+ * eight pure assertions cannot see it — only the driven call site can.
  */
 const db = vi.hoisted(() => ({
   current: null as AppSettings | null,
