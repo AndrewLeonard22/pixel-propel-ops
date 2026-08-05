@@ -171,6 +171,20 @@ describe('the app_settings lockdown migration', () => {
     expect(sql).toContain('BEFORE INSERT OR UPDATE ON public.app_settings');
   });
 
+  it('refuses to EMPTY a curated collection, not only to blank a connection string', () => {
+    // @raccoon's reproduced race (raccoon/stab ce0f31b) writes the browser's stale copy
+    // over the shared row. If that copy happens to hold a populated googleSheetUrl, the
+    // scalar guard stays SILENT and the curated lists are destroyed anyway — which is
+    // the 32-exclusions loss nobody could attribute. This is the half that catches it.
+    expect(sql).toContain('protected_collections');
+    expect(sql).toContain('refusing to empty');
+    for (const key of ['excludedCampaigns', 'setterBonusRates', 'accountAliases']) {
+      expect(sql, `collection guard must cover ${key}`).toContain(`'${key}'`);
+    }
+    // and it must count members, not merely test presence — an empty array IS present
+    expect(sql).toContain('jsonb_array_length');
+  });
+
   it('CONTROL: these assertions fail against a permissive migration', () => {
     const permissive = `
       CREATE POLICY "Allow public read" ON public.app_settings FOR SELECT USING (true);

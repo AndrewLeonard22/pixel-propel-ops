@@ -80,8 +80,25 @@ DECLARE
     'activeSetters', 'inactiveSetters',
     'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays'
   ];
-  -- fields whose loss takes the product down or silently changes every number
+  -- scalar fields whose loss takes the product down
   protected_keys text[] := ARRAY['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId'];
+  -- COLLECTIONS whose loss silently changes every number without breaking anything.
+  -- @raccoon reproduced the mechanism (raccoon/stab ce0f31b): useData seeds `settings`
+  -- from SYNCHRONOUS localStorage, the DB row replaces it LATER in a useEffect, and
+  -- saveSettings is a FULL-OBJECT REPLACE — so one click on "exclude campaign" or
+  -- "assign appointment" INSIDE THAT WINDOW writes the browser's copy over the shared
+  -- row. That is a RACE, not a broken write, which is why it looked like an intruder.
+  --
+  -- ⚠️ THE SCALAR GUARD ABOVE ONLY CATCHES IT WHEN A CONNECTION FIELD IS ALSO BLANKED.
+  -- If the stale browser copy happens to hold a populated googleSheetUrl, no scalar is
+  -- blanked, the guard stays silent, AND THE CURATED LISTS ARE STILL DESTROYED — which
+  -- is exactly the 32-exclusions loss nobody could attribute.
+  protected_collections text[] := ARRAY[
+    'excludedCampaigns', 'setterBonusRates', 'activeSetters',
+    'inactiveSetters', 'accountAliases', 'columnMappings', 'perfThresholds'
+  ];
+  old_n int;
+  new_n int;
 BEGIN
   -- Only the settings row carries a config object; other keys hold arrays.
   IF NEW.key = 'app_settings' THEN
@@ -122,6 +139,26 @@ BEGIN
         IF coalesce(OLD.value ->> k, '') <> '' AND coalesce(NEW.value ->> k, '') = '' THEN
           RAISE EXCEPTION
             'refusing to blank "%": it currently has a value. Clear it explicitly if intended.', k
+            USING ERRCODE = 'check_violation';
+        END IF;
+      END LOOP;
+
+      -- (d) an update may not EMPTY a collection that currently has members.
+      --     This is the half (c) cannot see: a stale-copy clobber that keeps the
+      --     connection strings but drops the curated lists passes (c) silently.
+      FOREACH k IN ARRAY protected_collections LOOP
+        old_n := CASE jsonb_typeof(OLD.value -> k)
+                   WHEN 'array'  THEN jsonb_array_length(OLD.value -> k)
+                   WHEN 'object' THEN (SELECT count(*)::int FROM jsonb_object_keys(OLD.value -> k))
+                   ELSE 0 END;
+        new_n := CASE jsonb_typeof(NEW.value -> k)
+                   WHEN 'array'  THEN jsonb_array_length(NEW.value -> k)
+                   WHEN 'object' THEN (SELECT count(*)::int FROM jsonb_object_keys(NEW.value -> k))
+                   ELSE 0 END;
+        IF old_n > 0 AND new_n = 0 THEN
+          RAISE EXCEPTION
+            'refusing to empty "%": it currently holds % entries. This is the shape of a '
+            'stale-copy overwrite, not an edit. Remove them one at a time if intended.', k, old_n
             USING ERRCODE = 'check_violation';
         END IF;
       END LOOP;
