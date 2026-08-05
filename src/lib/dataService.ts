@@ -52,6 +52,60 @@ function parseNumber(val: string | undefined): number {
   return isNaN(num) ? 0 : num;
 }
 
+/**
+ * Normalise a source date string to ISO `YYYY-MM-DD`. Returns '' when it cannot be
+ * interpreted — an honest refusal, never a guess and never today's date.
+ *
+ * ACCEPTS, because all three are present in real exports of this feed:
+ *   M/D/YYYY        the derived tab's rendered format
+ *   YYYY-MM-DD      the raw Windsor tab's format
+ *   a bare integer  a Google Sheets serial, emitted when a cell lost its date format.
+ *                   Four such rows exist in the live feed. `new Date("45884")` reads that
+ *                   as the YEAR 45884, so the naive parse produces a valid far-future date
+ *                   and nothing downstream errors — it is a successful parse of the wrong
+ *                   thing, which is why this is decoded explicitly against the Sheets epoch.
+ *
+ * REFUSES: anything else, including the empty string.
+ */
+export function normalizeSourceDate(raw: string | undefined | null): string {
+  if (raw == null) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return isRealDate(+iso[1], +iso[2], +iso[3]) ? s : '';
+
+  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdy) {
+    const [, m, d, y] = mdy;
+    return isRealDate(+y, +m, +d) ? `${y}-${pad2(+m)}-${pad2(+d)}` : '';
+  }
+
+  // Google Sheets serial: whole days since 1899-12-30. Bounded to a plausible era so a
+  // stray identifier cannot be silently reinterpreted as a date.
+  if (/^\d{1,6}$/.test(s)) {
+    const serial = Number(s);
+    if (serial >= 36526 && serial <= 73050) {          // 2000-01-01 .. 2099-12-31
+      const ms = Date.UTC(1899, 11, 30) + serial * 86400000;
+      const dt = new Date(ms);
+      return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+    }
+    return '';
+  }
+
+  return '';
+}
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+function isRealDate(y: number, m: number, d: number): boolean {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 // resolveAccountName removed — matching now uses settings.accountAliases directly
 
 export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpendRow[]> {
@@ -67,6 +121,7 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
   return rows.map(r => ({
     month: r['Month'] || '',
     date: r['Date'] || '',
+    dateISO: normalizeSourceDate(r['Date'] ?? r['date']),
     campaign: r['Campaign'] || '',
     campaignId: r['Campaign Id'] || r['Campaign ID'] || '',
     adsetName: r['Adset Name'] || r['Ad Set Name'] || '',

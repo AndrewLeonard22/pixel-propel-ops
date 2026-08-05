@@ -31,7 +31,14 @@ export interface AppSettings {
 
 export interface AdSpendRow {
   month: string;
+  /** The source string exactly as the sheet rendered it. Format is NOT guaranteed. */
   date: string;
+  /**
+   * `date` normalised to ISO `YYYY-MM-DD`, or '' when it could not be interpreted.
+   * ADDITIVE: `date` is unchanged, because six page-level parsers still read it and four
+   * of them shift an ISO string by one day. Migrate readers to this field deliberately.
+   */
+  dateISO: string;
   campaign: string;
   campaignId: string;
   adsetName: string;
