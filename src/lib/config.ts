@@ -198,6 +198,50 @@ export async function saveAccountMappings(mappings: any[]): Promise<void> {
   await upsertSetting('account_mappings', mappings);
 }
 
+/** The three independent data sources the tracker reads. */
+export type DataSource = 'googleSheet' | 'airtable' | 'callCenter';
+
+export const DATA_SOURCES: DataSource[] = ['googleSheet', 'airtable', 'callCenter'];
+
+/**
+ * Is ONE source configured? Each source depends only on its OWN fields.
+ *
+ * This is the seam that lets a missing Airtable token stop Airtable WITHOUT stopping
+ * the Windsor spend feed. `isConfigured` below still requires all three, on purpose —
+ * see the warning there before changing it.
+ */
+export function isSourceConfigured(settings: AppSettings, source: DataSource): boolean {
+  switch (source) {
+    case 'googleSheet':
+      return !!settings.googleSheetUrl;
+    case 'airtable':
+      return !!(settings.airtableBaseId && settings.airtableToken);
+    case 'callCenter':
+      return !!settings.callCenterSheetUrl;
+  }
+}
+
+/** Which sources can be fetched with the config we actually have. */
+export function configuredSources(settings: AppSettings): DataSource[] {
+  return DATA_SOURCES.filter(s => isSourceConfigured(settings, s));
+}
+
+/**
+ * ⚠️ REQUIRES ALL THREE SOURCES, ACROSS TWO UNRELATED VENDORS.
+ *
+ * This is why production renders "Configure your data sources" with ZERO requests and
+ * NO error: `useData.tsx:63` returns early and silently when this is false, so a missing
+ * Airtable credential suppresses the Google Sheets spend feed as well.
+ *
+ * 🔴 DO NOT relax this to `configuredSources(settings).length > 0` ON ITS OWN.
+ * `refresh()` fetches all three inside a single `Promise.all`, and `fetchAirtableData`
+ * THROWS 'Airtable not configured' when the token is absent. Relaxing the gate alone
+ * turns a blank page into a red error banner with still-zero data, because Promise.all
+ * discards the Google Sheets rows that WERE fetchable.
+ *
+ * The gate and the fetch must be made per-source in the SAME change. Use
+ * `isSourceConfigured` / `configuredSources` above to do it.
+ */
 export function isConfigured(settings: AppSettings): boolean {
   return !!(settings.googleSheetUrl && settings.airtableBaseId && settings.airtableToken);
 }
