@@ -185,6 +185,56 @@ describe('the app_settings lockdown migration', () => {
     expect(sql).toContain('jsonb_array_length');
   });
 
+  it('🎯 the guard fires on THE OBSERVED ATTACK SHAPE, not on an imagined one', () => {
+    // @bird measured the live row as DEFAULT_SETTINGS field-for-field (8/8 exact,
+    // including perfThresholds as a 4-tuple and all 21 columnMappings pairs), and
+    // @raccoon found the mechanism: Settings.tsx:116 debounce-autosaves
+    // performSave(form, accountMappings) where `form` is stuck on DEFAULTS.
+    //
+    // performSave does `{ ...formToSave, accountAliases: mappingsToSave }` — READ, not
+    // assumed: that is why accountAliases survives at 62 while the blob fields empty.
+    //
+    // So the write is DEFAULTS-with-real-aliases over the real row. These are the
+    // transitions it actually causes, and each must be covered:
+    const preWipe = {
+      googleSheetUrl: 'https://docs.google.com/spreadsheets/d/X/edit',
+      callCenterSheetUrl: 'https://docs.google.com/spreadsheets/d/Y/edit',
+      airtableBaseId: 'appTEST123',
+      excludedCampaigns: new Array(32).fill('c'),
+      inactiveSetters: new Array(4).fill('s'),
+      accountAliases: new Array(62).fill({}),
+    };
+    const defaultsWrite = {
+      googleSheetUrl: '',
+      callCenterSheetUrl: '',
+      airtableBaseId: '',
+      excludedCampaigns: [],
+      inactiveSetters: [],
+      accountAliases: new Array(62).fill({}), // ← replaced with the loaded mappings
+    };
+
+    const scalarHits = ['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId'].filter(
+      k => preWipe[k] !== '' && defaultsWrite[k] === '',
+    );
+    const collectionHits = ['excludedCampaigns', 'inactiveSetters', 'accountAliases'].filter(
+      k => (preWipe[k] as unknown[]).length > 0 && (defaultsWrite[k] as unknown[]).length === 0,
+    );
+
+    expect(scalarHits).toEqual(['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId']);
+    expect(collectionHits).toEqual(['excludedCampaigns', 'inactiveSetters']);
+    // ⚠️ accountAliases is deliberately NOT in that list — performSave repopulates it,
+    // so it never makes the transition. If a future reader "fixes" the guard by
+    // trusting a table instead of reading performSave, this is the line that objects.
+    expect(collectionHits).not.toContain('accountAliases');
+
+    // and every field that DOES transition must be named in the migration's guards
+    for (const k of [...scalarHits, ...collectionHits]) {
+      expect(sql, `guard must cover ${k}`).toContain(`'${k}'`);
+    }
+    // FIVE independent conditions fire on this shape — the write is refused five ways.
+    expect(scalarHits.length + collectionHits.length).toBe(5);
+  });
+
   it('CONTROL: these assertions fail against a permissive migration', () => {
     const permissive = `
       CREATE POLICY "Allow public read" ON public.app_settings FOR SELECT USING (true);
