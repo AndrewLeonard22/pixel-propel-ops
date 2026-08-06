@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CallRow } from '@/lib/types';
 import { loadSettings, loadSettingsAsync, isConfigured } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries, detectExclusionState, type ExclusionReport } from '@/lib/dataService';
+import { buildHonestNumbersReport, type HonestNumbersReport } from '@/lib/honestNumbers';
+import { computeSetterPayouts } from '@/lib/payout';
 import {
   refreshSources,
   initialStatuses,
@@ -48,6 +50,15 @@ interface DataContextType {
    * cannot drift out of sync with the numbers it describes.
    */
   exclusions: ExclusionReport;
+  /**
+   * @raccoon's COMPOSED report — both honest-numbers detectors turned into ordered,
+   * user-facing sentences. This is what @dash renders as the banner; `exclusions` above
+   * is the EVIDENCE behind the first of those sentences (which accounts, how much money),
+   * which his composer cannot carry because it takes campaign ids rather than spend rows.
+   *
+   * Report for the message, evidence for the drill-down. Not two detectors.
+   */
+  honestNumbers: HonestNumbersReport;
   /** Per-source state. THIS is the honest one; the flat fields above are kept for existing callers. */
   sources: Record<SourceKey, SourceStatus>;
   refresh: (overrideSettings?: AppSettings) => Promise<void>;
@@ -72,6 +83,12 @@ const defaultDataContext: DataContextType = {
   // has loaded — a definite claim made before we have looked, which is the defect
   // `settingsLoaded` exists to prevent one line above.
   exclusions: detectExclusionState([], loadSettings()),
+  honestNumbers: buildHonestNumbersReport({
+    settings: loadSettings(),
+    campaignIdsInData: [],
+    fabricatedRateCount: 0,
+    allRatesFabricated: false,
+  }),
   sources: initialStatuses(loadSettings()),
   refresh: async () => {},
 };
@@ -213,6 +230,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // never describe a state the numbers have already moved past.
   const exclusions = detectExclusionState(data.adSpend, settings);
 
+  // Composed on every render from the same live data, so the banner cannot describe a
+  // state the numbers have already left.
+  //
+  // ⚠️ POPULATION DIFFERS FROM Agents.tsx AND THE COUNT CAN DISAGREE ON SCREEN.
+  //    here          ALL appointments — a global statement about the configuration
+  //    Agents.tsx:44 valid leads WITHIN THE SELECTED PAY PERIOD
+  // So `fabricatedRateCount` here can exceed the number of flagged rows on that page, and
+  // both are true of their own population. `allRatesFabricated` is NOT affected — with no
+  // rates configured at all it is true of every population, which is why it is the signal
+  // that carries the wipe.
+  //
+  // Reconciling them means lifting the pay-period filter out of Agents.tsx into this hook.
+  // That is a bigger change than this window allows, so it is LOGGED, not built — and the
+  // banner copy must say "across all data" rather than imply the current period.
+  const payoutForWarnings = computeSetterPayouts(data.appointments, settings);
+  const honestNumbers = buildHonestNumbersReport({
+    settings,
+    campaignIdsInData: data.adSpend.map(r => (r.campaignId || '').trim()),
+    fabricatedRateCount: payoutForWarnings.rows.filter(r => r.rateSource === 'fallback').length,
+    allRatesFabricated: payoutForWarnings.allRatesFabricated,
+  });
+
   return (
     <DataContext.Provider value={{
       settings,
@@ -229,6 +268,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       configured,
       settingsLoaded,
       exclusions,
+      honestNumbers,
       sources,
       refresh,
     }}>
