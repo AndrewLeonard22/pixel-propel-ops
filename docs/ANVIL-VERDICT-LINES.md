@@ -54,7 +54,15 @@ git diff --shortstat origin/main..origin/stabilization
      component test that already exists.
    - DRIVEN: @bird, three states, and it **disappears** when a real exclusion matches.
 
-4. **The Airtable path is proven on both sides and has NEVER been end-to-end.** 207 lines
+4. **The Airtable path: the CLIENT states are now DRIVEN; the FUNCTION has still never
+   executed.** @bird drove all six of @apprentice's `fail()` states through the client at
+   `f586fb1` and published the verbatim on-screen sentence at each rung — including the
+   404 case, which I verified emits from source exactly as he quoted it. **`$0.00` lines
+   in all six failure states: 0. TOTAL APPTS: `—` in all six.**
+
+   ⇒ Every rung of the deploy ladder **names itself in the product**, so the deploy can be
+   diagnosed by reading the screen rather than by `curl`. That is a status upgrade on the
+   client half and changes nothing about the other half: 207 lines
    of Deno that have never executed — not run, not typechecked (`tsconfig.app.json`
    includes only `src`), not called, in any environment. My 11 client tests run against a
    **mocked** `invoke`. Step 1 of `DEPLOY.md` is that function's first execution ever, so
