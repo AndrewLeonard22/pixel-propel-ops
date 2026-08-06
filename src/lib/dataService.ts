@@ -914,11 +914,36 @@ export function isAirtableRecordId(value: unknown): boolean {
 const normalizeStatus = (raw: unknown): string =>
   String(raw ?? '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
 
-/** `Closed Won` and its spelling variants — never `Closed Lost`. */
-export function isClosedWonStatus(leadStatus: unknown): boolean {
+/**
+ * ⭐ THE FALLBACK, NOT A SECOND SOURCE OF TRUTH. @fable's wording, and the distinction is
+ * load-bearing: when `closedWonStatuses` is configured it is the ONLY authority. This list
+ * applies when the setting is absent — it must never be OR-ed with the setting, or a status
+ * @andrew deliberately UN-ticked would keep counting.
+ */
+const CLOSED_WON_FALLBACK = ['closed won', 'won', 'closed and won'];
+
+/**
+ * `Closed Won` — configurable since @andrew's "yeah make it mappable".
+ *
+ * ⚠️ ABSENT AND EMPTY BOTH FALL BACK, and that is a deliberate refusal to honour one input.
+ * An empty array is what a UI produces when every box is un-ticked, and treating it as a
+ * literal answer takes every closed-deal count on the product to ZERO. A settings field whose
+ * empty state silently zeroes the headline number is not a setting, it is a trapdoor.
+ * ⇒ The cost is stated: there is no way to express "nothing counts as won" through this
+ * control. That state has no legitimate use and its accidental form is catastrophic.
+ */
+export function isClosedWonStatus(leadStatus: unknown, settings?: AppSettings): boolean {
   const s = normalizeStatus(leadStatus);
-  return s === 'closed won' || s === 'won' || s === 'closed and won';
+  if (!s) return false;
+  const configured = settings?.closedWonStatuses;
+  if (configured && configured.length > 0) {
+    return configured.some(c => normalizeStatus(c) === s);
+  }
+  return CLOSED_WON_FALLBACK.includes(s);
 }
+
+/** The choices a reader can tick. Exported so the Settings control cannot drift from this. */
+export const CLOSED_WON_DEFAULT: string[] = ['Closed Won'];
 
 /** `Closed Lost` and variants. Explicit, so a lost deal can never be counted by any route. */
 export function isClosedLostStatus(leadStatus: unknown): boolean {
@@ -931,10 +956,25 @@ export function isClosedLostStatus(leadStatus: unknown): boolean {
  * times, so a repair could fix three and leave the fourth reporting a different number for
  * the same data — the defect class that put four separate line numbers in the D1 report.
  */
-export function isClosedWon(appt: { leadStatus?: string; closedRevenue?: number }): boolean {
-  if (isClosedWonStatus(appt.leadStatus)) return true;
-  // Revenue is evidence of a win ONLY where the status has not already said "lost".
+export function isClosedWon(
+  appt: { leadStatus?: string; closedRevenue?: number },
+  settings?: AppSettings,
+): boolean {
+  /**
+   * ⚖️ LOST OUTRANKS WON, AND THE ORDER OF THESE THREE LINES IS THE RULING.
+   *
+   * Once the won list is configurable, `Closed Lost` can be TICKED as a win — by a mis-click,
+   * or by someone reading the label as "closed" rather than "lost". Previously won was tested
+   * first, so an overlapping status counted as a WIN. @fable's ruling: LOST WINS, "because
+   * counting a lost deal as revenue is the worse error". The two errors are not symmetric —
+   * under-counting wins understates performance, over-counting them invents revenue.
+   *
+   * ⇒ So this is not a guard bolted on top; it is the FIRST test, and the only reason the
+   * revenue arm below cannot smuggle a lost deal back in.
+   */
   if (isClosedLostStatus(appt.leadStatus)) return false;
+  if (isClosedWonStatus(appt.leadStatus, settings)) return true;
+  // Revenue is evidence of a win only where the status has not already said "lost" — above.
   return (appt.closedRevenue ?? 0) > 0;
 }
 
@@ -1575,7 +1615,7 @@ export function buildAccountSummaries(
       const cSpend = cData.spendRows.reduce((s, r) => s + r.spent, 0);
       const cLeads = cData.spendRows.reduce((s, r) => s + r.leads, 0);
       const cAppts = cData.appts.length;
-      const cClosed = cData.appts.filter(a => isClosedWon(a)).length;
+      const cClosed = cData.appts.filter(a => isClosedWon(a, settings)).length;
       const cRevenue = cData.appts.reduce((s, a) => s + a.closedRevenue, 0);
       const cQualified = cData.appts.filter(a => a.leadValid?.toLowerCase() === 'valid').length;
       const cCpl = cLeads > 0 ? cSpend / cLeads : 0;
@@ -1631,7 +1671,7 @@ export function buildAccountSummaries(
         const asSpend = asData.spendRows.reduce((s, r) => s + r.spent, 0);
         const asLeads = asData.spendRows.reduce((s, r) => s + r.leads, 0);
         const asAppts = asData.appts.length;
-        const asClosed = asData.appts.filter(a => isClosedWon(a)).length;
+        const asClosed = asData.appts.filter(a => isClosedWon(a, settings)).length;
         const asRevenue = asData.appts.reduce((s, a) => s + a.closedRevenue, 0);
         const asCpl = asLeads > 0 ? asSpend / asLeads : 0;
         const asLeadPct = asLeads > 0 ? (asAppts / asLeads) * 100 : 0;
@@ -1671,7 +1711,7 @@ export function buildAccountSummaries(
           const adSpend = adData.spendRows.reduce((s, r) => s + r.spent, 0);
           const adLeads = adData.spendRows.reduce((s, r) => s + r.leads, 0);
           const adAppts = adData.appts.length;
-          const adClosed = adData.appts.filter(a => isClosedWon(a)).length;
+          const adClosed = adData.appts.filter(a => isClosedWon(a, settings)).length;
           const adRevenue = adData.appts.reduce((s, a) => s + a.closedRevenue, 0);
           ads.push({
             adName: adData.spendRows[0]?.adName || adKey,
@@ -1735,7 +1775,7 @@ export function buildAccountSummaries(
     const performanceAppts = data.appts.filter(a => !excludedApptSet.has(a));
 
     const totalAppts = performanceAppts.length;
-    const closed = performanceAppts.filter(a => isClosedWon(a)).length;
+    const closed = performanceAppts.filter(a => isClosedWon(a, settings)).length;
     const revenue = performanceAppts.reduce((s, a) => s + a.closedRevenue, 0);
     const billed = performanceAppts.reduce((s, a) => s + a.amountCharged, 0);
     const qualified = performanceAppts.filter(a => a.leadValid?.toLowerCase() === 'valid').length;

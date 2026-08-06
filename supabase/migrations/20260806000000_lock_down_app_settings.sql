@@ -91,7 +91,10 @@ DECLARE
     'columnMappings', 'accountAliases', 'perfThresholds',
     'excludedCampaigns', 'setterBonusRates',
     'activeSetters', 'inactiveSetters',
-    'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays'
+    'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays',
+    -- which Lead Status values count as WON. A list of the owner's own singleSelect
+    -- choices, not a secret. Same edit-in-place pattern as adsRawTabName (0124a4f).
+    'closedWonStatuses'
   ];
   -- ⚠️ THE TWO CREDENTIAL FIELDS THE OLD FRONTEND STILL MODELS.
   -- These are NOT on the allowlist and never will be. They get SPECIAL handling below

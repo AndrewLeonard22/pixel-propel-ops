@@ -4,6 +4,7 @@ import {
   isClosedWonStatus,
   isClosedLostStatus,
   unrecognisedTerminalStatuses,
+  CLOSED_WON_DEFAULT,
   buildAccountSummaries,
 } from './dataService';
 import { makeAdSpendRow, makeAppointmentRow, makeSettings } from '@/test/factories';
@@ -62,14 +63,14 @@ describe('🔴 THE DEFECT, on @andrew\'s real distribution', () => {
 
   it('✅ THE FIX scores 46 — the wins, and only the wins', () => {
     const appts = livePopulation();
-    expect(appts.filter(isClosedWon).length).toBe(46);
+    expect(appts.filter(a => isClosedWon(a)).length).toBe(46);
   });
 
   it('🔴 ANTI-VACUITY: the fix is not merely "smaller" — it is the RIGHT 46', () => {
     // A predicate returning `false` always would also drop from 153. This asserts the
     // survivors are exactly the won rows, which a blanket refusal cannot satisfy.
     const appts = livePopulation();
-    const kept = appts.filter(isClosedWon);
+    const kept = appts.filter(a => isClosedWon(a));
     expect(kept).toHaveLength(46);
     for (const a of kept) expect(a.leadStatus).toBe('Closed Won');
   });
@@ -194,7 +195,7 @@ describe("⭐ MEASURE THE VALUE SET — a NEW spelling must be VISIBLE, not sile
       { leadStatus: "Signed" },
     ];
     // It is correctly NOT counted as a win — we do not guess an outcome from a novel string.
-    expect(appts.filter(isClosedWon).length).toBe(0);
+    expect(appts.filter(a => isClosedWon(a)).length).toBe(0);
     // But it is REPORTED, which is the whole point: someone can see it and decide.
     expect(unrecognisedTerminalStatuses(appts)).toEqual([
       { status: "Deal Won", count: 2 },
@@ -241,5 +242,78 @@ describe("⭐ MEASURE THE VALUE SET — a NEW spelling must be VISIBLE, not sile
     expect(unrecognisedTerminalStatuses([
       { leadStatus: "Closed Won" }, { leadStatus: "Closed Lost" }, { leadStatus: "" },
     ])).toEqual([]);
+  });
+});
+
+describe('🎯 CLOSED-WON IS NOW MAPPABLE — @andrew: "yeah make it mappable"', () => {
+  /**
+   * The value that decides the number he judges accounts on was a hardcoded literal he could
+   * neither see nor change. @fable's schema read: Lead Status is a singleSelect with SEVEN
+   * choices, so the control offers HIS options — not a text box and not a list we maintain.
+   */
+  const SEVEN = [
+    'Follow up scheduled', 'Working on proposal', 'Comparing bids',
+    'Waiting on decision', 'Waiting on their decision', 'Closed Won', 'Closed Lost',
+  ];
+
+  it('🔴 ANTI-VACUITY: the DEFAULT must not move the number on the day it ships', () => {
+    // @fable: "with the default settings the closed count is still 46. If it moves on ship,
+    // the default is wrong." This is the arm that grades the default, not the feature.
+    const appts = livePopulation();
+    const withDefault = makeSettings({ closedWonStatuses: CLOSED_WON_DEFAULT });
+    expect(appts.filter(a => isClosedWon(a, withDefault)).length).toBe(46);
+    // and identical to the no-setting path
+    expect(appts.filter(a => isClosedWon(a)).length).toBe(46);
+  });
+
+  it('✅ ticking a SECOND status moves the number, by the right amount', () => {
+    // @bird drives this on screen. Here it is proven at the source so a wrong on-screen
+    // delta can be attributed to the wiring rather than to the rule.
+    const appts = livePopulation();
+    const two = makeSettings({ closedWonStatuses: ['Closed Won', 'Working on proposal'] });
+    expect(appts.filter(a => isClosedWon(a, two)).length).toBe(46 + 56);  // 56 = his real count
+  });
+
+  it('⚖️ LOST OUTRANKS WON — a status ticked as BOTH is NOT a win (@fable\'s ruling)', () => {
+    // The overlap is reachable by one mis-click once the list is editable, and the two errors
+    // are not symmetric: under-counting wins understates performance, over-counting invents
+    // revenue. Asserted rather than left to the order of two if-statements.
+    const ticked = makeSettings({ closedWonStatuses: ['Closed Won', 'Closed Lost'] });
+    expect(isClosedWon({ leadStatus: 'Closed Lost', closedRevenue: 0 }, ticked)).toBe(false);
+    expect(isClosedWon({ leadStatus: 'Closed Lost', closedRevenue: 99999 }, ticked)).toBe(false);
+    expect(isClosedWon({ leadStatus: 'Closed Won' }, ticked)).toBe(true);
+
+    // and on his real distribution the count does NOT gain the 107 losses
+    expect(livePopulation().filter(a => isClosedWon(a, ticked)).length).toBe(46);
+  });
+
+  it('🔴 EMPTY and ABSENT both FALL BACK — an empty list must not zero the product', () => {
+    // The trapdoor: [] is what a UI produces when every box is un-ticked. Read literally it
+    // takes every closed-deal count to zero. Both states resolve to the built-in list.
+    const appts = livePopulation();
+    for (const s of [makeSettings({ closedWonStatuses: [] }), makeSettings({}), undefined]) {
+      expect(appts.filter(a => isClosedWon(a, s)).length).toBe(46);
+    }
+  });
+
+  it('the setting is the ONLY authority when set — never OR-ed with the fallback', () => {
+    // If the two were combined, a status @andrew deliberately UN-ticked would keep counting.
+    // 'Closed Won' is in the fallback; configuring something else must switch it OFF.
+    const other = makeSettings({ closedWonStatuses: ['Comparing bids'] });
+    expect(isClosedWon({ leadStatus: 'Closed Won' }, other)).toBe(false);
+    expect(isClosedWon({ leadStatus: 'Comparing bids' }, other)).toBe(true);
+  });
+
+  it('matching is normalised, so a choice copied with odd spacing still works', () => {
+    const s = makeSettings({ closedWonStatuses: ['  closed   WON '] });
+    expect(isClosedWon({ leadStatus: 'Closed Won' }, s)).toBe(true);
+  });
+
+  it('CONTROL: every one of his seven real choices classifies without throwing', () => {
+    // Degrade-not-throw at the value level: no choice in his base may crash the classifier.
+    const s = makeSettings({ closedWonStatuses: CLOSED_WON_DEFAULT });
+    for (const c of SEVEN) expect(typeof isClosedWon({ leadStatus: c }, s)).toBe('boolean');
+    // and exactly one of the seven is a win under the default
+    expect(SEVEN.filter(c => isClosedWon({ leadStatus: c }, s))).toEqual(['Closed Won']);
   });
 });

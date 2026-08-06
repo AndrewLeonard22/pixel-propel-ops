@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
 import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync, settingsAreUnverified } from '@/lib/config';
-import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData } from '@/lib/dataService';
+import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, CLOSED_WON_DEFAULT } from '@/lib/dataService';
+import { fetchSelectChoices, tickedButMissing } from '@/lib/airtableChoices';
 import type { AppSettings, AccountMapping } from '@/lib/types';
 import { checkSettingsWrite } from '@/lib/settingsWriteGuard';
 import { DEFAULT_ADS_RAW_TAB } from '@/lib/sheetCompleteness';
@@ -117,6 +118,38 @@ export default function SettingsPage() {
   const [sheetError, setSheetError] = useState('');
   const [airtableStatus, setAirtableStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
+
+  /**
+   * The Lead Status choices from @andrew's own base. `null` means "we could not read them" —
+   * NOT "there are none". The control degrades to a sentence rather than rendering an empty
+   * checkbox list, because an empty list would read as "no statuses exist" and invite
+   * un-ticking everything.
+   */
+  const [leadStatusChoices, setLeadStatusChoices] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const { airtableBaseId, airtableTableName, airtableToken } = form;
+    if (!airtableBaseId || !airtableTableName || !airtableToken) {
+      setLeadStatusChoices(null);
+      return;
+    }
+    // ⛔ DEGRADE, NEVER THROW: fetchSelectChoices resolves null on 403 / network / renamed
+    // field, so this cannot reject and cannot take the settings page down.
+    void fetchSelectChoices(airtableBaseId, airtableTableName, 'Lead Status', airtableToken)
+      .then(choices => { if (!cancelled) setLeadStatusChoices(choices); });
+    return () => { cancelled = true; };
+  }, [form.airtableBaseId, form.airtableTableName, form.airtableToken]);
+
+  /**
+   * Ticked statuses the base no longer has. Empty when the fetch failed — an absence of
+   * choices is not evidence of absence, and accusing every ticked status of being missing
+   * because a token expired is the alarming-direction error.
+   */
+  const missingStatuses = useMemo(
+    () => tickedButMissing(form.closedWonStatuses ?? [], leadStatusChoices),
+    [form.closedWonStatuses, leadStatusChoices],
+  );
   const [airtableError, setAirtableError] = useState('');
   const [saved, setSaved] = useState(false);
   /**
@@ -604,6 +637,62 @@ useEffect(() => {
             onChange={e => updateForm({ airtableTableName: e.target.value })}
             className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
           />
+        </div>
+        {/*
+          🎯 WHICH STATUSES COUNT AS A CLOSED DEAL — @andrew: "yeah make it mappable".
+          The COLUMN was already mappable; the VALUE was a hardcoded literal, so the rule
+          deciding the number he judges accounts on was one he could neither see nor change.
+          Rename the option in Airtable and there was nowhere to tell us.
+
+          The options are read from HIS base rather than maintained here — a list we keep is
+          the same defect one level up.
+        */}
+        <div>
+          <label className="text-sm font-medium text-muted-foreground">
+            Which Lead Status values count as a closed deal
+          </label>
+          {leadStatusChoices === null ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Could not read the status options from Airtable. Closed deals are being counted
+              with the built-in default: <strong>Closed Won</strong>.
+            </p>
+          ) : (
+            <div className="mt-2 space-y-1.5">
+              {leadStatusChoices.map(choice => {
+                const cur = form.closedWonStatuses ?? CLOSED_WON_DEFAULT;
+                const ticked = cur.some(s => s.trim().toLowerCase() === choice.trim().toLowerCase());
+                return (
+                  <label key={choice} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={ticked}
+                      onChange={e => updateForm({
+                        closedWonStatuses: e.target.checked
+                          ? [...cur, choice]
+                          : cur.filter(s => s.trim().toLowerCase() !== choice.trim().toLowerCase()),
+                      })}
+                    />
+                    <span>{choice}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          {/* ⭐ A ticked status Airtable no longer has stops matching SILENTLY and the closed
+              count drops with nothing on screen to say why — the same rot as a saved-but-absent
+              column mapping. Named, not left to be discovered. */}
+          {missingStatuses.length > 0 && (
+            <p className="mt-2 text-xs text-warning">
+              {missingStatuses.length} selected {missingStatuses.length === 1 ? 'status is' : 'statuses are'}{' '}
+              no longer in Airtable: {missingStatuses.join(', ')}.{' '}
+              {missingStatuses.length === 1 ? 'It is' : 'They are'} not counting toward closed deals.
+            </p>
+          )}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Un-ticking everything falls back to <strong>Closed Won</strong> rather than counting
+            nothing. A deal marked <strong>Closed Lost</strong> is never counted as won, even if
+            ticked here.
+          </p>
         </div>
         {/*
           ⛔ OWNER-ORDERED, 2026-08-05. The token input was removed when the secret moved

@@ -589,6 +589,10 @@ export const ALLOWED_CONFIG_KEYS = [
   'excludedCampaigns', 'setterBonusRates',
   'activeSetters', 'inactiveSetters',
   'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays',
+  // Which Lead Status values count as WON. @andrew: "yeah make it mappable". A list of his
+  // own singleSelect choices — not a secret, and the business rule it encodes was previously
+  // a hardcoded literal he could neither see nor change.
+  'closedWonStatuses',
 ] as const;
 
 /**
