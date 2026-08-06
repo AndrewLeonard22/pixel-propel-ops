@@ -47,6 +47,43 @@ Merge the remote-tracking ref by name, never the bare local branch. `--ff-only` 
 into an error rather than a merge commit nobody tested. Print the merged sha and diff it against
 the head you intend before using the word "merged".
 
+**`main` is checked out in 0 of 8 worktrees**, so any `merge` route requires checking it out
+somewhere first — re-introducing the staleness class. The route that touches no working tree at
+all, dry-run verified (`fa43996..<head>  origin/stabilization -> main`):
+
+```sh
+git fetch origin && git push origin origin/stabilization:main
+git fetch origin && git cat-file -e origin/main:scripts/gates.mjs && echo GATE_LADDER_PRESENT
+```
+
+### 🔴 The same directory carries a SECOND route to shipping the stale tree
+
+`/Users/andrewleonard/Desktop/pixel-propel-ops` also holds `.vercel/project.json`
+(→ project `pixel-propel-ops`), and `.vercel/` is **untracked and not gitignored**.
+
+| from that directory | result |
+|---|---|
+| `git merge stabilization` | merges `7fca10a`, clean FF, exit 0 |
+| a CLI production deploy | builds **that working tree** and ships it, **bypassing `main` entirely** |
+| a broad stage-everything | commits `.vercel/` into the shared repo |
+
+**The deploy route needs no merge at all**, so the merge guard above does not cover it. Every
+certification of this branch is against `origin/stabilization`; a deploy from that directory never
+touches it and prints success. This is @dash's law — *a local config file is a claim about the
+world, not the world* — and it is the same shape as the merge blocker: **a local name resolving to
+the wrong object, an operation that succeeds, and no error anyone would see.** Guard: name the
+remote object (a deployment id, `origin/stabilization`), never the local alias or the directory.
+
+*Its two "uncommitted changes" are `.vercel/` and a screenshot — **no code**. I cited "dirty=2"
+twice as if it were work in progress without ever printing what it was; a count without its
+predicate, inside my own blocker. Nobody loses anything by fast-forwarding that checkout.*
+
+**Checked and NOT found here:** the rollback-pinned production target @dash confirmed on Relay
+(a build goes Ready and never takes the alias). The rollback runbook commit `316539af` is in the
+**`quo-dashboard`** repo, not this one, and this tree carries no runbook. **That is absence of
+evidence in the tree, not proof of a clean alias** — only @bird can answer it, holding both the
+drill history and the served-bytes instrument.
+
 ---
 
 ## Disclosed and NOT closed
