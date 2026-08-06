@@ -442,6 +442,23 @@ export const ALLOWED_CONFIG_KEYS = [
   'googleSheetUrl', 'googleSheetTab',
   'callCenterSheetUrl', 'callCenterSheetTab',
   'airtableBaseId', 'airtableTableName',
+  // ⛔⛔ OWNER-ORDERED EXCEPTION, 2026-08-05. Andrew, verbatim: «JUST PUT THE ACCESS TOKEN
+  // BACK IN PIXEL, YOU FUCKING REMOVED IT SO NOW I CANT SEE MY AIRTABLE DATA».
+  //
+  // Relocating this token server-side was CORRECT security and it SHIPPED WITHOUT ITS OTHER
+  // HALF: the airtable-proxy Edge Function was never deployed, so appointments went dark.
+  // @apprentice predicted this exact outcome in APPR-020 — "relocating the secrets
+  // server-side BLANKS THE ENTIRE DASHBOARD" — and we shipped it anyway. A half-migrated
+  // credential is worse than either end state, and the owner is the one who paid for it.
+  //
+  // ⚠️ THE COST, STATED AND NOT HIDDEN: `app_settings` is readable by the anon role, so a
+  // token stored here is readable by anyone on the internet. This key is knowingly
+  // re-admitted to restore a working product, NOT because the exposure stopped being real.
+  //
+  // REMOVE THIS LINE the moment airtable-proxy is deployed and verified — the direct path in
+  // fetchAirtableData is already a FALLBACK, so deleting this entry is the whole rollback.
+  // The token in use while this line exists must be treated as compromised and rotated.
+  'airtableToken',
   'columnMappings', 'accountAliases', 'perfThresholds',
   'excludedCampaigns', 'setterBonusRates',
   'activeSetters', 'inactiveSetters',

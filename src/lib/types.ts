@@ -5,6 +5,10 @@ export interface AppSettings {
   callCenterSheetTab: string;
   airtableBaseId: string;
   airtableTableName: string;
+  // ⛔ OWNER-ORDERED EXCEPTION 2026-08-05 — see ALLOWED_CONFIG_KEYS in config.ts for the full
+  // reasoning. Optional because the SECURE path (airtable-proxy) needs no token client-side;
+  // this is only read by the direct fallback when the proxy is not deployed.
+  airtableToken?: string;
   // ⛔ NO CREDENTIAL FIELDS IN AppSettings. This object is persisted to the
   // `app_settings` table, which is readable by the anon role — i.e. by anyone,
   // because this app has no authentication and its publishable key ships in the
