@@ -240,13 +240,11 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
       : null;
   const dialsPerLeadFunnel = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '—';
 
-  // Build funnel stages (no Dials — it's a parallel activity, not a funnel stage)
-  const funnelStages = [
-    { label: 'Leads', value: account.leads, barClass: 'bg-indigo-100', textDark: false },
-    { label: 'Appointments', value: account.appointments, barClass: 'bg-indigo-300', textDark: false },
-    { label: 'Showed', value: showedCount, barClass: 'bg-indigo-500', textDark: true },
-    { label: 'Closed', value: account.closed, barClass: 'bg-emerald-500', textDark: true },
-  ];
+  /**
+   * The funnel stages are rendered INLINE below, each with its own conversion caption.
+   * A `funnelStages` array used to sit here carrying a FIFTH set of colours that nothing
+   * read — deleted rather than recoloured, because a dead palette is how two of them drift.
+   */
   const leadsValue = account.leads;
 
   // Recent appointments sorted by dateAdded desc
@@ -325,7 +323,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                 <div className="flex items-center gap-2.5">
                   <span className="w-[90px] text-xs text-muted-foreground text-right">Leads</span>
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-indigo-400" style={{ width: '100%' }} />
+                    <div className="h-full rounded-md bg-[#1a6eff]/25" style={{ width: '100%' }} />
                   </div>
                   <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.leads)}</span>
                 </div>
@@ -338,7 +336,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                 <div className="flex items-center gap-2.5">
                   <span className="w-[90px] text-xs text-muted-foreground text-right">Appointments</span>
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-amber-400" style={{ width: `${Math.max(account.leads > 0 ? (account.appointments / account.leads) * 100 : 0, account.appointments > 0 ? 3 : 0)}%` }} />
+                    <div className="h-full rounded-md bg-[#1a6eff]/45" style={{ width: `${Math.max(account.leads > 0 ? (account.appointments / account.leads) * 100 : 0, account.appointments > 0 ? 3 : 0)}%` }} />
                   </div>
                   <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.appointments))}</span>
                 </div>
@@ -351,7 +349,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                 <div className="flex items-center gap-2.5">
                   <span className="w-[90px] text-xs text-muted-foreground text-right">Showed</span>
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-emerald-400" style={{ width: `${Math.max(account.leads > 0 ? (showedCount / account.leads) * 100 : 0, showedCount > 0 ? 3 : 0)}%` }} />
+                    <div className="h-full rounded-md bg-[#1a6eff]/70" style={{ width: `${Math.max(account.leads > 0 ? (showedCount / account.leads) * 100 : 0, showedCount > 0 ? 3 : 0)}%` }} />
                   </div>
                   <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(showedCount))}</span>
                 </div>
@@ -364,7 +362,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                 <div className="flex items-center gap-2.5">
                   <span className="w-[90px] text-xs text-muted-foreground text-right">Closed</span>
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-emerald-600" style={{ width: `${Math.max(account.leads > 0 ? (account.closed / account.leads) * 100 : 0, account.closed > 0 ? 3 : 0)}%` }} />
+                    <div className="h-full rounded-md bg-[#1a6eff]" style={{ width: `${Math.max(account.leads > 0 ? (account.closed / account.leads) * 100 : 0, account.closed > 0 ? 3 : 0)}%` }} />
                   </div>
                   <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.closed))}</span>
                 </div>
