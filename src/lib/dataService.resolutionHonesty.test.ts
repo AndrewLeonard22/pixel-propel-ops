@@ -37,7 +37,19 @@ const POPULATION = [
  * (PAT lacking schema.bases:read, field not a link, linked row missing).
  */
 const BASELINE = {
-  unresolvedLinks: 3,       // three record ids across five rows
+  /**
+   * 🔻 THE SEMANTICS OF THIS FIELD CHANGED UNDER ME AND THIS BASELINE COULD NOT SEE IT.
+   * @anvil re-pointed `unresolvedLinks` from "ids refused in ANY field" to "rows whose
+   * CLIENT is unresolved", because the banner it drives makes a claim about ATTRIBUTION and
+   * the old count measured field refusals — a true count on the wrong population.
+   *
+   * ⚠️ MY POPULATION PUT ALL THREE IDS IN `Client Name`, so it reads 3 under BOTH
+   * definitions. A baseline that cannot distinguish the behaviour it froze from the
+   * behaviour that replaced it is not bracketing anything — it is a discriminator that
+   * cannot vary, in the file whose whole job is to be the fixed target for a degrade path.
+   * ⇒ The non-client case below is what makes this number mean something.
+   */
+  unresolvedLinks: 3,       // three record ids, ALL IN Client Name, across five rows
   totalRecords: 5,          // no row is ever dropped
   attributed: 3,            // Acme + Beta Co + the campaign-id row (Tier 1 needs no name)
   unmatched: 2,             // the two ids with no other evidence
@@ -154,5 +166,38 @@ describe('⚠️ WHAT THIS FILE CANNOT ANSWER — stated because a green run mus
      * question about a population it never loads.
      */
     expect(BASELINE.unresolvedLinks).toBe(3);
+  });
+});
+
+describe('🔑 THE BASELINE MUST DISCRIMINATE THE COUNTER\'S DEFINITION, not just its value', () => {
+  it('an id in a NON-CLIENT field is REFUSED but NOT COUNTED', () => {
+    /**
+     * The case my original population could not express. It separates the two definitions:
+     *   "ids refused in ANY field"        would count this row  -> 1
+     *   "rows whose CLIENT is unresolved" does not              -> 0   ← current behaviour
+     *
+     * ⭐ BOTH HALVES MATTER AND THEY PULL OPPOSITE WAYS. The REFUSAL must still apply to
+     * every field — an id must never render as a value in any column, and lookups returning
+     * arrays make that more necessary, not less. The COUNT must not, because the sentence it
+     * drives is about attribution.
+     */
+    const { records, unresolvedLinks } = mapAirtableRecords(
+      [{ fields: { 'Client Name': ['Acme Corp'], 'Campaign Name': ['recABCDEFGHIJKLMN'], 'Appointment Date': '8/4/2026' } }],
+      {},
+    );
+
+    expect(records[0].client).toBe('Acme Corp');           // the client resolved
+    expect(records[0].clientUnresolved).toBe(false);
+    expect(records[0].campaignName).not.toBe('recABCDEFGHIJKLMN');  // REFUSAL still applies
+    expect(unresolvedLinks).toBe(0);                        // COUNT is client-only
+  });
+
+  it('🔴 ANTI-VACUITY: an id IN the client field still counts', () => {
+    // Without this, a counter hardwired to 0 would pass the arm above.
+    const { unresolvedLinks } = mapAirtableRecords(
+      [{ fields: { 'Client Name': ['rec1234567890abcd'], 'Appointment Date': '8/4/2026' } }],
+      {},
+    );
+    expect(unresolvedLinks).toBe(1);
   });
 });
