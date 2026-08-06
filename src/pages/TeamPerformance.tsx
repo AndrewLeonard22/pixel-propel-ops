@@ -15,7 +15,7 @@ import { parseSourceDate as parseDateSafe } from '@/lib/dates';
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
 
 export default function MediaBuying() {
-  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh, honestNumbers, sources } = useData();
+  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh, honestNumbers, sources, settingsOrigin, settingsDetail} = useData();
 
   const [datePreset, setDatePreset] = useState<DatePreset>('this_month');
   const [customFrom, setCustomFrom] = useState('');
@@ -94,7 +94,7 @@ export default function MediaBuying() {
   // Gated at the PAGE rather than at each formatter: with Windsor dead there is no
   // subset of these numbers that remains knowable, so suppressing them individually
   // would leave a page of em dashes pretending to still be a report.
-  if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner /></div>;
+  if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner origin={settingsOrigin} detail={settingsDetail} /></div>;
   if (!hasUsableData(sources.windsor.state)) {
     // ⚠️ THIS ONE IS A PER-PERSON SCORECARD. A fabricated "$0.00 revenue · 0 closed" is
     // not a dashboard reading wrong, it is a scorecard reading wrong ABOUT SOMEBODY.

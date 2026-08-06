@@ -645,7 +645,7 @@ function UnmatchedSection({
 }
 
 export default function Dashboard() {
-  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, settingsLoaded, sources, refresh, setSettings, honestNumbers } = useData();
+  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, settingsLoaded, sources, refresh, setSettings, honestNumbers, settingsOrigin, settingsDetail} = useData();
   const [assignedClients, setAssignedClients] = useState<Set<string>>(new Set());
   const [recentlyAssigned, setRecentlyAssigned] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -791,7 +791,7 @@ export default function Dashboard() {
   if (!configured) {
     return (
       <div className="max-w-2xl mx-auto mt-20">
-        <ConfigBanner />
+        <ConfigBanner origin={settingsOrigin} detail={settingsDetail} />
       </div>
     );
   }

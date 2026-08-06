@@ -11,7 +11,7 @@ import { Search } from 'lucide-react';
 type SortKey = 'campaignName' | 'accountName' | 'spend' | 'leads' | 'cpl' | 'appointments' | 'leadPercent' | 'costPerAppt' | 'closed' | 'revenue';
 
 export default function Campaigns() {
-  const { accounts, loading, error, configured, refresh, honestNumbers } = useData();
+  const { accounts, loading, error, configured, refresh, honestNumbers, settingsOrigin, settingsDetail} = useData();
   const [search, setSearch] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
   const [sortKey, setSortKey] = useState<SortKey>('spend');
@@ -41,7 +41,7 @@ export default function Campaigns() {
     else { setSortKey(key); setSortDir('desc'); }
   };
 
-  if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner /></div>;
+  if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner origin={settingsOrigin} detail={settingsDetail} /></div>;
 
   const SortHeader = ({ label, field, className = '' }: { label: string; field: SortKey; className?: string }) => (
     <th className={`py-2 px-2 cursor-pointer hover:text-foreground transition-colors select-none ${className}`} onClick={() => toggleSort(field)}>

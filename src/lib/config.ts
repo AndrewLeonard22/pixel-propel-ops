@@ -1,4 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, isSupabaseConfigured } from '@/integrations/supabase/client';
 import type { AppSettings, AccountMapping } from './types';
 
 const SETTINGS_KEY = 'socialworks_settings';
@@ -107,17 +107,79 @@ async function upsertSetting(key: string, value: any): Promise<void> {
   if (error) console.warn('Failed to save setting to DB:', error.message);
 }
 
+/**
+ * WHY A FAILED READ IS NOT AN ABSENT VALUE — @bird measured the cost of conflating them.
+ *
+ * The old `fetchSetting` returned `null` for BOTH "the database says there is no such row"
+ * and "we could not reach the database at all", and logged the difference to `console.warn`
+ * — a surface no customer opens. Downstream, `loadSettingsAsync` fell back to an empty local
+ * copy, `configured` computed FALSE, and every page rendered
+ *
+ *     "Configure your data sources — connect your Google Sheet and Airtable in Settings"
+ *
+ * ⭐ THAT SENTENCE NAMES THE WRONG PARTY. On 2026-08-05 the deployed build had no
+ * VITE_SUPABASE_URL, so the client pointed at `unconfigured.invalid` and every read died
+ * with ERR_NAME_NOT_RESOLVED. The app booted, looked healthy, and told @andrew HIS setup was
+ * incomplete. @bird drove it: "a booted empty page reads as «@andrew's config is wrong»
+ * rather than «our build has no database URL»", and it cost twenty minutes of misdiagnosis
+ * pointed at the wrong system.
+ *
+ * ⛔ BOOTS ≠ WORKS. This is the mission sentence exactly: the software must not lie about
+ * its consequences. A read that never happened must not be reported as an answer.
+ */
+/**
+ * ⚠️ THE DISCRIMINANT IS A STRING, AND THAT IS NOT A STYLE CHOICE — MEASURED.
+ * This repo sets `strictNullChecks: false` (tsconfig.json:13, tsconfig.app.json:25), and
+ * under that flag TypeScript DOES NOT NARROW a union on a boolean-literal discriminant:
+ * `if (!r.ok)` leaves `r` as the full union and every field access is an error. A string
+ * discriminant narrows correctly under the same flag. Both were compiled side by side
+ * before this was written, because the first version of it did not build.
+ */
+export type ReadOutcome<T> =
+  /** The database answered. `value` may legitimately be null — that is a REAL absence. */
+  | { status: 'answered'; value: T | null }
+  /** This BUILD has no usable Supabase URL. Nothing was sent. Our fault, not the user's. */
+  | { status: 'not-configured' }
+  /** A request went out and failed — DNS, network, auth, RLS. We do not know the value. */
+  | { status: 'unreachable'; detail: string };
+
+async function fetchSettingChecked<T>(key: string): Promise<ReadOutcome<T>> {
+  // Asked BEFORE the call: with no URL the SDK still resolves, so an unconfigured build is
+  // otherwise indistinguishable from a network blip, and the two need different copy.
+  if (!isSupabaseConfigured) return { status: 'not-configured' };
+
+  try {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    if (error) return { status: 'unreachable', detail: error.message };
+    return { status: 'answered', value: (data?.value ?? null) as T | null };
+  } catch (e) {
+    // supabase-js resolves network failures into `error` rather than rejecting, but a
+    // THROW here would otherwise escape as an unhandled rejection and read as a hang.
+    return { status: 'unreachable', detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * The lossy form, kept for the WRITE paths that only ask "what is there now".
+ *
+ * ⚠️ IT IS STILL LOSSY, DELIBERATELY AND VISIBLY. `saveSettings` and `saveAccountMappings`
+ * call this to read the current row before running the clobber guards, so an UNREACHABLE
+ * read reaches those guards as "there is nothing there" and they find nothing to protect.
+ * That is a SECOND defect of the same swallow, in the never-clobber lane, and it is NOT
+ * fixed here — widening this change into the write paths during a freeze is how a scoped
+ * fix turns into an unreviewed one. Reported rather than quietly bundled.
+ */
 async function fetchSetting<T>(key: string): Promise<T | null> {
-  const { data, error } = await supabase
-    .from('app_settings')
-    .select('value')
-    .eq('key', key)
-    .maybeSingle();
-  if (error) {
-    console.warn('Failed to read setting from DB:', error.message);
+  const r = await fetchSettingChecked<T>(key);
+  if (r.status !== 'answered') {
+    console.warn(`Failed to read setting "${key}" from DB:`, r.status === 'unreachable' ? r.detail : r.status);
     return null;
   }
-  return data?.value as T | null;
+  return r.value;
 }
 
 // --- Public API ---
@@ -127,13 +189,65 @@ export function loadSettings(): AppSettings {
   return loadSettingsFromLocal();
 }
 
+/**
+ * WHERE THE SETTINGS ON SCREEN ACTUALLY CAME FROM.
+ *
+ *   'database'        the row was read and used. The only trustworthy state.
+ *   'local-no-row'    the database ANSWERED and held no usable settings. ⭐ The ONLY state
+ *                     in which "configure your data sources" is a true sentence.
+ *   'local-unreachable'  a request went out and failed. We do not know what is configured.
+ *   'local-not-configured'  this BUILD has no Supabase URL. Nothing was ever sent.
+ *
+ * ⚠️ THE LAST TWO ARE NOT CLAIMS ABOUT THE USER'S SETUP, and the whole point of separating
+ * them is that the UI must stop making one. See fetchSettingChecked for what this cost.
+ */
+export type SettingsOrigin =
+  | 'database'
+  | 'local-no-row'
+  | 'local-unreachable'
+  | 'local-not-configured';
+
+export interface SettingsLoad {
+  settings: AppSettings;
+  origin: SettingsOrigin;
+  /** The underlying error text when origin is 'local-unreachable'. Never invented. */
+  detail: string | null;
+}
+
+/** True when the settings on screen are a local guess rather than a database answer. */
+export function settingsAreUnverified(origin: SettingsOrigin): boolean {
+  return origin === 'local-unreachable' || origin === 'local-not-configured';
+}
+
 /** Async load: tries DB first, falls back to localStorage, caches result */
 export async function loadSettingsAsync(): Promise<AppSettings> {
+  return (await loadSettingsWithSource()).settings;
+}
+
+export async function loadSettingsWithSource(): Promise<SettingsLoad> {
+  const local = (origin: SettingsOrigin, detail: string | null = null): SettingsLoad => ({
+    settings: loadSettingsFromLocal(),
+    origin,
+    detail,
+  });
+
   try {
-    const [dbSettings, dbMappings] = await Promise.all([
-      fetchSetting<AppSettings>('app_settings'),
-      fetchSetting<any[]>('account_mappings'),
+    const [rSettings, rMappings] = await Promise.all([
+      fetchSettingChecked<AppSettings>('app_settings'),
+      fetchSettingChecked<any[]>('account_mappings'),
     ]);
+
+    // ⭐ THE READ IS ANSWERED BEFORE THE VALUE IS INSPECTED. Asking "is this row usable"
+    // of a read that never happened is the conflation this whole change exists to remove.
+    // app_settings decides: it is the row `configured` is derived from.
+    if (rSettings.status !== 'answered') {
+      return rSettings.status === 'not-configured'
+        ? local('local-not-configured')
+        : local('local-unreachable', rSettings.detail);
+    }
+
+    const dbSettings = rSettings.value;
+    const dbMappings = rMappings.status === 'answered' ? rMappings.value : null;
 
     // ⚠️ `!== undefined` accepts an EMPTY STRING, so a wiped row passes this gate
     // as authoritative and is then written over every browser's local copy by
@@ -159,12 +273,17 @@ export async function loadSettingsAsync(): Promise<AppSettings> {
       if (Array.isArray(dbMappings) && dbMappings.length > 0) {
         saveAccountMappingsToLocal(dbMappings);
       }
-      return merged;
+      return { settings: merged, origin: 'database', detail: null };
     }
-  } catch {
-    // fall through to local
+
+    // The database answered and had nothing usable. This IS the user's setup, and it is
+    // the one branch where the existing "configure your data sources" copy tells the truth.
+    return local('local-no-row');
+  } catch (e) {
+    // Anything unexpected above (a throwing sanitize, a storage failure) is still a state
+    // in which we cannot vouch for what is on screen — never a silent success.
+    return local('local-unreachable', e instanceof Error ? e.message : String(e));
   }
-  return loadSettingsFromLocal();
 }
 
 /** Save to both DB and localStorage */

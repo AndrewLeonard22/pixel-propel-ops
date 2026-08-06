@@ -112,7 +112,7 @@ function AccountDetail({ account, onClose }: { account: AccountSummary; onClose:
 type SortKey = 'accountName' | 'spend' | 'leads' | 'cpl' | 'appointments' | 'leadPercent' | 'costPerAppt' | 'qualified' | 'qualPercent' | 'closed' | 'revenue' | 'billed';
 
 export default function Accounts() {
-  const { accounts, loading, error, configured, refresh } = useData();
+  const { accounts, loading, error, configured, refresh, settingsOrigin, settingsDetail} = useData();
   const [selected, setSelected] = useState<AccountSummary | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('spend');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -129,7 +129,7 @@ export default function Accounts() {
     return sortDir === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
   });
 
-  if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner /></div>;
+  if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner origin={settingsOrigin} detail={settingsDetail} /></div>;
 
   const SortHeader = ({ label, field, className = '' }: { label: string; field: SortKey; className?: string }) => (
     <th

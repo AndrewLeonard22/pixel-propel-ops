@@ -15,7 +15,7 @@ import { computeSetterPayouts, formatPayoutExport } from '@/lib/payout';
 type PayPeriod = 'first' | 'second';
 
 export default function Agents() {
-  const { accounts, settings, configured, sources } = useData();
+  const { accounts, settings, configured, sources, settingsOrigin, settingsDetail} = useData();
   // 🔴 Payouts are derived ENTIRELY from Airtable appointments. If that source did not
   // answer, an empty setter list is UNKNOWN, not zero — and "No valid appointments
   // found" would be the same lie BIRD-008 caught on the dashboard, on this page.
@@ -89,7 +89,7 @@ export default function Agents() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (!configured) return <ConfigBanner />;
+  if (!configured) return <ConfigBanner origin={settingsOrigin} detail={settingsDetail} />;
 
   return (
     <div className="space-y-6">

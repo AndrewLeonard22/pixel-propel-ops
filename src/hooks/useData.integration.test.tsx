@@ -62,6 +62,12 @@ vi.mock('@/lib/config', async () => {
     ...actual,
     loadSettings: () => build(),
     loadSettingsAsync: async () => build(),
+    // ⭐ THE DOUBLE MUST TRACK THE FUNCTION THE HOOK ACTUALLY CALLS. useData moved to
+    // loadSettingsWithSource; while this mock supplied only loadSettingsAsync the provider
+    // fell through to the REAL loader, hit the REAL network, and every arm below rendered
+    // a deployment-error banner instead of the dashboard. It failed loudly, which is the
+    // only reason it was not a silent coverage hole.
+    loadSettingsWithSource: async () => ({ settings: build(), origin: 'database', detail: null }),
     saveSettings: async () => {},
     saveAccountMappings: async () => {},
     loadAccountMappings: () => [],

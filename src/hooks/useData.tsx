@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CallRow } from '@/lib/types';
-import { loadSettings, loadSettingsAsync, isConfigured } from '@/lib/config';
+import { loadSettings, loadSettingsWithSource, isConfigured, type SettingsOrigin } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries, detectExclusionState, type ExclusionReport } from '@/lib/dataService';
 import { buildHonestNumbersReport, type HonestNumbersReport } from '@/lib/honestNumbers';
 import { computeSetterPayouts } from '@/lib/payout';
@@ -38,6 +38,14 @@ interface DataContextType {
    * looked, and on a cold browser it is usually wrong.
    */
   settingsLoaded: boolean;
+  /**
+   * WHERE the settings on screen came from. `configured: false` is only a statement about
+   * the USER's setup when this is 'local-no-row'; in the two unverified origins we never
+   * got an answer, and saying "configure your data sources" there blames the wrong party.
+   */
+  settingsOrigin: SettingsOrigin;
+  /** Underlying error text for 'local-unreachable'. Null otherwise — never invented. */
+  settingsDetail: string | null;
   /**
    * Is the campaign exclusion list actually filtering anything?
    *
@@ -78,6 +86,10 @@ const defaultDataContext: DataContextType = {
   lastUpdated: null,
   configured: false,
   settingsLoaded: false,
+  // Not 'local-no-row': before we have looked, "the database had nothing" is a claim we
+  // have not earned. The pre-load render is gated on settingsLoaded anyway.
+  settingsOrigin: 'local-not-configured',
+  settingsDetail: null,
   // Derived from the SAME settings the rest of this default uses, rather than hand-written
   // as 'active'. A hand-written default would say "exclusions are working" before anything
   // has loaded — a definite claim made before we have looked, which is the defect
@@ -128,6 +140,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [unmatchedAppointments, setUnmatchedAppointments] = useState<AppointmentRow[]>([]);
   const [sources, setSources] = useState<Record<SourceKey, SourceStatus>>(() => initialStatuses(loadSettings()));
+  const [settingsOrigin, setSettingsOrigin] = useState<SettingsOrigin>('local-not-configured');
+  const [settingsDetail, setSettingsDetail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -206,15 +220,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    loadSettingsAsync().then(dbSettings => {
+    loadSettingsWithSource().then(({ settings: dbSettings, origin, detail }) => {
       if (cancelled) return;
       setSettings(dbSettings);
+      setSettingsOrigin(origin);
+      setSettingsDetail(detail);
       setSources(initialStatuses(dbSettings));
       setSettingsLoaded(true);
       refresh(dbSettings);
-    }).catch(() => {
+    }).catch(e => {
       if (cancelled) return;
       // Even a failed settings load is an answer: stop claiming we are still looking.
+      // ⭐ AND IT MUST SAY WHICH ANSWER. This arm previously recorded nothing, so an
+      // unreachable database was indistinguishable from an empty one all the way to the
+      // screen — the conflation @bird measured.
+      setSettingsOrigin('local-unreachable');
+      setSettingsDetail(e instanceof Error ? e.message : String(e));
       setSettingsLoaded(true);
     });
     return () => { cancelled = true; };
@@ -277,6 +298,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       error,
       lastUpdated,
       configured,
+      settingsOrigin,
+      settingsDetail,
       settingsLoaded,
       exclusions,
       honestNumbers,
