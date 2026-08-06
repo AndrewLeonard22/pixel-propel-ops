@@ -284,20 +284,37 @@ describe('SourceStatusBanner — a REJECTED refresh says so on screen', () => {
  *   reader to look for something that is not there and makes the tool look wrong.
  */
 describe('SourceStatusBanner — the unresolved-client remedy', () => {
-  it('🔴 names the LOOKUP FIELD remedy, which is the one that exists', () => {
-    const { container } = mount('database', null, HEALTHY, null, 43);
+  /**
+   * ⭐ THIS ARM INVERTED WHEN THE RESOLVER LANDED. It used to require the Lookup-field
+   * REMEDY on screen. @andrew called that «bs» — it was homework to work around our
+   * limitation — and the resolver now does it in code: @bird measured 43 → 1 live with the
+   * TOTAL APPTS tile holding at 679, so nothing was dropped.
+   *
+   * ⛔ THE ASSERTION IS NOW THAT NO REMEDY IS OFFERED. The survivors are appointments with
+   * NO CLIENT RECORDED — there is nothing to configure, and any instruction would be the
+   * same homework in a new sentence.
+   */
+  it('🔴 states the FACT and offers NO homework', () => {
+    const { container } = mount('database', null, HEALTHY, null, 1);
     const t = container.textContent ?? '';
-    expect(t).toMatch(/43 appointments are not matched/i);
-    expect(t).toMatch(/LINKED RECORD/i);
-    expect(t).toMatch(/Lookup field/i);
-    expect(t).toMatch(/pulls Name from the linked Client record/i);
+    expect(t).toMatch(/1 appointment has no client recorded in Airtable/i);
+    expect(t).toMatch(/attribution gap, not a missing booking/i);
+    // The old instruction must be GONE, not merely softened.
+    expect(t).not.toMatch(/Lookup field/i);
+    expect(t).not.toMatch(/column mappings/i);
+    expect(t).not.toMatch(/add a/i);
+  });
+
+  it('pluralises honestly at @bird\'s pre-resolver count', () => {
+    const { container } = mount('database', null, HEALTHY, null, 43);
+    expect(container.textContent).toMatch(/43 appointments have no client recorded/i);
   });
 
   it('🔑 says they ARE counted — the P0 was counting them, and the copy must agree', () => {
     // If the banner said they were excluded while the tile counted them, the screen would
     // contradict itself and one of the two would be believed.
     const { container } = mount('database', null, HEALTHY, null, 43);
-    expect(container.textContent).toMatch(/counted in the totals/i);
+    expect(container.textContent).toMatch(/still counted in the appointment totals/i);
   });
 
   it('🔴 ANTI-VACUITY CONTROL: zero unresolved renders no remedy at all', () => {
