@@ -1,7 +1,7 @@
 import { AlertTriangle, PlugZap, Clock } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useData } from '@/hooks/useData';
-import { needsAttention, SOURCE_KEYS, type SourceStatus } from '@/lib/sourceStatus';
+import { needsAttention, SOURCE_KEYS, type SourceStatus, type SourceKey } from '@/lib/sourceStatus';
 import { settingsAreUnverified } from '@/lib/config';
 import { describeFreshness, freshnessWarning } from '@/lib/dataFreshness';
 import { completenessMessage } from '@/lib/sheetCompleteness';
@@ -109,7 +109,33 @@ export default function SourceStatusBanner() {
     );
   }
 
-  const problems = SOURCE_KEYS.map(k => sources[k]).filter(needsAttention);
+  /**
+   * ⭐ REPORT A SOURCE ONLY WHERE IT FEEDS THE PAGE. @andrew, on the dashboard: «remove this
+   * too» — the call-centre "not connected" line.
+   *
+   * He is right, and the reason is structural rather than cosmetic. Dials were removed from
+   * the dashboard, so the call-centre sheet now contributes NOTHING to this page: its absence
+   * changes no number here. A status line about a source with no consequence on the surface
+   * you are looking at is noise, and noise is how a REAL warning stops being read.
+   *
+   * ⛔ IT IS NOT SILENCED, IT IS SCOPED. /call-center and /targets genuinely consume dials —
+   * `dialsPerLead` and `dialBookingRate` are targets @andrew set — so the same missing sheet
+   * is still reported THERE, where it actually costs him a number. Hiding it everywhere would
+   * be the honest-state failure this whole branch exists to remove.
+   *
+   * DEFAULT IS ALL KEYS: an unlisted route reports every source. A new page must opt OUT
+   * deliberately, never inherit silence by being forgotten — the registry-that-fails-open
+   * shape we have been closing all night.
+   */
+  const RELEVANT_SOURCES: Record<string, readonly SourceKey[]> = {
+    '/': ['windsor', 'airtable'],
+    '/calendar': ['airtable'],
+    '/team': ['windsor', 'airtable'],
+    '/agents': ['airtable'],
+  };
+  const { pathname } = useLocation();
+  const relevant = RELEVANT_SOURCES[pathname] ?? SOURCE_KEYS;
+  const problems = relevant.map(k => sources[k]).filter(needsAttention);
 
   /**
    * 🔴 A FROZEN FEED IS NOT A FAILED SOURCE, WHICH IS WHY IT REACHED NOBODY.

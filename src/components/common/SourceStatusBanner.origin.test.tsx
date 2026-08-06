@@ -48,7 +48,7 @@ function status(over: Partial<SourceStatus>): SourceStatus {
 type Comp = { state: 'complete' | 'truncated' | 'unverifiable'; rawRows: number | null; derivedRows: number | null; droppedRows: number; reason: string | null };
 const HEALTHY: Comp = { state: 'complete', rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null };
 
-function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY, refreshVerdict: unknown = null, unresolvedClients = 0) {
+function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY, refreshVerdict: unknown = null, unresolvedClients = 0, route = '/call-center') {
   useDataMock.mockReturnValue({
     settingsLoaded: true,
     adSpend: [],
@@ -65,7 +65,9 @@ function mount(origin: SettingsOrigin, detail: string | null = null, completenes
       callCenter: status({ label: 'Calls (call-centre sheet)', state: 'not-configured', configured: false, missingSettings: ['Call centre sheet URL'] }),
     } as Record<SourceKey, SourceStatus>,
   });
-  return render(<MemoryRouter><SourceStatusBanner /></MemoryRouter>);
+  return render(
+    <MemoryRouter initialEntries={[route]}><SourceStatusBanner /></MemoryRouter>,
+  );
 }
 
 beforeEach(() => useDataMock.mockReset());
@@ -79,6 +81,8 @@ describe('SourceStatusBanner — 18 of @bird’s 19 false claims come from here'
     expect(container.textContent).toMatch(/Missing: Google Sheet URL/);
     expect(container.textContent).toMatch(/Missing: Airtable base ID/);
     // Three sources, three claims — @raccoon's per-route template count.
+    // ⚠️ MOUNTED ON /call-center DELIBERATELY: the banner is now ROUTE-SCOPED, and this arm
+    // is about the copy existing at all, so it must run where all three sources are relevant.
     expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(3);
   });
 
@@ -128,13 +132,48 @@ describe('SourceStatusBanner — 18 of @bird’s 19 false claims come from here'
   it('🔴 THE COUNT @bird MEASURED: 3 per route before, 0 after — same sources, same mount', () => {
     // The defect is a COUNT across routes, so the assertion is a count. Asserting only
     // that the new copy is present would pass even if all three lies stayed beside it.
-    const before = mount('local-no-row').container.textContent ?? '';
+    const before = mount('local-no-row', null, HEALTHY, null, 0, '/call-center').container.textContent ?? '';
     useDataMock.mockReset();
-    const after = mount('local-not-configured').container.textContent ?? '';
+    const after = mount('local-not-configured', null, HEALTHY, null, 0, '/call-center').container.textContent ?? '';
 
     expect((before.match(/Missing:/g) ?? []).length).toBe(3);
     expect((after.match(/Missing:/g) ?? []).length).toBe(0);
     expect(before).not.toBe(after);
+  });
+});
+
+describe('SourceStatusBanner — a source is reported where it FEEDS the page, not everywhere', () => {
+  it('the DASHBOARD does not report the call-centre sheet — dials were removed from it', () => {
+    // @andrew: «remove this too». Dials are gone from the dashboard, so a missing
+    // call-centre sheet changes NO number on that page. A status line about a source with
+    // no consequence on the surface you are looking at is noise, and noise is how a real
+    // warning stops being read.
+    const { container } = mount('local-no-row', null, HEALTHY, null, 0, '/');
+    expect(container.textContent).not.toMatch(/Call centre sheet URL/);
+    expect(container.textContent).not.toMatch(/call-centre sheet/i);
+  });
+
+  it('🔴 ANTI-VACUITY: the dashboard STILL reports the sources it does depend on', () => {
+    // Without this, the arm above passes if the banner were deleted outright.
+    const { container } = mount('local-no-row', null, HEALTHY, null, 0, '/');
+    expect(container.textContent).toMatch(/Missing: Google Sheet URL/);
+    expect(container.textContent).toMatch(/Missing: Airtable base ID/);
+    expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(2);
+  });
+
+  it('🔑 SCOPED, NOT SILENCED: /call-center and /targets still report it', () => {
+    // Those pages genuinely consume dials — dialsPerLead and dialBookingRate are targets
+    // @andrew set — so the same missing sheet still costs him a number there.
+    for (const route of ['/call-center', '/targets']) {
+      useDataMock.mockReset();
+      const { container } = mount('local-no-row', null, HEALTHY, null, 0, route);
+      expect(container.textContent, route).toMatch(/Call centre sheet URL/);
+    }
+  });
+
+  it('an UNLISTED route reports every source — silence must be opted into, never inherited', () => {
+    const { container } = mount('local-no-row', null, HEALTHY, null, 0, '/some-future-page');
+    expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(3);
   });
 });
 
