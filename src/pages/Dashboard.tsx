@@ -318,54 +318,86 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
             {account.leads === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">No lead data</p>
             ) : (
-              <div className="flex flex-col gap-1">
-                {/* Leads */}
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[90px] text-xs text-muted-foreground text-right">Leads</span>
-                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-[#1a6eff]/25" style={{ width: '100%' }} />
+              /* ⭐ THE BAR MEASURES THE CONVERSION, NOT THE MAGNITUDE — and that is a
+                 correctness fix, not a restyle.
+                 ────────────────────────────────────────────────────────────────────────
+                 WAS: every width was a share of LEADS. On Backyard Paradiso that is
+                 7,186 -> 323 -> 208 -> 19, a 378:1 range, so stages 2-4 computed to
+                 4.5% / 2.9% / 0.26% and were then floored at 3% to stay visible. Three
+                 different quantities rendered as the same dot. A PROPORTIONAL BAR
+                 PHYSICALLY CANNOT SHOW THAT RANGE, and it degraded worst on the biggest
+                 account — the one Andrew opens most.
+                 ⛔ A LOG SCALE WOULD FIT, AND IT LIES: it makes a 378:1 drop look like a
+                 gentle slope. Rejected on those grounds, not aesthetic ones.
+                 ⇒ NOW: each bar is that stage's share of THE STAGE ABOVE IT. Every bar is
+                 readable because a conversion rate is 0-100% by construction, and the bar
+                 now depicts the number printed beside it instead of a magnitude it cannot
+                 render. Magnitude still lives in the count column, exact and unscaled.
+                 ⚠️ THE AXIS CHANGED, SO THE AXIS IS NAMED ON SCREEN (caption below). A bar
+                 whose meaning silently changed is worse than the bar we replaced.
+                 ⭐ AND THE HIERARCHY IS INVERTED, which is the actual ask: the rate is what
+                 he is reading, so it is the largest thing on the row; the stage label is
+                 the smallest. It used to be the other way round. */
+              <div className="flex flex-col">
+                <p className="text-[11px] text-muted-foreground mb-2">
+                  Each bar is that stage&rsquo;s share of the stage above it. Counts are exact.
+                </p>
+                {([
+                  {
+                    key: 'leads', label: 'Leads', tint: 'bg-[#1a6eff]/25',
+                    count: formatNumber(account.leads),
+                    // The first stage has nothing above it — no rate exists, and inventing
+                    // "100%" would read as a measured conversion. It gets a dash.
+                    rate: null as string | null, frac: 1, of: null as string | null,
+                  },
+                  {
+                    key: 'appts', label: 'Appointments', tint: 'bg-[#1a6eff]/45',
+                    count: appt(() => formatNumber(account.appointments)),
+                    rate: metricIsMeaningful(account.apptsKnown === false || account.spendKnown === false ? false : undefined, account.leads)
+                      ? formatPercent(account.leadPercent) : UNKNOWN,
+                    frac: account.leads > 0 ? account.appointments / account.leads : 0,
+                    of: 'of leads',
+                  },
+                  {
+                    key: 'showed', label: 'Showed', tint: 'bg-[#1a6eff]/70',
+                    count: appt(() => formatNumber(showedCount)),
+                    rate: metricIsMeaningful(account.apptsKnown, account.appointments)
+                      ? formatPercent((showedCount / account.appointments) * 100) : UNKNOWN,
+                    frac: account.appointments > 0 ? showedCount / account.appointments : 0,
+                    of: 'of appointments',
+                  },
+                  {
+                    key: 'closed', label: 'Closed', tint: 'bg-[#1a6eff]',
+                    count: appt(() => formatNumber(account.closed)),
+                    rate: metricIsMeaningful(account.apptsKnown, showedCount)
+                      ? formatPercent((account.closed / showedCount) * 100) : UNKNOWN,
+                    frac: showedCount > 0 ? account.closed / showedCount : 0,
+                    of: 'of showed',
+                  },
+                ]).map(row => (
+                  <div key={row.key} className="flex items-center gap-2.5 py-[3px]">
+                    <span className="w-[84px] text-[11px] text-muted-foreground text-right shrink-0">{row.label}</span>
+                    <div className="flex-1 h-5 rounded bg-muted/30 overflow-hidden">
+                      {/* No visibility floor. A 0% conversion must render as an EMPTY bar —
+                          the old `Math.max(..., 3)` drew a sliver for a stage that converted
+                          nothing, which is the same class of lie as a fabricated zero. */}
+                      <div
+                        data-funnel-bar={row.key}
+                        className={`h-full rounded ${row.tint}`}
+                        style={{ width: `${Math.min(100, Math.max(0, row.frac * 100))}%` }}
+                      />
+                    </div>
+                    {/* The FIRST stage has no stage above it, so no conversion exists to
+                        report. That is NOT the same fact as UNKNOWN (we looked and could not
+                        tell) — it is undefined by construction, so it renders blank rather
+                        than borrowing the unknown sentinel and implying a failed read. */}
+                    <span className="w-[52px] text-sm font-semibold font-mono-tabular text-foreground text-right shrink-0">
+                      {row.rate ?? ''}
+                    </span>
+                    <span className="w-[42px] text-[10px] text-muted-foreground shrink-0 leading-tight">{row.of ?? ''}</span>
+                    <span className="w-[60px] text-sm font-mono-tabular text-muted-foreground text-right shrink-0">{row.count}</span>
                   </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.leads)}</span>
-                </div>
-                {/* Lead to Appt conversion */}
-                <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown === false || account.spendKnown === false ? false : undefined, account.leads) ? formatPercent(account.leadPercent) : UNKNOWN}</span>
-                  <span className="text-[11px] text-muted-foreground">converted to appointments</span>
-                </div>
-                {/* Appointments */}
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[90px] text-xs text-muted-foreground text-right">Appointments</span>
-                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-[#1a6eff]/45" style={{ width: `${Math.max(account.leads > 0 ? (account.appointments / account.leads) * 100 : 0, account.appointments > 0 ? 3 : 0)}%` }} />
-                  </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.appointments))}</span>
-                </div>
-                {/* Show rate */}
-                <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown, account.appointments) ? formatPercent((showedCount / account.appointments) * 100) : UNKNOWN}</span>
-                  <span className="text-[11px] text-muted-foreground">showed up</span>
-                </div>
-                {/* Showed */}
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[90px] text-xs text-muted-foreground text-right">Showed</span>
-                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-[#1a6eff]/70" style={{ width: `${Math.max(account.leads > 0 ? (showedCount / account.leads) * 100 : 0, showedCount > 0 ? 3 : 0)}%` }} />
-                  </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(showedCount))}</span>
-                </div>
-                {/* Close rate */}
-                <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown, showedCount) ? formatPercent((account.closed / showedCount) * 100) : UNKNOWN}</span>
-                  <span className="text-[11px] text-muted-foreground">closed won</span>
-                </div>
-                {/* Closed */}
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[90px] text-xs text-muted-foreground text-right">Closed</span>
-                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-[#1a6eff]" style={{ width: `${Math.max(account.leads > 0 ? (account.closed / account.leads) * 100 : 0, account.closed > 0 ? 3 : 0)}%` }} />
-                  </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.closed))}</span>
-                </div>
+                ))}
               </div>
             )}
           </div>
