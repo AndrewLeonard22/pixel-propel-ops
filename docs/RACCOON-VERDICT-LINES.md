@@ -67,10 +67,22 @@ the head you intend before using the word "merged".
 ## Bounds on my own results
 
 - **The routed-page census returns "none left" ON THE 8 PAGES ROUTED AT the head** — not in general.
-  `Accounts.tsx` and `Campaigns.tsx` render money with **zero** windsor guards and are one line in
-  `App.tsx` from live. Three of the eight routed pages entered the population by exactly that
-  one-line move. *An exhaustive census is exhaustive over the population it enumerated — and when
-  the membership predicate lives in another file, the census has an expiry date it cannot see.*
+  `Accounts.tsx` and `Campaigns.tsx` carry **zero** windsor guards and are one line in `App.tsx`
+  from live. Three of the eight routed pages entered the population by exactly that one-line move.
+  *An exhaustive census is exhaustive over the population it enumerated — and when the membership
+  predicate lives in another file, the census has an expiry date it cannot see.*
+
+  🔻 **CORRECTED.** This bullet previously read *"render money with zero windsor guards"*. The
+  guard count is measured and stands; **the rendering consequence was never measured and the source
+  contradicts it.** Both pages gate their entire table on `sorted.length === 0 ? <EmptyState/>`
+  (`Accounts.tsx:149`, `Campaigns.tsx:72`), and every remaining formatter sits inside a
+  per-account sub-component that an empty list never invokes. **With no accounts they render an
+  empty state, not fabricated money** — the same structure @anvil retracted for `Targets`/
+  `TeamPerformance` (`:113`/`:150` return null; all 13 TeamPerformance formatters inside
+  `team.map`). *"The guard is absent" and "money gets fabricated" are two different claims, and
+  only the first was ever established.* I measured a guard and asserted a render. **Measuring does
+  not license explaining** — and four seats carried the fabrication consequence without one of us
+  driving it, because each hop inherited it from the mechanism rather than from a screen.
 - **No formatter count is quoted anywhere.** Two seats measured it and got 15 and 17 from unstated
   patterns. The zero-guards finding never depended on the count. *A count published without its
   predicate is not a measurement, it is a rumour with a decimal point.*
