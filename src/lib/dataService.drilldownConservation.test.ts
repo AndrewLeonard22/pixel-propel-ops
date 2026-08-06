@@ -6,8 +6,23 @@ import { makeAdSpendRow, makeAppointmentRow, makeSettings } from '@/test/factori
  * 🔴 THE DRILL-DOWN CONSERVATION SWEEP — @andrew: *"make sure it actually works and is right"*.
  *
  * @fable found one instance from a screenshot: Archadeck X SocialWorks, spend and leads
- * reconcile between campaigns and account, **appointments do not** — campaigns sum to 6, the
- * header and funnel say 7. One appointment is attached to the ACCOUNT and to no CAMPAIGN.
+ * reconcile between campaigns and account, **appointments do not**. One appointment is
+ * attached to the ACCOUNT and to no CAMPAIGN.
+ *
+ * ⚠️ THE MAGNITUDE MOVED AND THE DEFECT DID NOT. His screenshot read 6 vs 7; @bird drove it
+ * live afterwards and read **9 vs 10** — tonight's resolver deploy changed the grouping.
+ * **Anyone reasoning from 6/7 is on a superseded number.** The fixtures below are SYNTHETIC
+ * and their 6/7 is a constructed shape, not a claim about live Archadeck — they assert the
+ * INVARIANT (parts + unattributed == whole), which is what survives a magnitude change.
+ *
+ * 📏 SIZED FROM THE SOURCE by @bird: **36 of 679 appointments carry no Campaign ID (5.3%),
+ * across 13 of 22 accounts** — largest New Jersey l Backyard Paradiso at 11. So this is not
+ * one unlucky account.
+ * ⚠️ AND `unattributedAppointments` WILL NOT ALWAYS EQUAL HIS 36. He counted rows with no
+ * Campaign ID; this counts rows that matched no campaign AFTER the six-step fallback
+ * (campaign id → ad-set id → ad-set name → ad id → ad name → campaign name). The fallback
+ * rescues some, so the on-screen total is a SUBSET of 36. Both numbers are right and they
+ * answer different questions.
  *
  * ⭐ THE CLASS IS ⑥ ONE LEVEL DEEPER. ⑥ was "TOTAL APPTS reduces over accounts, so an
  * appointment with no account is structurally invisible". Fixing the parent said nothing
