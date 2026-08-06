@@ -17,23 +17,28 @@ no local toolchain — which is why the dashboard path below works.
 
 ## ⛔ FIRST: THIS LADDER TESTS THE FUNCTION, NOT THE FEATURE
 
-**Steps 1 and 2 can both report `ok` while the dashboard still shows no appointments,**
-and that is not a contradiction — it means the *client* is not calling the proxy yet.
+**Steps 1 and 2 can both report `ok` while the dashboard still shows no appointments.**
+Step 3 is what closes that gap.
 
 ```
 step 1  is the function deployed?          ← tests the FUNCTION
 step 2  does it have its secret?           ← tests the FUNCTION
-step 3  does the APP actually use it?      ← tests the FEATURE   ⬅ DO NOT SKIP
+step 3  does the APP actually show data?   ← tests the FEATURE   ⬅ DO NOT SKIP
 ```
 
-At the time of writing, `fetchAirtableData` in `src/lib/dataService.ts` **throws
-unconditionally before it ever reaches the proxy** (verified absent from both
-`origin/stabilization` and `origin/anvil/stab`). Until that wiring lands, **setting the
-secret changes nothing a user can see.** If you do step 2 and the page stays dark, the
-deploy did not fail — step 3 is simply not done.
+*A function answering `ok` to `curl` proves the code is live. It does not prove the
+product shows anything.*
 
-*A function answering `ok` to `curl` proves the code is live. It does not prove anyone
-calls it.*
+✅ **THE CLIENT WIRING IS IN.** `src/lib/dataService.ts:192` calls
+`supabase.functions.invoke('airtable-proxy', …)`. So **steps 1 and 2 are the whole job** —
+deploy the function, set the secret, and appointments should return.
+
+> 🔻 **An earlier version of this file said the opposite**, on a grep for
+> `functions/v1/airtable-proxy` that returned 0. That string only appears if you hand-build
+> the REST URL; the SDK form never contains it. The probe was right about its own string and
+> wrong about the question, and it failed *pessimistically* — reporting absent when present.
+> **Corrected by @raccoon.** Do not reintroduce "the wiring is missing" as a diagnosis
+> without running `grep -n airtable-proxy src/lib/dataService.ts` first.
 
 ---
 
@@ -125,12 +130,16 @@ appointments column.
 |---|---|
 | `—` with *"Appointments (Airtable) — could not load"* | the client called the proxy and it failed — read the message, it names which state |
 | `—` with *"not connected. Missing: Airtable base ID."* | config, not deployment — fill in the base ID |
-| `—` and **no message changed at all** after step 2 | ⬅ **the client is not calling the proxy.** `fetchAirtableData` still throws before reaching it. Nothing you do in the Supabase dashboard will fix this; it needs the code wiring. |
+| `—` and **no message changed at all** after step 2 | ⬅ **the secret did not take, or the token is not valid.** Re-run the step-2 `curl`: it will say `not_configured` or `auth_failed` and name which. **Do not go looking for missing client wiring — it is present at `dataService.ts:192`.** |
 | real appointment numbers | done — the feature works, not just the function |
 
-⚠️ **The third row is the one this document exists to stop you chasing.** Re-setting a
-secret that is already correct, over and over, because the page never changes, is the
-predictable failure of verifying a deployment at the wrong layer.
+⚠️ **That third row was inverted in the first version of this file, and the inversion was
+the expensive direction:** it told you a persisting `—` meant the wiring was absent and
+"nothing you do in the Supabase dashboard will fix this" — which would have made you
+*abandon a secret that was already correct.* The runbook was written to stop you re-setting
+a correct secret forever, and as first written it caused the mirror-image waste instead.
+**When the page stays dark, the `curl` in step 2 is the arbiter — not this table, and not
+your memory of what the client does.**
 
 ---
 
@@ -167,8 +176,19 @@ secret names above · the status ladder · that `records: []` is emitted only un
 function's own contract, not from a screenshot of your console — if the UI disagrees with
 Path A, trust the UI and the CLI commands still apply.
 
-**Corrected after first publication:** the original version of this file had steps 1 and 2
-only, so its ladder would have reported complete success while the dashboard stayed dark —
-a runbook that verifies the deployment at the wrong layer, in a document whose whole claim
-was that every state names itself. Step 3 exists because a function answering `ok` to
-`curl` proves the code is live and proves nothing about whether the product uses it.
+**Corrected twice after first publication, and the second correction reversed the first:**
+
+1. The original had steps 1 and 2 only, so its ladder would have reported complete success
+   while the dashboard stayed dark — verifying the deployment at the wrong layer, in a
+   document whose whole claim was that every state names itself. **Step 3 exists for that,
+   and it stays.**
+2. Step 3's stated symptom was then **backwards.** It blamed missing client wiring, on my
+   grep for `functions/v1/airtable-proxy` returning 0 — but the client uses
+   `supabase.functions.invoke('airtable-proxy', …)`, which never contains that substring.
+   **A lexical probe cannot cross a call-form boundary**, and mine failed pessimistically:
+   absent-when-present. Caught by @raccoon before anyone acted on it.
+
+⇒ **The law survived both rounds; only its stated symptom was wrong.** *Test the feature,
+not the function* was right the first time. What it cost was a diagnosis that would have
+sent the reader away from the real fix — which is worse than no step 3 at all, because a
+confident wrong pointer outranks an absent one.
