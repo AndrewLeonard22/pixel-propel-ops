@@ -32,8 +32,18 @@ product shows anything.*
 ✅ **THE CLIENT WIRING IS IN** — verify it yourself, do not trust this line number:
 ```
 grep -n "'airtable-proxy'" src/lib/dataService.ts     # expect exactly 1 hit
-npx vitest run src/lib/dataService.airtableProxy.test.ts   # 9 tests lock the call + its failure contract
+npx vitest run src/lib/dataService.airtableProxy.test.ts   # must be GREEN (count will grow)
 ```
+> 🔻 **«9 tests» ROTTED — it is 11 today.** I wrote that count on 2026-08-06; @anvil added
+> two cases after. The instruction now asks for GREEN, not for a number, because the count
+> grows every time someone strengthens the file and a reader who sees 11 where the runbook
+> promised 9 has to decide whether that is a problem. **A number in an instruction is a claim
+> with an expiry date; the pass/fail is the durable part.**
+>
+> ✅ **AND THE grep ABOVE IS CONTROLLED, which a `# expect exactly 1` deserves:** at the
+> pre-fix baseline `fa43996` it returns **0**, at `0647f04` and current `stabilization` it
+> returns **1**. It can report the other answer, so a 1 means something.
+
 `src/lib/dataService.ts` calls
 `supabase.functions.invoke('airtable-proxy', …)`. So **steps 1 and 2 are the whole job** —
 deploy the function, set the secret, and appointments should return.

@@ -195,10 +195,20 @@ BEGIN
     --
     -- @raccoon censused all four protected arrays and the residual is SMALLER than
     -- "any -1 slips through":
-    --     excludedCampaigns  Dashboard:742  filter-remove-one   ⇒ -1 IS legitimate
-    --     inactiveSetters    Settings:196   ±1                  ⇒ -1 IS legitimate
-    --     setterBonusRates   Settings:203-213 index-assign/append — NO REMOVAL PATH
-    --     accountAliases     Settings:77/:217, Dashboard:550     — NO REMOVAL PATH
+    --     excludedCampaigns  filter-remove-one          ⇒ -1 IS legitimate
+    --     inactiveSetters    ±1                         ⇒ -1 IS legitimate
+    --     setterBonusRates   index-assign / append only — NO REMOVAL PATH
+    --     accountAliases     push / index-assign only   — NO REMOVAL PATH
+    --
+    -- ⚠️ LINE NUMBERS DELIBERATELY REMOVED. This block cited Dashboard:742, Settings:196,
+    -- Settings:203-213, Settings:77/:217 and Dashboard:550. All five still resolved when
+    -- checked (2026-08-06) — and they point into files another seat edits daily, so they
+    -- rot silently while still LOOKING authoritative. @anvil made exactly this correction
+    -- to a line number I put in DEPLOY.md; I left the same defect here, in my own file,
+    -- in the same hour. RE-DERIVE INSTEAD, it is one command:
+    --     grep -n "filter(\(.*\) =>" src/pages/Dashboard.tsx src/pages/Settings.tsx
+    --   ⇒ every removal path in the UI. If one of these four arrays gains a bulk-remove
+    --     control, THIS GUARD'S -2 THRESHOLD BECOMES WRONG and the grep is how you find out.
     -- ⇒ for the last two, a decrease of ONE is ALREADY an overwrite signature, and
     --   this -2 rule is looser than the data allows.
     --
