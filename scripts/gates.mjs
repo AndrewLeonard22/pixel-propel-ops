@@ -114,5 +114,21 @@ try {
 const restored = readFileSync(POISON_FILE, 'utf8') === original;
 log(restored, 'poison removed, file byte-identical');
 
-console.log(failed === 0 ? '\nALL GATES GREEN, ALL CONTROLS RED\n' : `\n${failed} FAILED\n`);
+if (failed === 0) {
+  console.log('\nALL GATES GREEN, ALL CONTROLS RED');
+  // ⛔ PRINTED ON SUCCESS, DELIBERATELY — @bird's rule, and it is the whole reason this
+  // block exists: "a blind spot printed only on failure is a blind spot nobody reads.
+  // The green verdict is exactly when someone stops looking, so that is where the limit
+  // has to appear." A limit that lives only in a docblock is read once, by its author.
+  console.log('\n⚠️  WHAT THIS DOES NOT SAY — read it BECAUSE the line above is green:');
+  console.log('   These gates ran and COULD have failed. That is all a control proves.');
+  console.log('   It does NOT prove they asked about the thing that is broken.');
+  console.log('   DIMENSION failures — a TRUE answer to a question that cannot express');
+  console.log('   the defect — are invisible here and need a SECOND INSTRUMENT.');
+  console.log('   Measured on this branch: a numeric $0.00 sweep passed clean while the');
+  console.log('   defect sat beside it in PROSE; a badge check passed while the identical');
+  console.log('   defect was in the TILES; a one-page census passed while two pages bled.\n');
+} else {
+  console.log(`\n${failed} FAILED\n`);
+}
 process.exit(failed === 0 ? 0 : 1);
