@@ -110,6 +110,29 @@ export interface AccountSummary {
   campaigns: CampaignSummary[];
   appointmentList: AppointmentRow[];
   pausedDays?: number;
+  /**
+   * WHICH SOURCES ACTUALLY ANSWERED. Not decoration — without these the row cannot tell a
+   * dead source from a real zero.
+   *
+   * Every money and count field above is a `number`, and a failed source contributes `[]`,
+   * so `costPerAppt = totalAppts > 0 ? spend/totalAppts : 0` yields a confident `$0.00`
+   * whether the appointments source returned nothing or never answered at all. @bird
+   * measured the consequence: the KPI tiles read "—" while the per-account table on the
+   * SAME SCREEN read COST/APPT $0.00, CLOSED 0, REVENUE $0.00 — and the table is what a
+   * buyer actually reads.
+   *
+   * The tiles were honest only because the per-source state is consulted at the RENDER
+   * layer (Dashboard.tsx:751-753), which the rows never reach. Carrying it in the DATA
+   * fixes every consumer at once instead of prop-drilling it through five component
+   * levels — the nested campaign/adset/ad rows derive from the same appointments, so one
+   * flag per source covers all of them.
+   *
+   * OPTIONAL, and absent means "known": Targets.tsx and TeamPerformance.tsx call the
+   * aggregator without source outcomes and must keep behaving exactly as they do today.
+   */
+  spendKnown?: boolean;
+  apptsKnown?: boolean;
+  callsKnown?: boolean;
 }
 
 export interface CampaignSummary {

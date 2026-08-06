@@ -7,6 +7,7 @@ import {
   initialStatuses,
   isSourceConfigured,
   needsAttention,
+  hasUsableData,
   EMPTY_SOURCE_DATA,
   SOURCE_KEYS,
   type SourceData,
@@ -147,7 +148,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setData(nextData);
       setSources(statuses);
 
-      const result = buildAccountSummaries(nextData.adSpend, nextData.appointments, s, nextData.callData);
+      // The SAME predicate the KPI tiles use (Dashboard.tsx:703-705), passed down so the
+      // per-account rows cannot disagree with the tiles above them. That disagreement is
+      // the defect: @bird measured tiles reading "—" beside a table reading $0.00 on one
+      // screen, because the honest state existed only at the render layer.
+      const result = buildAccountSummaries(nextData.adSpend, nextData.appointments, s, nextData.callData, {
+        spend: hasUsableData(statuses.windsor.state),
+        appts: hasUsableData(statuses.airtable.state),
+        calls: hasUsableData(statuses.callCenter.state),
+      });
       setAccounts(result.accounts);
       setUnmatchedAppointments(result.unmatchedAppointments);
 
