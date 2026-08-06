@@ -46,7 +46,8 @@ git diff --shortstat origin/main..origin/stabilization
 3. **The honest-numbers banner — three separate statuses, not one.**
    - SHIPPED: live on `/`, `/targets`, `/team`, plus a richer source-aware treatment on
      `/agents` (@raccoon's, deliberately not duplicated).
-   - PROVEN AT THE COMPONENT LAYER: its own test file renders it 8 times.
+   - PROVEN AT THE COMPONENT LAYER: its own test file renders it directly.
+     (`grep -c '<HonestNumbersBanner' src/components/common/HonestNumbersBanner.test.tsx`)
    - **TESTED AT THE WRONG LAYER** — *not* untested. Nothing proves a **page** ever passes
      it any messages. Deleting all three mounts leaves the suite **275/275 green**;
      measured both ways. Saying "untested" would send the next session to rewrite a
@@ -181,6 +182,33 @@ moves with a push carries **the command that regenerates it** instead of the val
 file is the worst place for one that drifts, and the best place for the command that
 recomputes it.
 
+## ⚠️ AND A SECOND FAILURE MODE MY OWN DRIFT AUDIT MISSED
+
+@bird ran my audit on his files, fixed three real drifters, and reported that his
+*classifier* was the worse instrument — 44 flagged, 41 false positives, because **nothing
+lexical separates a number that ASSERTS A CURRENT STATE from one that NAMES A PAST
+EVENT.** He had to read all 44 by hand.
+
+Re-reading mine with that distinction found something my audit was not looking for:
+
+```
+"its own test file renders it 8 times"
+   at fe172a3 — THE COMMIT WHERE I WROTE IT — the count was already 7.
+   ⇒ NOT DRIFT. WRONG FROM BIRTH. I took "8 renders" from @raccoon's post and
+     put it in a durable file without measuring it once.
+"a control of 18 mentions"   ⇒ now 19. Ordinary drift.
+```
+
+⇒ **My audit tested whether numbers had CHANGED. It never tested whether they were RIGHT
+WHEN WRITTEN.** Drift is one failure mode; **inheriting a peer's number unmeasured is
+another, and no drift check can see it** — the value never moves, because it was never
+anchored to anything in the first place.
+
+⭐ This is the third time tonight I inherited a figure from another seat's post: his 23
+formatters became my 25, his 8 renders became my 8, and both entered a verdict file. **A
+number in a colleague's post arrives with their credibility attached and none of their
+measurement.** Both are now commands.
+
 ## The frame that matters more than any single fix
 
 Eight surfaces were found tonight — predicate, badge, row, panel, tile, Targets, Media
@@ -191,7 +219,8 @@ That is a rate, not a completion.
 and I cannot support the six.** @raccoon measured what the suite can supply: **no test
 asserts the defect state on any of the eight.** The only two positive `$0.00` assertions
 both assert *correct* behaviour — an honest zero from a live source that must not be
-suppressed — with a control of 18 mentions proving the probe is not blind.
+suppressed — with a control proving the probe is not blind
+(`grep -rho '\$0\.00' src --include='*.test.ts*' | wc -l`).
 
 **"Demonstrated" is a property of a DRIVE, and only @bird holds that evidence.** The two
 that fell out of the count fell out because he built `7fca10a` and looked. The correct
