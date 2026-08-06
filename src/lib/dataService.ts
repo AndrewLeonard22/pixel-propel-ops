@@ -159,6 +159,40 @@ function isRealDate(y: number, m: number, d: number): boolean {
  * sheet that works today. Retyping the list from memory is how a guard starts disagreeing
  * with the code it guards, so every entry below mirrors a line in the map above it.
  */
+/**
+ * ③ CASE-FOLDED LOOKUP, AND IT HAD TO BE FIXED ON **BOTH** SIDES OR NOT AT ALL.
+ *
+ * @raccoon: "a capitalisation change from Windsor kills the dashboard on a sheet whose data
+ * is intact." I measured it before agreeing, and the sheet is NOT intact:
+ *
+ *     r['Spent'] on { spent: '500' }  ->  undefined  ->  parseNumber -> 0
+ *
+ * ⇒ every spend total would be ZERO. The guard throwing was CORRECT — it converted a silent
+ *   £0 into a named failure, which is its whole job.
+ *
+ * ⭐ SO THE FIX HE PROPOSED, APPLIED TO THE GUARD ALONE, WOULD HAVE BEEN STRICTLY WORSE: the
+ * guard would pass, the mapper would still read `undefined`, and every total would be zero
+ * SILENTLY. A guard and its mapper must share one matching rule; relaxing only the guard
+ * converts a loud failure into a quiet wrong number.
+ *
+ * ⇒ Both sides fold case now, so a capitalisation change genuinely WORKS rather than merely
+ *   passing the check — which is the outcome his framing assumed and the code did not have.
+ */
+function foldKeys(row: Record<string, string>): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const k of Object.keys(row)) m.set(k.trim().toLowerCase(), row[k]);
+  return m;
+}
+
+/** Case-insensitive column read. The mapper's counterpart to the guard's matcher. */
+function pick(folded: Map<string, string>, ...names: string[]): string {
+  for (const n of names) {
+    const v = folded.get(n.trim().toLowerCase());
+    if (v !== undefined) return v;
+  }
+  return '';
+}
+
 export interface ColumnSpec {
   /** Any one of these headers satisfies the column. Mirrors the mapper's `||` chain. */
   accept: string[];
@@ -183,6 +217,8 @@ export const WINDSOR_COLUMNS: ColumnSpec[] = [
 export interface SchemaDrift {
   /** LABEL columns that are absent. The feed still works; something is unnamed. */
   missingLabels: string[];
+  /** True when there were no rows to check. NOT a clean bill of health. */
+  schemaUnverified?: boolean;
 }
 
 /**
@@ -194,16 +230,38 @@ export function checkColumnContract(
   columns: ColumnSpec[],
   label: string,
 ): SchemaDrift {
-  if (rows.length === 0) return { missingLabels: [] };
-  const present = new Set(Object.keys(rows[0]));
-  const satisfied = (c: ColumnSpec) => c.accept.some(h => present.has(h));
+  /**
+   * ① AN EMPTY SHEET NO LONGER READS AS "SCHEMA FINE" — @raccoon found this on the FIRST
+   * LINE of the function. Zero rows returned a clean verdict, so a wrong tab that happens
+   * to be EMPTY passed the guard built to catch a wrong tab. That is the POPULATION control
+   * my own gates docblock documents, and it fakes a PASS rather than a suspicious zero.
+   * ⚖️ Still not a THROW — a genuinely empty tab is legitimate and must not blank the app —
+   * but the verdict now says UNVERIFIED, because "we could not look" is not "we looked and
+   * it was fine", and the verdict is what a reader trusts.
+   */
+  if (rows.length === 0) return { missingLabels: [], schemaUnverified: true };
 
-  const missingCritical = columns.filter(c => c.critical && !satisfied(c));
+  const folded = foldKeys(rows[0]);
+  const satisfied = (c: ColumnSpec) => c.accept.some(h => folded.has(h.trim().toLowerCase()));
+
+  /**
+   * ② PRESENCE IS NOT VALIDITY — my own law, one layer down, and @raccoon caught me with it.
+   * { 'Account Name': 'A', Spent: '', Leads: '', Date: '' } passed: every column PRESENT,
+   * every value EMPTY, parseNumber('') -> 0, and every spend total becomes zero — the exact
+   * outcome this contract exists to prevent. A CRITICAL column must carry a real value in at
+   * least ONE row; a column of nothing is the same as a column that is not there.
+   * (At least one, not all: a legitimately blank cell in one row is normal.)
+   */
+  const hasAnyValue = (c: ColumnSpec) =>
+    rows.some(r => c.accept.some(h => (foldKeys(r).get(h.trim().toLowerCase()) ?? '').trim() !== ''));
+
+  const missingCritical = columns.filter(c => c.critical && (!satisfied(c) || !hasAnyValue(c)));
   if (missingCritical.length > 0) {
     const names = missingCritical.map(c => `"${c.accept[0]}"`).join(', ');
     throw new Error(
       `${label}: the sheet is missing the column${missingCritical.length > 1 ? 's' : ''} ${names}, ` +
-        `which every total is computed from. This is either the WRONG TAB or a renamed column — ` +
+        `which every total is computed from, or the column is present and ENTIRELY BLANK. ` +
+        `This is either the WRONG TAB or a renamed column — ` +
         `the tab name in Settings does not select a tab, only the gid= in the sheet URL does. ` +
         `Columns found: ${Object.keys(rows[0]).slice(0, 10).join(', ')}. ` +
         `Refusing to report zeros drawn from columns that are not there.`,
@@ -251,20 +309,24 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
     console.warn(`Ad spend sheet: missing label columns ${drift.missingLabels.join(', ')}`);
   }
 
-  return rows.map(r => ({
-    month: r['Month'] || '',
-    date: r['Date'] || '',
-    dateISO: normalizeSourceDate(r['Date'] ?? r['date']),
-    campaign: r['Campaign'] || '',
-    campaignId: r['Campaign Id'] || r['Campaign ID'] || '',
-    adsetName: r['Adset Name'] || r['Ad Set Name'] || '',
-    adsetId: r['Adset Id'] || r['Ad Set ID'] || '',
-    adName: r['Ad Name'] || '',
-    adId: r['Ad Id'] || r['Ad ID'] || '',
-    spent: parseNumber(r['Spent'] || r['Spend']),
-    leads: parseNumber(r['Leads']),
-    accountName: r['Account Name'] || '',
-  }));
+  return rows.map(row => {
+    // Case-folded ONCE per row, and the guard above matches by exactly the same rule.
+    const r = foldKeys(row);
+    return {
+      month: pick(r, 'Month'),
+      date: pick(r, 'Date'),
+      dateISO: normalizeSourceDate(pick(r, 'Date')),
+      campaign: pick(r, 'Campaign'),
+      campaignId: pick(r, 'Campaign Id', 'Campaign ID'),
+      adsetName: pick(r, 'Adset Name', 'Ad Set Name'),
+      adsetId: pick(r, 'Adset Id', 'Ad Set ID'),
+      adName: pick(r, 'Ad Name'),
+      adId: pick(r, 'Ad Id', 'Ad ID'),
+      spent: parseNumber(pick(r, 'Spent', 'Spend')),
+      leads: parseNumber(pick(r, 'Leads')),
+      accountName: pick(r, 'Account Name'),
+    };
+  });
 }
 
 /**
