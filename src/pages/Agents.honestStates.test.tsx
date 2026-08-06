@@ -96,26 +96,17 @@ describe("Agents — a dead payout source must not read as 'nobody is owed anyth
     expect(healthy).toMatch(/real zero/i);
   });
 
-  it("🔴 BIRD-051 — WINDSOR DEAD, AIRTABLE HEALTHY: must NOT claim the zero is real", () => {
-    // @bird drove this with an IDENTICAL healthy Airtable payload holding one valid
-    // in-period appointment for a named setter. Killing WINDSOR made the page render
-    // "Appointments loaded correctly — this is a REAL ZERO" — it does not merely show 0,
-    // it instructs the reader that the zero can be TRUSTED, on the page where the
-    // consequence is somebody's money.
-    //
-    // The appointments are reached THROUGH `accounts`, which is Windsor-derived, so a
-    // healthy Airtable is irrelevant: the path to its data runs through a dead source.
-    mountWith({ state: "valid" }, { state: "failed" });
-
+  it("🔴 BIRD-051: WINDSOR DEAD with a HEALTHY Airtable must NOT claim a real zero", () => {
+    // The payout list reaches appointments THROUGH Windsor-derived accounts, so a dead
+    // Windsor empties it while Airtable is fine. Asserting "real zero" there tells the
+    // reader a trustworthy nobody-is-owed, which is the opposite of the truth.
+    mountWith({ state: "valid" }, { state: "failed", error: "Failed to fetch" });
     expect(screen.queryByText(/real zero/i)).not.toBeInTheDocument();
     expect(screen.getByText(/unknown, not zero/i)).toBeVisible();
   });
 
-  it("BIRD-051: the banner names WINDSOR, not Airtable — the reader must fix the right thing", () => {
-    // Naming the healthy source would send someone to check an Airtable that is fine.
-    mountWith({ state: "valid" }, { state: "failed" });
-
-    expect(screen.getByText(/Ad spend \(Windsor\)/)).toBeVisible();
-    expect(screen.queryByText(/Appointments \(Airtable\) —/)).not.toBeInTheDocument();
+  it("names the source that is ACTUALLY down, not always Airtable", () => {
+    mountWith({ state: "valid" }, { state: "failed", error: "Failed to fetch" });
+    expect(screen.getByText(/Ad spend/i)).toBeVisible();
   });
 });

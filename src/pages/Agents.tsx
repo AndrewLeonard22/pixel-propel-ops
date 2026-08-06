@@ -20,24 +20,21 @@ export default function Agents() {
   // answer, an empty setter list is UNKNOWN, not zero — and "No valid appointments
   // found" would be the same lie BIRD-008 caught on the dashboard, on this page.
   const apptsOk = hasUsableData(sources.airtable.state);
-  // 🔴 THE APPOINTMENTS ARE REACHED **THROUGH** `accounts`, WHICH IS WINDSOR-DERIVED.
-  // @bird drove it (BIRD-051): with an IDENTICAL healthy Airtable payload holding one
-  // valid in-period appointment for a named setter, killing WINDSOR made this page render
-  // "Appointments loaded correctly — this is a REAL ZERO". It does not merely show 0; it
-  // instructs the reader that the zero can be TRUSTED, on the one page where the
-  // consequence is somebody's money.
+  // 🔴 BIRD-051. `eligibleAppointments` reaches appointments THROUGH `accounts`
+  // (`accounts.flatMap(a => a.appointmentList)`), and accounts are WINDSOR-derived.
+  // So Windsor dying empties the payout list while Airtable is perfectly healthy —
+  // and guarding on `apptsOk` alone made this page assert "this is a REAL ZERO"
+  // while holding a valid in-period appointment for a named setter.
   //
-  // ⭐ @raccoon's rule, second instance: a guard must name every source the DERIVATION
-  // traverses, not the source the value semantically belongs to. These appointments BELONG
-  // to Airtable — which is why `apptsOk` alone looked right — but the only path to them
-  // runs through the Windsor-derived account list.
-  //
-  // ⚠️ STRUCTURAL NOTE, NOT CLOSED BY THIS LINE: @bird's sharper question is whether
-  // `accounts` being empty should be its own first-class state rather than each surface
-  // re-deriving the same conjunction. It should. Two patches fix two symptoms; the class
-  // is closed by a context-level "accounts are unavailable" flag. That is a bigger change
-  // than this window allows and it is in the verdict, not hidden behind this fix.
-  const accountsOk = hasUsableData(sources.windsor.state);
+  // This is my own rule broken in my own fix: A GUARD MUST NAME EVERY SOURCE THE
+  // DERIVATION TRAVERSES, NOT THE SOURCE THE VALUE BELONGS TO. Appointments belong
+  // to Airtable; the derivation traverses Windsor.
+  const spendOk = hasUsableData(sources.windsor.state);
+  const payoutDataOk = apptsOk && spendOk;
+  const downSources = [
+    !apptsOk ? sources.airtable : null,
+    !spendOk ? sources.windsor : null,
+  ].filter(Boolean) as (typeof sources.airtable)[];
   const [payPeriod, setPayPeriod] = useState<PayPeriod>('first');
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
   const [copied, setCopied] = useState(false);
@@ -155,16 +152,18 @@ export default function Agents() {
       )}
 
       {/* Setter cards */}
-      {!apptsOk || !accountsOk ? (
+      {!payoutDataOk ? (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-4">
           <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
           <div className="text-sm">
             <p className="font-semibold text-destructive">
-              {!apptsOk
-                ? `${sources.airtable.label} — ${sources.airtable.state === 'not-configured'
-                    ? `not connected. Missing: ${sources.airtable.missingSettings.join(', ')}.`
-                    : `could not load${sources.airtable.error ? `: ${sources.airtable.error}` : ''}.`}`
-                : `${sources.windsor.label} — unavailable, and appointments are matched to accounts built from it.`}
+              {downSources.map(src => (
+                <span key={src.key} className="block">
+                  {src.label} — {src.state === 'not-configured'
+                    ? `not connected. Missing: ${src.missingSettings.join(', ')}.`
+                    : `could not load${src.error ? `: ${src.error}` : ''}.`}
+                </span>
+              ))}
             </p>
             <p className="text-destructive/90 mt-0.5">
               Payouts are calculated from appointments, so none can be shown. This is
