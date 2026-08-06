@@ -3,6 +3,7 @@ import {
   isClosedWon,
   isClosedWonStatus,
   isClosedLostStatus,
+  unrecognisedTerminalStatuses,
   buildAccountSummaries,
 } from './dataService';
 import { makeAdSpendRow, makeAppointmentRow, makeSettings } from '@/test/factories';
@@ -176,5 +177,69 @@ describe('⚠️ THE 12 UNACCOUNTED RECORDS — what is deducible, and what is N
     const enumerated = 107 + 46 + 57 + 56 + 53 + 348;
     expect(enumerated).toBe(667);
     expect(679 - enumerated).toBe(12);
+  });
+});
+
+describe("⭐ MEASURE THE VALUE SET — a NEW spelling must be VISIBLE, not silently not-won", () => {
+  /**
+   * @fable, after measuring the whole base: *"I read the base at ONE INSTANT and a new status
+   * spelling can appear tomorrow; my numbers tell you WHAT IS TRUE NOW, not what the code may
+   * assume."* The won/lost spellings are a CLOSED LIST, so an unlisted value is "not won" —
+   * the safe default, and an INVISIBLE one. This is the observability half.
+   */
+  it("🔴 a novel WON spelling is FLAGGED rather than silently dropped", () => {
+    const appts = [
+      { leadStatus: "Deal Won" },
+      { leadStatus: "Deal Won" },
+      { leadStatus: "Signed" },
+    ];
+    // It is correctly NOT counted as a win — we do not guess an outcome from a novel string.
+    expect(appts.filter(isClosedWon).length).toBe(0);
+    // But it is REPORTED, which is the whole point: someone can see it and decide.
+    expect(unrecognisedTerminalStatuses(appts)).toEqual([
+      { status: "Deal Won", count: 2 },
+      { status: "Signed", count: 1 },
+    ]);
+  });
+
+  it("🔑 WORD-LEVEL, NOT SUBSTRING — and these fixtures can TELL THE DIFFERENCE", () => {
+    /**
+     * 🔻 MY FIRST VERSION OF THIS ARM WAS VACUOUS AND THE SABOTAGE CAUGHT IT.
+     * It used 'Working on proposal', asserting it must not flag — but 'working on proposal'
+     * contains no 'won' SUBSTRING either, so the fixture passed under BOTH implementations.
+     * Swapping the word-level test for a substring one left the suite fully GREEN: the arm
+     * claimed to prove word-level matching and could not have failed if it were wrong.
+     *
+     * ⭐ A DISCRIMINATOR MUST BE ABLE TO VARY. These four differ under the two rules:
+     * substring says "terminal", word-level says "not terminal". They are the only fixtures
+     * that make this arm mean anything — and building the alarm with a substring test would
+     * have rebuilt the exact D1 defect INSIDE THE ALARM BUILT TO CATCH IT.
+     */
+    const SUBSTRING_TRAPS = ["Disclosed to client", "Undisclosed", "Unsold inventory", "Consigned"];
+    for (const s of SUBSTRING_TRAPS) {
+      // proof the fixture discriminates: a substring search DOES match it
+      const norm = s.toLowerCase();
+      expect(["won", "closed", "sold", "signed"].some(t => norm.includes(t))).toBe(true);
+      // and word-level correctly does not
+      expect(unrecognisedTerminalStatuses([{ leadStatus: s }])).toEqual([]);
+    }
+
+    // A genuinely open status stays silent too.
+    expect(unrecognisedTerminalStatuses([{ leadStatus: "Working on proposal" }])).toEqual([]);
+  });
+
+  it("🔴 ANTI-VACUITY: @andrew's REAL value set produces ZERO flags today", () => {
+    // The alarm must be silent on the base as it stands, or it is noise from birth. This is
+    // also the control that proves the arm above is not flagging everything.
+    const live = LIVE_DISTRIBUTION.flatMap(([status, n]) =>
+      Array.from({ length: n }, () => ({ leadStatus: status })),
+    );
+    expect(unrecognisedTerminalStatuses(live)).toEqual([]);
+  });
+
+  it("the recognised categories never flag themselves", () => {
+    expect(unrecognisedTerminalStatuses([
+      { leadStatus: "Closed Won" }, { leadStatus: "Closed Lost" }, { leadStatus: "" },
+    ])).toEqual([]);
   });
 });
