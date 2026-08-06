@@ -191,6 +191,25 @@ BEGIN
     -- against a 15-key NEW and reject EVERY SAVE FROM THE DEPLOYED FRONTEND —
     -- the exact ordering defect this file already shipped once. Objects keep the
     -- total-collapse rule above; only arrays get the magnitude rule.
+    -- ⚖️ RESIDUAL, STATED EXACTLY — a single removal (62 -> 61) is ALLOWED.
+    --
+    -- @raccoon censused all four protected arrays and the residual is SMALLER than
+    -- "any -1 slips through":
+    --     excludedCampaigns  Dashboard:742  filter-remove-one   ⇒ -1 IS legitimate
+    --     inactiveSetters    Settings:196   ±1                  ⇒ -1 IS legitimate
+    --     setterBonusRates   Settings:203-213 index-assign/append — NO REMOVAL PATH
+    --     accountAliases     Settings:77/:217, Dashboard:550     — NO REMOVAL PATH
+    -- ⇒ for the last two, a decrease of ONE is ALREADY an overwrite signature, and
+    --   this -2 rule is looser than the data allows.
+    --
+    -- ⛔ DELIBERATELY NOT TIGHTENED, AND NOT FOR LACK OF TIME. A per-array threshold
+    -- requires NAMING setterBonusRates and accountAliases — a hand-maintained
+    -- registry, which is exactly the enumeration removed from this guard one commit
+    -- earlier, and exactly why the original version could not see account_mappings
+    -- at all. "Can only grow" is a property of the UI CODE, not of the stored VALUE,
+    -- so there is no shape-keyed way to express it here. A numerically tighter guard
+    -- built on a list would be a structurally weaker one.
+    -- ⇒ If this is ever tightened, tighten it in the CLIENT, where the writers live.
     IF jsonb_typeof(OLD.value) = 'array' AND jsonb_typeof(NEW.value) = 'array'
        AND old_n > 0 AND new_n < old_n - 1 THEN
       RAISE EXCEPTION
