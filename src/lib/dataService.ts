@@ -423,8 +423,32 @@ export interface AccountLabel {
   metaAccountId?: string;
 }
 
-/** Grouping key. trim+lowercase, which is what the aggregator already does — so this is
- *  behaviour-preserving, and it collapses the whitespace twins as a side effect. */
+/**
+ * Grouping key. trim + lowercase — the same thing the aggregator does inline, so wiring a
+ * call site to this changes no behaviour.
+ *
+ * ⛔ IT DOES **NOT** COLLAPSE INTERNAL WHITESPACE, AND THIS DOCBLOCK USED TO CLAIM IT DID.
+ * @raccoon measured the lie and I reproduced it before removing it:
+ *
+ *     "Acme  Corp" -> "acme  corp"     "Acme Corp" -> "acme corp"     SPLIT, not collapsed
+ *     "Acme\tCorp" -> "acme\tcorp"                                    SPLIT
+ *
+ * `trim()` removes OUTER whitespace only. ⭐ An aspirational docblock is worse than no
+ * docblock: a reader who finds this function and trusts the old claim ships the twin bug
+ * BELIEVING IT IS HANDLED. The claim is now deleted and the real behaviour is locked in
+ * dataService.accountKey.test.ts, so it cannot drift back into a comment nobody runs.
+ *
+ * ⚠️ THE TWIN BUG IS STILL REACHABLE — this fix is the CLAIM, not the BEHAVIOUR. Making
+ * this collapse twins is one `.replace`, but account identity is decided at 22 hand-written
+ * `trim().toLowerCase()` sites (@raccoon's census; only 4 route through any shared
+ * function), so changing it here alone would make this function DISAGREE with the 22 and
+ * could merge or split live accounts on the dashboard. That is @fable's call, not a
+ * side effect of a comment fix.
+ *
+ * ⚠️ AND THERE IS A SECOND FUNCTION OF THIS NAME: accounts.ts:34 DOES collapse internal
+ * whitespace and has no real importers. Same name, different rule — do not assume which
+ * one an unqualified `accountKey` refers to.
+ */
 export function accountKey(raw: string | undefined | null): string {
   return String(raw ?? '').trim().toLowerCase();
 }

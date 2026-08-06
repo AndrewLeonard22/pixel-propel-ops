@@ -102,3 +102,80 @@ export function resolveAccountIdentities(
   }
   return out;
 }
+
+/** One account's footprint in the spend feed, reduced to what a rename test needs. */
+export interface AccountSpan {
+  /** the account label exactly as the feed spells it */
+  name: string;
+  /** every campaign id seen under that label */
+  campaignIds: string[];
+  /** ISO day of the earliest and latest spend row, inclusive */
+  firstDay: string;
+  lastDay: string;
+}
+
+export interface RenameSuspect {
+  before: string;
+  after: string;
+  /** campaign ids that appear under BOTH labels */
+  sharedCampaignIds: string[];
+  /** whole days between `before`'s last row and `after`'s first row */
+  gapDays: number;
+}
+
+/**
+ * Detect ONE REAL ACCOUNT SPLIT INTO TWO BY A RENAME.
+ *
+ * @fable measured the live signature: Publicity 1 → Washbroz X SocialWorks, THREE shared
+ * campaign ids, date spans ABUTTING WITH ZERO OVERLAP. Money lands on both sides and the
+ * dashboard shows two clients where there is one.
+ *
+ * ⚠️ WHY BOTH CONDITIONS, AND WHY NEITHER ALONE. Shared campaign ids on their own are
+ * ordinary — @fable also measured 16 of 190 ids under two names, and a campaign genuinely
+ * moved between accounts overlaps in time. Abutting spans on their own are ordinary too:
+ * one client churns the week another starts. It is the CONJUNCTION that is hard to produce
+ * any other way — the same campaigns, and one label stops exactly when the other begins.
+ *
+ * ⛔ THIS REPORTS. IT DOES NOT MERGE. A rename and a genuine hand-off look identical in the
+ * feed, and the difference is a fact about the business that no column carries. Merging on
+ * this signature would silently combine two real clients; the honest output is a named
+ * suspicion a human confirms — which is the same rule `needsMapping` already follows.
+ *
+ * POPULATION: every ORDERED pair of distinct accounts. `before` is the one whose span ends
+ * first; a pair whose spans OVERLAP is not a rename candidate and is skipped.
+ */
+export function detectRenameSuspects(
+  spans: AccountSpan[],
+  opts: { maxGapDays?: number } = {},
+): RenameSuspect[] {
+  // A rename is a handover, so the gap is small. Default 1 day = "abutting or same day".
+  // Deliberately NOT 0: a Friday-to-Monday handover is two calendar days apart and is the
+  // same event. This is a threshold and it is stated rather than hidden.
+  const maxGap = opts.maxGapDays ?? 1;
+  const out: RenameSuspect[] = [];
+
+  for (const a of spans) {
+    for (const b of spans) {
+      if (a === b) continue;
+      if (accountKey(a.name) === accountKey(b.name)) continue; // twins, not a rename
+      // ORDER: `a` must finish before `b` starts, with no overlap at all.
+      if (!(a.lastDay < b.firstDay)) continue;
+      const shared = a.campaignIds.filter(id => {
+        const t = (id || '').trim();
+        return t !== '' && b.campaignIds.some(o => (o || '').trim() === t);
+      });
+      if (shared.length === 0) continue;
+      const gapDays = Math.round(
+        (Date.parse(b.firstDay) - Date.parse(a.lastDay)) / 86_400_000,
+      );
+      if (gapDays > maxGap) continue;
+      out.push({
+        before: a.name,
+        after: b.name,
+        sharedCampaignIds: Array.from(new Set(shared)).sort(),
+        gapDays,
+      });
+    }
+  }
+  return out;
+}

@@ -9,8 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
   accountKey,
   isIdShapedAccount,
-  resolveAccountIdentities,
-} from './accounts';
+  resolveAccountIdentities, detectRenameSuspects, type AccountSpan, type RenameSuspect, } from './accounts';
 import { proveDetects, population } from '@/test/sabotage';
 
 /** The four id-shaped values in the live feed, verbatim. */
@@ -137,5 +136,97 @@ describe('🔴 resolveAccountIdentities — the money-splitting case', () => {
     const a = resolveAccountIdentities(['Co-Lights ', 'Co-Lights']);
     const b = resolveAccountIdentities(['Co-Lights', 'Co-Lights ']);
     expect(a.get('co-lights')!.display).toBe(b.get('co-lights')!.display);
+  });
+});
+
+describe('🔴 detectRenameSuspects — one account split in two by a rename', () => {
+  // @fable's MEASURED live case: 3 shared campaign ids, spans abutting with zero overlap.
+  const publicity: AccountSpan = {
+    name: 'Publicity 1', campaignIds: ['c1', 'c2', 'c3', 'c9'],
+    firstDay: '2026-05-01', lastDay: '2026-06-14',
+  };
+  const washbroz: AccountSpan = {
+    name: 'Washbroz X SocialWorks', campaignIds: ['c1', 'c2', 'c3', 'c7'],
+    firstDay: '2026-06-15', lastDay: '2026-08-05',
+  };
+
+  it('is sabotage-proven against the ways this detector fails', () => {
+    proveDetects({
+      subject: 'detectRenameSuspects',
+      population:
+        "@fable's measured rename, a genuine hand-off that OVERLAPS, two unrelated accounts, a same-account whitespace twin, and a campaign that moved with a long gap",
+      real: detectRenameSuspects,
+      poisons: {
+        'ignores the date spans — every shared id becomes a rename': ((spans) => {
+          const out: RenameSuspect[] = [];
+          for (const a of spans) for (const b of spans) {
+            if (a === b) continue;
+            const shared = a.campaignIds.filter(i => b.campaignIds.includes(i));
+            if (shared.length) out.push({ before: a.name, after: b.name, sharedCampaignIds: shared, gapDays: 0 });
+          }
+          return out;
+        }) as typeof detectRenameSuspects,
+        'ignores the shared ids — every abutting pair becomes a rename': ((spans) => {
+          const out: RenameSuspect[] = [];
+          for (const a of spans) for (const b of spans) {
+            if (a === b) continue;
+            if (a.lastDay < b.firstDay) out.push({ before: a.name, after: b.name, sharedCampaignIds: [], gapDays: 0 });
+          }
+          return out;
+        }) as typeof detectRenameSuspects,
+        'finds nothing, ever': (() => []) as typeof detectRenameSuspects,
+        'accepts an OVERLAP as a rename (uses <= instead of <)': ((spans) => {
+          const out: RenameSuspect[] = [];
+          for (const a of spans) for (const b of spans) {
+            if (a === b) continue;
+            if (a.lastDay <= b.lastDay) {
+              const shared = a.campaignIds.filter(i => b.campaignIds.includes(i));
+              if (shared.length) out.push({ before: a.name, after: b.name, sharedCampaignIds: shared, gapDays: 0 });
+            }
+          }
+          return out;
+        }) as typeof detectRenameSuspects,
+      },
+      assertions: impl => {
+        // ① THE REAL CASE: shared ids + abutting spans ⇒ exactly one suspect, correctly ordered
+        const hit = impl([publicity, washbroz]);
+        expect(hit).toHaveLength(1);
+        expect(hit[0].before).toBe('Publicity 1');
+        expect(hit[0].after).toBe('Washbroz X SocialWorks');
+        expect(hit[0].sharedCampaignIds).toEqual(['c1', 'c2', 'c3']);
+
+        // ② A GENUINE HAND-OFF THAT OVERLAPS is NOT a rename — the campaign moved while
+        //    both accounts were live. This is @fable's "16 of 190 ids under two names".
+        expect(impl([
+          { ...publicity, lastDay: '2026-07-01' },
+          { ...washbroz, firstDay: '2026-06-15' },
+        ])).toHaveLength(0);
+
+        // ③ TWO UNRELATED ACCOUNTS that merely abut share nothing ⇒ silent
+        expect(impl([
+          { name: 'A', campaignIds: ['x'], firstDay: '2026-05-01', lastDay: '2026-06-14' },
+          { name: 'B', campaignIds: ['y'], firstDay: '2026-06-15', lastDay: '2026-08-05' },
+        ])).toHaveLength(0);
+
+        // ④ A LONG GAP is a campaign reused months later, not a rename
+        expect(impl([
+          publicity,
+          { ...washbroz, firstDay: '2026-09-01' },
+        ])).toHaveLength(0);
+      },
+    });
+  });
+
+  it('🔴 a whitespace TWIN is not a rename — that is the other defect and it must not be reported here', () => {
+    expect(detectRenameSuspects([
+      { name: 'Acme  Corp', campaignIds: ['c1'], firstDay: '2026-05-01', lastDay: '2026-06-14' },
+      { name: 'Acme Corp', campaignIds: ['c1'], firstDay: '2026-06-15', lastDay: '2026-08-05' },
+    ])).toHaveLength(0);
+  });
+
+  it('REPORTS, never merges — the output names both sides and decides nothing', () => {
+    const s = detectRenameSuspects([publicity, washbroz])[0];
+    expect(Object.keys(s).sort()).toEqual(['after', 'before', 'gapDays', 'sharedCampaignIds']);
+    expect(s.gapDays).toBe(1);
   });
 });

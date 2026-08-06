@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import AppSidebar from './AppSidebar';
 import { RefreshCw } from 'lucide-react';
 import { useData } from '@/hooks/useData';
+import { describeFreshness, freshnessLabel, freshnessWarning } from '@/lib/dataFreshness';
 import AIChatPanel from '@/components/AIChatPanel';
 import SourceStatusBanner from '@/components/common/SourceStatusBanner';
 
@@ -31,7 +32,14 @@ function useTimeAgo(at: Date | null): string | null {
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { lastUpdated, refresh, loading } = useData();
+  const { lastUpdated, refresh, loading, adSpend } = useData();
+  // Recomputed from the CURRENT feed, so it can never describe data the app has moved past.
+  // `new Date()` is read here rather than module scope: a long-lived tab must not keep
+  // comparing against the day it was opened.
+  const freshness = useMemo(
+    () => describeFreshness(adSpend, new Date().toISOString().slice(0, 10)),
+    [adSpend],
+  );
   const timeAgo = useTimeAgo(lastUpdated);
 
   return (
@@ -42,11 +50,30 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="lg:hidden w-10" /> {/* spacer for mobile hamburger */}
           <div className="hidden lg:block" />
           <div className="flex items-center gap-3">
-            {/* "Fetched", not "Updated": this is when the BROWSER last pulled, which says
-                nothing about how current the data in the source is. The source-data-through
-                date needs the date normalisation that is not built yet (@raccoon / @anvil),
-                and inventing it here would be exactly the kind of confident wrong number
-                this project exists to remove. */}
+            {/**
+              * TWO CLOCKS, SIDE BY SIDE, AND THE SECOND ONE IS NEW.
+              *
+              * "Fetched" is a BROWSER fact about the FETCH. @bird measured that it was the
+              * ONLY freshness signal on the entire dashboard, with zero source dates
+              * rendered anywhere — so on the day the sheet's array formula runs out, the
+              * fetch still returns 200, the parse is still clean, and the screen still says
+              * "Fetched less than a minute ago" over data that stopped moving. THE FREEZE
+              * HAD NO SYMPTOM, and every honest-state we shipped stayed silent because
+              * nothing FAILED.
+              *
+              * ⭐ THE COMMENT THAT USED TO BE HERE SAID THE SOURCE-DATE NORMALISATION "IS
+              * NOT BUILT YET". IT IS — `normalizeSourceDate` populates `dateISO` on every
+              * ad spend row, and has for a while. A true note went stale and then read as a
+              * reason not to build the thing it was describing.
+              */}
+            {freshness.latestDate && (
+              <span
+                className={`text-xs ${freshness.state === 'stale' ? 'text-destructive font-medium' : 'text-muted-foreground'}`}
+                title="The newest date present in the ad spend data itself. This is the clock that matters."
+              >
+                {freshnessLabel(freshness)}
+              </span>
+            )}
             {timeAgo && (
               <span className="text-xs text-muted-foreground" title="When this browser last pulled data. Not the age of the data in the source.">
                 Fetched {timeAgo}
