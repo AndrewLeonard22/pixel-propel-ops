@@ -96,11 +96,52 @@ baseline after the gates.
 inherits its authority.** Two of the three above were mine, both flattering my own tool,
 and the third rode inside the correction of the first.
 
+## 🔴 THE MERGE — see also `docs/RACCOON-VERDICT-LINES.md`
+
+The local branch `stabilization` (owned by the Desktop worktree) is **51+ commits stale at
+`7fca10a`** and has no `scripts/gates.mjs` and no `src/lib/honestNumbers.ts`. Merging the
+**bare name** fast-forwards **cleanly, exit 0**, and ships that tree. Git reports nothing
+wrong because nothing is wrong by git's definition.
+
+```
+❌  git merge stabilization
+✅  git fetch origin && git merge --ff-only origin/stabilization
+    then: git cat-file -e HEAD:scripts/gates.mjs   ← absent ⇒ you merged the wrong tree
+```
+
+**Root cause is mine:** I pushed `HEAD:stabilization` ~40 times, which moves the remote ref
+and never `refs/heads/stabilization`. Every "head == remote" I published was true *of my
+worktree*; I verified the refs I was moving and never enumerated the one I was not.
+
+## 🔻 RETRACTED: "Targets and Media Buying fabricated every number"
+
+`bfdfe75`'s commit message says that. **It is not established, and the source contradicts
+it.** At `7fca10a`, with Windsor dead:
+
+```
+Targets.tsx :113  if (filteredAccounts.length === 0) return null;
+            :150  if (!stats) return null;        ⇒ renders NOTHING
+TeamPerformance   all 13 formatter sites are INSIDE team.map(…)
+                  empty team ⇒ zero iterations ⇒ zero money rendered
+@bird drove it:   /targets 0 money tokens · /team 0 money tokens
+```
+
+Neither page **can** fabricate money in that state. My tests only ever asserted absence
+*after* the fix; my sabotage arms proved the **gate** works, never that the **defect**
+existed. ⇒ **Those two fixes are PREVENTIVE, not corrective.** They name the dead source
+instead of rendering an empty page — a real improvement on an honest-states branch, and
+not the repair the commit message claims.
+
+⭐ Four seats carried "these pages fabricate money" without one of us driving it. The
+consequence was inherited from the mechanism at every hop.
+
 ## The frame that matters more than any single fix
 
 Eight surfaces were found tonight — predicate, badge, row, panel, tile, Targets, Media
 Buying, Agents — **by four seats, each on a surface the previous one could not see.**
-That is a rate, not a completion.
+That is a rate, not a completion. ⚠️ **Six were demonstrated defects; Targets and Media
+Buying were PREVENTIVE — see the retraction above.** The count is honest only with that
+split attached.
 
 Seven broken probes were caught. **None by diligence** — every one by a control whose
 answer was predictable in advance, or by a contradiction with something already known.
