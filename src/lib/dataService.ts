@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, AdSummary, TeamMember, PerformanceLevel, CallRow } from './types';
 import { convertSheetUrlToCsv, isSourceConfigured } from './config';
+import { resolveRecordId, resolveLinkedClientNames } from './airtableLinks';
 
 // Parse CSV text into rows
 function parseCsv(text: string): Record<string, string>[] {
@@ -441,6 +442,21 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
   // ⚠️ AND IT DOES NOT SOFTEN THE FAILURE CONTRACT. If the direct call fails it THROWS, same
   // as the proxy path. A dead Airtable must never render as "zero appointments" — that is the
   // whole point of this project and it survives the rollback intact.
+  /**
+   * ③ ONE RESOLUTION PER REFRESH, NOT PER ROW — fetched before either path maps, so the
+   * proxy route and the direct fallback resolve identically. Two lookups would let the
+   * routes disagree about a client's NAME, and the fallback only runs when the proxy is
+   * broken, i.e. exactly when nobody is watching.
+   *
+   * ⛔ NEVER THROWS. resolveLinkedClientNames returns an empty map on any failure — a bad
+   * PAT scope, a 404, a non-link field, a missing row — and an empty map is precisely
+   * today's behaviour. The resolver cannot take the dashboard down to improve a label.
+   */
+  const linkField = columnMappings['Client Name'] || 'Client Name';
+  const { names: linkNames } = await resolveLinkedClientNames(
+    airtableBaseId, airtableTableName, linkField, settings.airtableToken,
+  );
+
   if (invokeError && settings.airtableToken) {
     const records: { fields: Record<string, unknown> }[] = [];
     let offset: string | undefined;
@@ -469,7 +485,7 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
       offset = body.offset;
     } while (offset);
 
-    return mapAirtableRecords(records, columnMappings);
+    return mapAirtableRecords(records, columnMappings, [], linkNames);
   }
 
   if (invokeError) {
@@ -513,6 +529,7 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
     (payload as { records: { fields: Record<string, unknown> }[] }).records,
     columnMappings,
     Array.isArray(payload.fields) ? payload.fields : [],
+    linkNames,
   );
 }
 
@@ -528,6 +545,13 @@ export function mapAirtableRecords(
   records: { fields: Record<string, unknown> }[],
   columnMappings: Record<string, string>,
   knownFields: string[] = [],
+  /**
+   * recordId → linked row's name, fetched ONCE per refresh by resolveLinkedClientNames.
+   * Absent or empty ⇒ EXACTLY today's behaviour: the id is refused, the field reads
+   * UNRESOLVED_CLIENT, the appointment is counted as unmatched. Resolution is layered ON
+   * TOP of a refusal that already works; it never replaces it.
+   */
+  linkNames: Map<string, string> = new Map(),
 ): { records: AppointmentRow[]; fields: string[]; unresolvedLinks: number } {
   const allRecords: AppointmentRow[] = [];
   let fields: string[] = knownFields;
@@ -537,12 +561,37 @@ export function mapAirtableRecords(
   {
     const data = { records };
 
+    /**
+     * 🔴 D2 — THE UNION, NOT THE FIRST RECORD. @fable queried the live base directly.
+     *
+     * AIRTABLE OMITS EMPTY FIELDS PER RECORD. `Closed Revenue ($)` is populated on 46 of
+     * 679 rows, so it is absent from record[0] and was therefore absent from this list —
+     * which is the list the Settings column-mapping dropdown is built from.
+     *
+     * ⇒ THE CONSEQUENCE WAS NOT COSMETIC. The saved mapping
+     *   'Closed Revenue' → 'Closed Revenue ($)' is CORRECT AND WORKING, and the select
+     *   showed "— Select —" because the option did not exist. @andrew was about to pick
+     *   something («this is where i should map it»); any choice would have overwritten a
+     *   working mapping with a blank and taken his revenue to $0.
+     *
+     * ⭐ SAMPLING ONE ROW TO LEARN A SCHEMA IS THE DEFECT. A sparse column is exactly the
+     * one a user needs to map, and exactly the one a single-row sample cannot see — the
+     * rarer the field, the more likely it is missing from the sample AND the more likely
+     * it matters. The union is O(records) once per refresh and cannot be wrong this way.
+     */
     if (data.records.length > 0 && fields.length === 0) {
-      fields = Object.keys(data.records[0].fields);
+      const seen = new Set<string>();
+      for (const rec of data.records) {
+        for (const k of Object.keys(rec?.fields ?? {})) seen.add(k);
+      }
+      fields = Array.from(seen);
     }
 
     for (const rec of data.records) {
-      const f = rec.fields;
+      // Degrade, never throw — the same contract the rest of this path follows. A record
+      // with no `fields` yields empty values and an unmatched appointment; it must not take
+      // the dashboard down. Caught by the union test, which constructed exactly that row.
+      const f = rec?.fields ?? {};
       const getField = (key: string) => {
         const mapped = columnMappings[key] || key;
         const val = f[mapped];
@@ -554,6 +603,15 @@ export function mapAirtableRecords(
          * An unresolved appointment is honest; one attributed on the strength of a record
          * id is a wrong number wearing a name.
          */
+        /**
+         * ⭐ RESOLVE BEFORE REFUSING. @andrew called the old banner «bs» and he was right:
+         * it told him to add a Lookup field in Airtable to work around our limitation. If
+         * we hold the linked row's name, this is a NAME, not an id, and nothing needs
+         * saying at all.
+         */
+        const resolved = resolveRecordId(first, linkNames);
+        if (resolved) return resolved;
+
         if (isAirtableRecordId(first)) {
           unresolvedLinks++;
           /**
@@ -680,6 +738,61 @@ export const UNRESOLVED_CLIENT = '—';
 
 export function isAirtableRecordId(value: unknown): boolean {
   return typeof value === 'string' && /^rec[A-Za-z0-9]{14}$/.test(value);
+}
+
+/**
+ * 🔴 D1 — «CLOSED DEALS» COUNTED LOSSES AS WINS. Measured on @andrew's live Airtable by
+ * @fable: 679 records, `Closed Lost` **107** · `Closed Won` **46**. The old predicate was
+ * `leadStatus.toLowerCase().includes('closed') || closedRevenue > 0`, and
+ * `'Closed Lost'.includes('closed')` is TRUE — so the app reported **153** closed deals of
+ * which **107 were deals he LOST**. Backyard Paradiso's 96 was about one third real.
+ *
+ * ⭐ THE SHAPE: A SUBSTRING TEST STANDING IN FOR A CATEGORY TEST. It cannot distinguish an
+ * outcome from its OPPOSITE, because both outcomes share a word. The two states are not
+ * merely different, they are contradictory — and the test scores them identically.
+ *
+ * ⚠️ WHY THIS IS NOT `=== 'closed won'`. That is the naive repair and it is brittle in two
+ * directions: a spelling variant (`Closed-Won`, double space, trailing blank) silently drops
+ * a real win, and it says nothing about values nobody has enumerated. **12 of the 679 records
+ * carry a Lead Status @fable's census did not list.** What IS known about those 12, by
+ * deduction rather than assumption: the app's total is exactly 153 = 107 + 46, so **none of
+ * them contains the substring `closed`** — otherwise the total would exceed 153.
+ *
+ * 🔑 AND THE TRAP INSIDE THE INSTRUCTION TO "KEEP THE `|| closedRevenue > 0` ARM": kept
+ * NAIVELY, it reintroduces the defect through the back door — a `Closed Lost` row carrying a
+ * non-zero Closed Revenue would be counted as a win again, by a different route. The revenue
+ * arm must therefore be **subordinate to an explicit LOST test**, which is why `isClosedLost`
+ * exists and is not merely the negation of won.
+ *
+ * ⇒ SO THE CLASSIFICATION IS THREE-VALUED, not two. `won` · `lost` · `unknown`. An
+ * unrecognised status is NOT silently a loss: it is `unknown`, and `unknown` + revenue counts
+ * as a win, while `lost` + revenue does not.
+ */
+const normalizeStatus = (raw: unknown): string =>
+  String(raw ?? '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+
+/** `Closed Won` and its spelling variants — never `Closed Lost`. */
+export function isClosedWonStatus(leadStatus: unknown): boolean {
+  const s = normalizeStatus(leadStatus);
+  return s === 'closed won' || s === 'won' || s === 'closed and won';
+}
+
+/** `Closed Lost` and variants. Explicit, so a lost deal can never be counted by any route. */
+export function isClosedLostStatus(leadStatus: unknown): boolean {
+  const s = normalizeStatus(leadStatus);
+  return s === 'closed lost' || s === 'lost' || s === 'closed and lost';
+}
+
+/**
+ * THE ONE PREDICATE ALL FOUR CALL SITES USE. Previously the expression was written out four
+ * times, so a repair could fix three and leave the fourth reporting a different number for
+ * the same data — the defect class that put four separate line numbers in the D1 report.
+ */
+export function isClosedWon(appt: { leadStatus?: string; closedRevenue?: number }): boolean {
+  if (isClosedWonStatus(appt.leadStatus)) return true;
+  // Revenue is evidence of a win ONLY where the status has not already said "lost".
+  if (isClosedLostStatus(appt.leadStatus)) return false;
+  return (appt.closedRevenue ?? 0) > 0;
 }
 
 export function accountKey(raw: string | undefined | null): string {
@@ -1278,7 +1391,7 @@ export function buildAccountSummaries(
       const cSpend = cData.spendRows.reduce((s, r) => s + r.spent, 0);
       const cLeads = cData.spendRows.reduce((s, r) => s + r.leads, 0);
       const cAppts = cData.appts.length;
-      const cClosed = cData.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+      const cClosed = cData.appts.filter(a => isClosedWon(a)).length;
       const cRevenue = cData.appts.reduce((s, a) => s + a.closedRevenue, 0);
       const cQualified = cData.appts.filter(a => a.leadValid?.toLowerCase() === 'valid').length;
       const cCpl = cLeads > 0 ? cSpend / cLeads : 0;
@@ -1334,7 +1447,7 @@ export function buildAccountSummaries(
         const asSpend = asData.spendRows.reduce((s, r) => s + r.spent, 0);
         const asLeads = asData.spendRows.reduce((s, r) => s + r.leads, 0);
         const asAppts = asData.appts.length;
-        const asClosed = asData.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+        const asClosed = asData.appts.filter(a => isClosedWon(a)).length;
         const asRevenue = asData.appts.reduce((s, a) => s + a.closedRevenue, 0);
         const asCpl = asLeads > 0 ? asSpend / asLeads : 0;
         const asLeadPct = asLeads > 0 ? (asAppts / asLeads) * 100 : 0;
@@ -1374,7 +1487,7 @@ export function buildAccountSummaries(
           const adSpend = adData.spendRows.reduce((s, r) => s + r.spent, 0);
           const adLeads = adData.spendRows.reduce((s, r) => s + r.leads, 0);
           const adAppts = adData.appts.length;
-          const adClosed = adData.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+          const adClosed = adData.appts.filter(a => isClosedWon(a)).length;
           const adRevenue = adData.appts.reduce((s, a) => s + a.closedRevenue, 0);
           ads.push({
             adName: adData.spendRows[0]?.adName || adKey,
@@ -1438,7 +1551,7 @@ export function buildAccountSummaries(
     const performanceAppts = data.appts.filter(a => !excludedApptSet.has(a));
 
     const totalAppts = performanceAppts.length;
-    const closed = performanceAppts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+    const closed = performanceAppts.filter(a => isClosedWon(a)).length;
     const revenue = performanceAppts.reduce((s, a) => s + a.closedRevenue, 0);
     const billed = performanceAppts.reduce((s, a) => s + a.amountCharged, 0);
     const qualified = performanceAppts.filter(a => a.leadValid?.toLowerCase() === 'valid').length;
