@@ -77,6 +77,13 @@ export interface AppointmentRow {
   adName: string;
   adId: string;
   client: string;
+  /**
+   * A — the Airtable `Client Name` field is a LINKED RECORD and returned a record id, so
+   * WHICH ACCOUNT is unknown. THE APPOINTMENT STILL EXISTS: this flag separates "we cannot
+   * attribute it" from "it is not there", and conflating those emptied the appointments
+   * page once already.
+   */
+  clientUnresolved?: boolean;
   appointmentDate: string;
   dateAdded: string;
   showStatus: string;

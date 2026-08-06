@@ -149,6 +149,13 @@ export interface SourceData {
   appointments: AppointmentRow[];
   airtableFields: string[];
   callData: CallRow[];
+  /**
+   * A — appointments whose CLIENT could not be resolved because the Airtable field is a
+   * LINKED RECORD and returned a record id. @bird measured 99 of 100 records in that state,
+   * so this is not an edge case: it is potentially most of the appointment data, and it
+   * must be VISIBLE rather than showing up as appointments quietly going unattributed.
+   */
+  unresolvedClients: number;
 }
 
 export const EMPTY_SOURCE_DATA: SourceData = {
@@ -156,6 +163,7 @@ export const EMPTY_SOURCE_DATA: SourceData = {
   appointments: [],
   airtableFields: [],
   callData: [],
+  unresolvedClients: 0,
 };
 
 export interface SourceFetchers {
@@ -287,6 +295,7 @@ export async function refreshSources(
     if (airtable.status === 'fulfilled' && airtable.value) {
       data.appointments = airtable.value.records;
       data.airtableFields = airtable.value.fields;
+      data.unresolvedClients = airtable.value.unresolvedLinks ?? 0;
       statuses.airtable = settle('airtable', null, previous && previous.airtable, now);
     } else {
       const reason = airtable.status === 'rejected' ? airtable.reason : null;
