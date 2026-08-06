@@ -172,16 +172,20 @@ describe('a dead source renders an em dash, never a zero', () => {
     expect(kpi('Total Leads')).toContain('100');
   });
 
-  it('a call-centre source that was never configured shows — for dials, not 0', async () => {
-    // Configured-and-empty vs never-connected are different facts. Only the second is
-    // provable from settings alone, and it must not read as "no calls were made".
+  it('a call-centre source that was never configured is NOT FETCHED — the dials tile is gone, the fetch discipline is not', async () => {
+    // ⛔ REWRITTEN 2026-08-05, dials removed from the DASHBOARD by @andrew ("we store them
+    // on relay instead"). The old arm asserted `kpi('Total Dials')` reads '—' and that tile
+    // no longer exists, so the assertion was deleted rather than the TEST.
+    //
+    // ⭐ WHAT SURVIVES IS THE HALF THAT WAS NEVER ABOUT DIALS: configured-and-empty and
+    // never-connected are different facts, and an unconfigured source must not be FETCHED.
+    // That discipline still guards /call-center and /targets, which both still consume
+    // dials — so deleting this test outright would have removed live coverage along with a
+    // dead assertion.
     h.settingsOverride = { callCenterSheetUrl: '' };
     try {
       paint();
       await waitForSpendCard();
-
-      expect(kpi('Total Dials')).toContain('—');
-      expect(kpi('Total Dials')).not.toMatch(/\b0\b/);
 
       // CONTROL: the unconfigured source was never fetched, and the configured ones were.
       // Without this pair, "not called" could just mean the whole provider never ran.
@@ -190,6 +194,12 @@ describe('a dead source renders an em dash, never a zero', () => {
     } finally {
       h.settingsOverride = {};
     }
+  });
+
+  it('the DIALS tile is gone from the dashboard — @andrew: dials live on Relay now', () => {
+    // Anti-regression: a future change that re-adds the tile should go RED, not slip in.
+    paint();
+    expect(document.body.textContent).not.toMatch(/Total Dials/i);
   });
 });
 

@@ -75,13 +75,16 @@ function tile(label: string): string {
 
 beforeEach(() => useDataMock.mockReset());
 
+// ⛔ The "Total Dials" tile was REMOVED from the dashboard 2026-08-05 (@andrew: dials
+// live on Relay now). Its assertions are deleted here; the arms around them still cover
+// the OTHER tiles, which is the coverage that was never about dials. Dials remain on
+// /call-center and /targets and are tested there.
 describe("KPI tiles — a guard must name every source the DERIVATION traverses", () => {
   it("🔴 WINDSOR DEAD: the four join-valued tiles refuse instead of printing 0", () => {
     mount("failed");
 
     // These are the four @bird and @raccoon identified. Before the fix each rendered a
     // hard 0 from a reduce over an empty Windsor-derived array.
-    expect(tile("Total Dials")).toBe("—");
     expect(tile("Total Appts")).toBe("—");
     expect(tile("Closed Deals")).toBe("—"); // never driven by anyone
     expect(tile("Total Revenue")).toBe("—"); // @bird's fixture could not discriminate
@@ -100,7 +103,6 @@ describe("KPI tiles — a guard must name every source the DERIVATION traverses"
     // mirror defect: refusing to report data the app actually has.
     mount("valid");
 
-    expect(tile("Total Dials")).not.toBe("—");
     expect(tile("Total Appts")).not.toBe("—");
     expect(tile("Closed Deals")).not.toBe("—");
     expect(tile("Total Revenue")).not.toBe("—");
@@ -109,7 +111,6 @@ describe("KPI tiles — a guard must name every source the DERIVATION traverses"
   it("NOT-CONFIGURED is treated like dead, not like zero", () => {
     mount("not-configured");
 
-    expect(tile("Total Dials")).toBe("—");
     expect(tile("Total Appts")).toBe("—");
   });
 });
