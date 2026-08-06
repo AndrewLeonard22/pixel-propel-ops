@@ -48,6 +48,7 @@ function status(over: Partial<SourceStatus>): SourceStatus {
 function mount(origin: SettingsOrigin, detail: string | null = null) {
   useDataMock.mockReturnValue({
     settingsLoaded: true,
+    adSpend: [],
     loading: false,
     refresh: () => {},
     settingsOrigin: origin,
@@ -106,6 +107,7 @@ describe('SourceStatusBanner — 18 of @bird’s 19 false claims come from here'
   it('stays silent before the settings have loaded', () => {
     useDataMock.mockReturnValue({
       settingsLoaded: false,
+      adSpend: [],
       loading: true,
       refresh: () => {},
       settingsOrigin: 'local-not-configured' as SettingsOrigin,
