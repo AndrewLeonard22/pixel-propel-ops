@@ -795,6 +795,47 @@ export function isClosedWon(appt: { leadStatus?: string; closedRevenue?: number 
   return (appt.closedRevenue ?? 0) > 0;
 }
 
+/**
+ * ⭐ MEASURE THE VALUE SET, DO NOT HARDCODE A CENSUS — @fable, and it is the clause that
+ * survives his own measurement: *"I read the base at ONE INSTANT and a new status spelling
+ * can appear tomorrow; my numbers tell you WHAT IS TRUE NOW, not what the code may assume."*
+ *
+ * 🔴 THE FAILURE THIS PREVENTS IS SILENT BY CONSTRUCTION. The spellings above are a closed
+ * list. A status that is not on it is simply "not won" — which is the SAFE default and also
+ * an INVISIBLE one. If `Deal Won` or `Signed` appears next month it is dropped from the
+ * count and nothing anywhere says so. ⇒ **An unrecognised value must be OBSERVABLE, not
+ * merely handled.** (A non-observation otherwise defaults to a negative, and the absence of
+ * a signal renders as the good signal.)
+ *
+ * ⚠️ AND THE DETECTION IS WORD-LEVEL, NOT SUBSTRING — deliberately, because a substring test
+ * standing in for a category test is the exact defect D1 was. `'Working on proposal'` must
+ * NOT flag: its tokens are `working·on·proposal` and none of them is `won`. A substring
+ * search for `won` would match `working`… and we would have rebuilt the bug inside its own
+ * alarm.
+ *
+ * Returns the statuses that LOOK terminal (carry an outcome word) but matched neither
+ * category — i.e. exactly the ones a human should look at. Open statuses like
+ * `Working on proposal` are correctly silent.
+ */
+const TERMINAL_TOKENS = new Set(['won', 'win', 'wins', 'lost', 'loss', 'closed', 'sold', 'signed']);
+
+export function unrecognisedTerminalStatuses(
+  appts: { leadStatus?: string }[],
+): { status: string; count: number }[] {
+  const tally = new Map<string, number>();
+  for (const a of appts) {
+    const raw = String(a.leadStatus ?? '').trim();
+    if (!raw) continue;
+    if (isClosedWonStatus(raw) || isClosedLostStatus(raw)) continue;
+    const tokens = normalizeStatus(raw).split(' ');
+    if (!tokens.some(t => TERMINAL_TOKENS.has(t))) continue;
+    tally.set(raw, (tally.get(raw) ?? 0) + 1);
+  }
+  return [...tally.entries()]
+    .map(([status, count]) => ({ status, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
 export function accountKey(raw: string | undefined | null): string {
   return String(raw ?? '').trim().toLowerCase();
 }
