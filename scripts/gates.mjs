@@ -54,6 +54,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const POISON_FILE = 'src/lib/dataService.ts';
 const POISON = '\nconst __GATE_CONTROL_POISON: number = "not a number";\n';
+const IMPORT_POISON_FILE = 'src/main.tsx';
+const IMPORT_POISON = "import '@/__gate_control_missing_module__';\n";
 
 let failed = 0;
 const log = (ok, name, detail) => {
@@ -120,12 +122,12 @@ try {
   // A control the TYPECHECKS CANNOT PROVIDE: an unresolvable runtime import is invisible
   // to tsc (it type-errors only if typed) but must break the bundle. This proves the build
   // gate is measuring resolution, not just re-running what tsc already did.
-  const importPoisonFile = 'src/main.tsx';
+  const importPoisonFile = IMPORT_POISON_FILE;
   const importOriginal = readFileSync(importPoisonFile);
   try {
     writeFileSync(
       importPoisonFile,
-      Buffer.concat([Buffer.from("import '@/__gate_control_missing_module__';\n", 'utf8'), importOriginal]),
+      Buffer.concat([Buffer.from(IMPORT_POISON, 'utf8'), importOriginal]),
     );
     const cBuild = exit('npx', ['vite', 'build', '--logLevel', 'error']);
     log(cBuild !== 0, 'vite build rejects an unresolvable import', `exit=${cBuild}`);
@@ -144,27 +146,40 @@ try {
   writeFileSync(POISON_FILE, original);
 }
 
-// ⚡ VERIFIED AGAINST GIT, NOT AGAINST THIS RUN'S OWN READ — @raccoon's finding.
+// ⚡ ASSERT THE POISON MARKER IS ABSENT — NOT THAT THE FILE IS UNCHANGED. @raccoon.
 //
-// This previously compared the file to the `original` variable read at the top of the
-// same run. That proves "I put back what I found". It CANNOT prove "the file is correct",
-// because nothing can change the file between the write and the compare — a discriminator
-// that can barely vary, in the file whose docblock warns about exactly that. He killed a
-// run between write and restore, left a poison in src/main.tsx, and this line printed ✅
-// on a dirty tree. Reproduced here before patching.
+// Three designs, and this one does not trade between them:
+//                            leftover poison   this run's poison   legit uncommitted
+//                            from a PREV run   not removed         work in progress
+//   same-run baseline (v1)   MISSED            caught              no false positive
+//   git-compare       (v2)   caught            caught              FALSE POSITIVE
+//   marker-absence    (v3)   caught            caught              no false positive
 //
-// Worse, the SECOND poison site (src/main.tsx, the import control) had no assertion at
-// all — a reader counted five controls and read restoration coverage as total, when it
-// was one of two sites and that one was near-vacuous.
+// v2 was mine and it cried wolf on the two worst files on this branch: dataService.ts is
+// the hub five seats have findings in, and main.tsx is the entry point. Measured — the
+// ladder went RED on ordinary work in progress. It failed CLOSED and preserved the work,
+// so it was never a safety regression; it was a CRY-WOLF regression, and a gate that goes
+// red during normal editing is a gate someone learns to skip.
 //
-// ⚠️ AND THE HAZARD WAS ONLY EVER COVERED BY ORDERING: gates run before controls, so a
-// leftover poison trips `vite build` first. That is real (it is how his experiment
-// surfaced) but it is a property of the ORDER of this file, documented nowhere. Move the
-// controls above the gates and the coverage vanishes silently. git is the reference that
-// does not depend on where the lines sit.
-const gitClean = (f) => exit('git', ['diff', '--quiet', '--', f]) === 0;
-for (const f of [POISON_FILE, 'src/main.tsx']) {
-  log(gitClean(f), `${f} matches git`, 'no poison left behind');
+// The MARKER is what this control is for. The file's other contents are none of its
+// business — which is why v3 dominates rather than compromises.
+const MARKER = {
+  [POISON_FILE]: '__GATE_CONTROL_POISON',
+  [IMPORT_POISON_FILE]: '__gate_control_missing_module__',
+};
+
+// A CONTROL ON THE CONTROL: each marker must actually occur in the poison that plants it.
+// Restating a marker by hand is how a check silently drifts from the thing it checks.
+for (const [file, marker] of Object.entries(MARKER)) {
+  const plantedBy = file === POISON_FILE ? POISON : IMPORT_POISON;
+  if (!plantedBy.includes(marker)) {
+    console.log(`  🔴 marker ${marker} does not appear in the poison for ${file}`);
+    failed++;
+  }
+}
+
+for (const [file, marker] of Object.entries(MARKER)) {
+  log(!readFileSync(file, 'utf8').includes(marker), `${file} carries no poison marker`, marker);
 }
 
 if (failed === 0) {
