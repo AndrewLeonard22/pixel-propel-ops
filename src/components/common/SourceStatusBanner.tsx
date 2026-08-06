@@ -56,7 +56,7 @@ function stateLine(s: SourceStatus): { icon: typeof AlertTriangle; tone: string;
 }
 
 export default function SourceStatusBanner() {
-  const { sources, refresh, settingsLoaded, loading, settingsOrigin, settingsDetail, adSpend, completeness, refreshVerdict } = useData();
+  const { sources, refresh, settingsLoaded, loading, settingsOrigin, settingsDetail, adSpend, completeness, refreshVerdict, unresolvedClients } = useData();
 
   // Before the settings have loaded, "not connected" is not known to be true. Saying it
   // early is the same defect as printing a zero for a source that failed.
@@ -130,12 +130,30 @@ export default function SourceStatusBanner() {
   /** ③ A rejected refresh: the numbers below are the LAST GOOD ones, and must say so. */
   const rejected = refreshVerdict ? rejectionMessage(refreshVerdict) : null;
 
-  if (problems.length === 0 && !staleFeed && !incomplete && !rejected) return null;
+  /**
+   * A — @bird measured `Client Name` returning a RECORD ID on 99 of 100 records. Those
+   * appointments now go UNMATCHED rather than being attributed on the strength of an id —
+   * correct, and potentially most of the appointment data, so it CANNOT be silent. Without
+   * this line the appointment counts would simply be lower and nothing would say why.
+   */
+  const unresolved = unresolvedClients > 0
+    ? `${unresolvedClients.toLocaleString()} appointment field${unresolvedClients > 1 ? 's' : ''} could not be resolved to a client name — ` +
+      `Airtable returned a linked-record id instead of text. Those appointments are counted as UNMATCHED rather than ` +
+      `guessed at, so account-level appointment numbers are UNDERSTATED until the Airtable field is mapped to a text column.`
+    : null;
+
+  if (problems.length === 0 && !staleFeed && !incomplete && !rejected && !unresolved) return null;
 
   const anyRetryable = problems.some(s => s.state === 'failed' || s.state === 'stale' || s.state === 'incomplete');
 
   return (
     <div className="border border-border rounded-xl bg-card px-4 py-3 space-y-2" role="status" aria-live="polite">
+      {unresolved && (
+        <div className="flex items-start gap-2.5 text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-destructive" />
+          <p className="flex-1 text-foreground/90">{unresolved}</p>
+        </div>
+      )}
       {rejected && (
         <div className="flex items-start gap-2.5 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-destructive" />

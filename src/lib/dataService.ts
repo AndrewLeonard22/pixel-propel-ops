@@ -401,7 +401,7 @@ export async function fetchCallCenterData(settings: AppSettings): Promise<CallRo
   });
 }
 
-export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[] }> {
+export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[], unresolvedLinks?: number }> {
   const { airtableBaseId, airtableTableName, columnMappings } = settings;
 
   if (!airtableBaseId) throw new Error('Airtable not configured');
@@ -556,11 +556,23 @@ export function mapAirtableRecords(
          */
         if (isAirtableRecordId(first)) {
           unresolvedLinks++;
-          return '';
+          /**
+           * 🔴 A READABLE SENTINEL, NOT ''. Returning an empty string was my over-correction
+           * and it EMPTIED THE APPOINTMENTS PAGE: a blank client is falsy, so every consumer
+           * that guards on `a.client` dropped the row — the tiles, the list AND the calendar.
+           *
+           * ⭐ AN UNRESOLVED CLIENT IS A FACT ABOUT THE ATTRIBUTION, NOT ABOUT THE
+           * APPOINTMENT. I refused to answer "which account" and then stopped answering
+           * "does this appointment exist" — the refusal-as-a-value law running BACKWARDS.
+           * The appointment is real, it is counted, and only its ACCOUNT is unknown.
+           */
+          return UNRESOLVED_CLIENT;
         }
         return first;
       };
       
+      const clientName = String(getField('Client Name'));
+
       allRecords.push({
         campaignName: String(getField('Campaign Name')),
         campaignId: String(getField('Campaign ID')),
@@ -568,7 +580,10 @@ export function mapAirtableRecords(
         adSetId: String(getField('Ad Set ID')),
         adName: String(getField('Ad Name')),
         adId: String(getField('Ad ID')),
-        client: String(getField('Client Name')),
+        client: clientName,
+        // Computed ONCE above: calling getField twice incremented unresolvedLinks twice and
+        // the count read 5 where 3 was true. A counter inside a getter is order-sensitive.
+        clientUnresolved: clientName === UNRESOLVED_CLIENT,
         appointmentDate: String(getField('Appointment Date')),
         dateAdded: String(getField('Date Added')),
         showStatus: String(getField('Show Status')),
@@ -660,6 +675,9 @@ export interface AccountLabel {
  * Shape: 'rec' + 14 chars, which is Airtable's documented record id format. Anchored, so a
  * legitimate client genuinely called "Recovery" cannot be mistaken for one.
  */
+/** Displayed in place of an unresolved client. Truthy, human-readable, never an id. */
+export const UNRESOLVED_CLIENT = '—';
+
 export function isAirtableRecordId(value: unknown): boolean {
   return typeof value === 'string' && /^rec[A-Za-z0-9]{14}$/.test(value);
 }
@@ -1041,15 +1059,22 @@ export function buildAccountSummaries(
       matchedAccountKey = campaignIdToAccount.get(apptCampId);
     }
 
+    /**
+     * ⭐ TIER 1 (campaign id) STILL APPLIES to an unresolved appointment — a campaign id is
+     * real attribution evidence and does not depend on the client name. Only the NAME-BASED
+     * tiers are skipped, because the "name" is a placeholder. Attributing on a sentinel
+     * would be worse than the record id it replaced: every unresolved appointment would
+     * collapse onto one pseudo-account.
+     */
     // Tier 2 — Manual Alias
-    if (!matchedAccountKey && appt.client) {
+    if (!matchedAccountKey && appt.client && !appt.clientUnresolved) {
       matchedAccountKey = manualMappingToAccount.get(appt.client.trim().toLowerCase());
     }
 
     if (matchedAccountKey && accountMap.has(matchedAccountKey)) {
       accountMap.get(matchedAccountKey)!.appts.push(appt);
       // Record this client name → account mapping for Tier 3
-      if (appt.client) {
+      if (appt.client && !appt.clientUnresolved) {
         clientNameToAccount.set(appt.client.trim().toLowerCase(), matchedAccountKey);
       }
     } else {
@@ -1062,7 +1087,7 @@ export function buildAccountSummaries(
   for (const appt of unmatchedAfterTier2) {
     let matchedAccountKey: string | undefined;
 
-    if (appt.client) {
+    if (appt.client && !appt.clientUnresolved) {
       matchedAccountKey = clientNameToAccount.get(appt.client.trim().toLowerCase());
     }
 
@@ -1081,7 +1106,7 @@ export function buildAccountSummaries(
   for (const appt of unmatchedAfterTier3) {
     let matchedAccountKey: string | undefined;
 
-    if (appt.client) {
+    if (appt.client && !appt.clientUnresolved) {
       const normalizedClient = normalizeName(appt.client);
       const scores = normalizedAccountKeys.map(ak => ({
         key: ak.key,

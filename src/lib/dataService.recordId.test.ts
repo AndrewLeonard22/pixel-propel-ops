@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAirtableRecordId, mapAirtableRecords, buildAccountSummaries } from './dataService';
+import { isAirtableRecordId, mapAirtableRecords, buildAccountSummaries, UNRESOLVED_CLIENT } from './dataService';
 import { makeAdSpendRow, makeSettings } from '@/test/factories';
 
 /**
@@ -49,7 +49,12 @@ describe('mapAirtableRecords — a linked-record id never becomes a client name'
       MAPPINGS,
     );
 
-    expect(records[0].client).toBe('');          // NOT 'rec1234567890abcd'
+    // 🔴 A READABLE SENTINEL, NOT ''. An empty client is FALSY, and every consumer that
+    // guards on `a.client` dropped the row — that over-correction EMPTIED THE APPOINTMENTS
+    // PAGE in production. The appointment exists; only its ACCOUNT is unknown.
+    expect(records[0].client).toBe(UNRESOLVED_CLIENT);
+    expect(records[0].client).not.toBe('');
+    expect(records[0].clientUnresolved).toBe(true);
     expect(unresolvedLinks).toBe(1);             // counted, not swallowed
   });
 
@@ -62,6 +67,7 @@ describe('mapAirtableRecords — a linked-record id never becomes a client name'
     );
 
     expect(records[0].client).toBe('Acme Corp');
+    expect(records[0].clientUnresolved).toBe(false);
     expect(unresolvedLinks).toBe(0);
   });
 
@@ -78,7 +84,7 @@ describe('mapAirtableRecords — a linked-record id never becomes a client name'
       ],
       MAPPINGS,
     );
-    expect(unresolvedLinks).toBe(3);
+    expect(unresolvedLinks).toBe(3);   // 3, not 6: the counter must not double-count
   });
 });
 
@@ -118,5 +124,87 @@ describe('the downstream consequence — an id must not buy an ATTRIBUTION', () 
 
     expect(unmatchedAppointments).toHaveLength(0);
     expect(accounts[0].appointments).toBe(1);
+  });
+});
+
+/**
+ * 🔴 THE ARM THAT WOULD HAVE CAUGHT IT — @fable, after b50a4d0 EMPTIED THE APPOINTMENTS PAGE.
+ *
+ * 448 tests passed on a change that removed every appointment from the screen. Every arm
+ * proved THE RECORD ID DOES NOT RENDER. Not one proved THE APPOINTMENT DOES.
+ *
+ * ⭐ "AN UNRESOLVED CLIENT IS A FACT ABOUT THE ATTRIBUTION, NOT ABOUT THE APPOINTMENT."
+ * I refused to answer "which account" and then stopped answering "does this appointment
+ * exist" — the refusal-as-a-value law running BACKWARDS. Refusing to answer is right;
+ * deleting the row is not.
+ *
+ * ⚠️ ANTI-VACUITY AT THE FEATURE LEVEL, not the function level: every arm below asserts
+ * something SURVIVES, because the previous set only asserted things were absent and a
+ * function returning nothing at all satisfies all of those.
+ */
+describe('an unresolved appointment SURVIVES — it is counted, listed and dated', () => {
+  const raw = [
+    { fields: { 'Client Name': ['rec1234567890abcd'], 'Appointment Date': '8/4/2026', 'Show Status': 'Showed' } },
+    { fields: { 'Client Name': ['recABCDEFGHIJKLMN'], 'Appointment Date': '8/5/2026', 'Show Status': 'Booked' } },
+    { fields: { 'Client Name': ['Acme'], 'Appointment Date': '8/6/2026', 'Show Status': 'Booked' } },
+  ];
+
+  it('🔴 ALL THREE appointments exist — none is deleted by being unresolved', () => {
+    const { records } = mapAirtableRecords(raw, {});
+    expect(records).toHaveLength(3);
+  });
+
+  it('🔴 every unresolved row keeps a TRUTHY client — a falsy one is dropped by consumers', () => {
+    // AppointmentsCalendar.tsx:94 filters `a.client && selectedClients.has(a.client)`.
+    // A blank client is falsy, so the row vanishes from the list, the counts AND the
+    // calendar. This is the precise line that emptied the page.
+    const { records } = mapAirtableRecords(raw, {});
+    for (const r of records) expect(Boolean(r.client)).toBe(true);
+  });
+
+  it('🔴 the unresolved rows keep their DATE — the calendar needs it to place them', () => {
+    const { records } = mapAirtableRecords(raw, {});
+    expect(records.map(r => r.appointmentDate)).toEqual(['8/4/2026', '8/5/2026', '8/6/2026']);
+  });
+
+  it('🔴 they keep their SHOW STATUS — the four tiles reduce over it', () => {
+    const { records } = mapAirtableRecords(raw, {});
+    expect(records.map(r => r.showStatus)).toEqual(['Showed', 'Booked', 'Booked']);
+  });
+
+  it('🔑 counted as UNMATCHED, not lost: unmatched + attributed = every appointment', () => {
+    // The conservation check. Whatever the attribution decides, no appointment may vanish.
+    const { records } = mapAirtableRecords(raw, {});
+    const { accounts, unmatchedAppointments } = buildAccountSummaries(
+      [makeAdSpendRow({ accountName: 'Acme', spent: 500, leads: 20 })], records, makeSettings(), [],
+    );
+    const attributed = accounts.reduce((n, a) => n + a.appointments, 0);
+
+    expect(attributed + unmatchedAppointments.length).toBe(3);
+    expect(attributed).toBe(1);                  // only the resolved one
+    expect(unmatchedAppointments).toHaveLength(2);
+  });
+
+  it('🔴 the sentinel must NOT become a pseudo-account — no attribution on a placeholder', () => {
+    // If the name tiers ran on '—', all unresolved appointments would collapse onto one
+    // fake account, which is worse than the record id it replaced.
+    const { records } = mapAirtableRecords(raw, {});
+    const { accounts } = buildAccountSummaries(
+      [makeAdSpendRow({ accountName: UNRESOLVED_CLIENT, spent: 1, leads: 1 })], records, makeSettings(), [],
+    );
+    const pseudo = accounts.find(a => a.accountName === UNRESOLVED_CLIENT);
+    expect(pseudo?.appointments ?? 0).toBe(0);
+  });
+
+  it('⭐ TIER 1 STILL ATTRIBUTES an unresolved appointment — a campaign id is real evidence', () => {
+    const withCampaign = mapAirtableRecords(
+      [{ fields: { 'Client Name': ['rec1234567890abcd'], 'Campaign ID': '111', 'Appointment Date': '8/4/2026' } }], {},
+    );
+    const { accounts, unmatchedAppointments } = buildAccountSummaries(
+      [makeAdSpendRow({ accountName: 'Acme', campaignId: '111', spent: 500, leads: 20 })],
+      withCampaign.records, makeSettings(), [],
+    );
+    expect(accounts[0].appointments).toBe(1);
+    expect(unmatchedAppointments).toHaveLength(0);
   });
 });

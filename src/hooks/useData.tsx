@@ -58,6 +58,8 @@ interface DataContextType {
    * — `accept: false` means the numbers below are the LAST GOOD ones, not the newest.
    */
   refreshVerdict: RefreshVerdict | null;
+  /** A — appointments whose client is an unresolved Airtable linked-record id. */
+  unresolvedClients: number;
   /**
    * Is the campaign exclusion list actually filtering anything?
    *
@@ -107,6 +109,7 @@ const defaultDataContext: DataContextType = {
   completeness: { state: 'unverifiable', rawRows: null, derivedRows: null, droppedRows: 0,
     reason: 'not checked yet' },
   refreshVerdict: null,
+  unresolvedClients: 0,
   // Derived from the SAME settings the rest of this default uses, rather than hand-written
   // as 'active'. A hand-written default would say "exclusions are working" before anything
   // has loaded — a definite claim made before we have looked, which is the defect
@@ -358,6 +361,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       settingsDetail,
       completeness,
       refreshVerdict,
+      unresolvedClients: data.unresolvedClients,
       settingsLoaded,
       exclusions,
       honestNumbers,
