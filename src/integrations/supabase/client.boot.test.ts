@@ -59,6 +59,12 @@ describe("supabase client — a missing env var degrades, it does not annihilate
     for (const bad of [
       "abcdefghijklmnop", "x.supabase.co", "not a url", "   ",
       "ftp://x.supabase.co", "wss://x.supabase.co",
+      // ⬅ THE ACTUAL DEPLOYED VALUE. @bird read the bundle: the var was SET and the URL
+      // was CORRECT — it carried literal quote marks. Not the bare project ref I had
+      // hypothesised from the error string. Verified: `new URL()` rejects it, createClient
+      // throws on it, and this guard falls back. Added because a fix validated against an
+      // IMAGINED input is validated against nothing.
+      '"https://abcdefgh.supabase.co"',
     ]) {
       vi.resetModules();
       vi.stubEnv("VITE_SUPABASE_URL", bad);
