@@ -42,6 +42,23 @@
  * direction, and the one that cannot tell @andrew his data is fine when we cannot see.
  */
 
+/**
+ * ⛔ THE RAW TAB NAME IS A CONSTANT HERE, NOT A SETTING, AND THAT IS A CONSTRAINT NOT A CHOICE.
+ *
+ * Making it user-editable means adding it to `ALLOWED_CONFIG_KEYS` — and
+ * config.credentials.test.ts locks that list against @apprentice's SQL migration, key for
+ * key, because the DATABASE rejects undeclared keys. That migration is NOT YET APPLIED.
+ * Adding the key client-side first would make EVERY save from /settings fail against the
+ * migration once it lands: the exact half-migrated shape that took appointments dark
+ * tonight, where relocating the Airtable token shipped without its other half.
+ *
+ * ⇒ The lock is right and it caught me. The value below is @fable's LIVE MEASUREMENT of
+ *   @andrew's actual sheet ('Ads Data' and 'Ads - Raw', both 38,997 rows, differing sigs),
+ *   so the detector works today. Making it editable is one SQL line plus one allowlist
+ *   entry, in that order, and it belongs to whoever owns the migration.
+ */
+export const DEFAULT_ADS_RAW_TAB = 'Ads - Raw';
+
 export type CompletenessState =
   /** raw > derived: the derived tab is dropping rows RIGHT NOW. */
   | 'truncated'
@@ -81,12 +98,20 @@ export function parseGvizCount(body: string): CountProbe | null {
   }
 }
 
-export function buildCountUrl(spreadsheetId: string, gid: string): string {
+/** Address a tab either by gid (the derived tab, read from the sheet URL) or by NAME. */
+export type TabRef = { gid: string } | { sheet: string };
+
+export function buildCountUrl(spreadsheetId: string, tab: TabRef): string {
   // `count(A)` and NOT `count(*)`: gviz has no count(*), and column A is the one the array
   // formula's range is written against, so it is the column whose truncation we care about.
+  // ⚠️ THE QUERY MUST BE IDENTICAL FOR BOTH TABS. `sig` is a function of (tab content,
+  // QUERY), so varying the query between the two probes would make sigs differ for a reason
+  // that has nothing to do with which tab answered — and the distinct-tabs proof would
+  // become a rubber stamp that always passes.
+  const target = 'gid' in tab ? `gid=${encodeURIComponent(tab.gid)}` : `sheet=${encodeURIComponent(tab.sheet)}`;
   return (
     `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq` +
-    `?tqx=out:json&gid=${encodeURIComponent(gid)}&tq=${encodeURIComponent('select count(A)')}`
+    `?tqx=out:json&${target}&tq=${encodeURIComponent('select count(A)')}`
   );
 }
 
@@ -179,23 +204,18 @@ export function completenessMessage(r: CompletenessReport): string | null {
  */
 export async function checkSheetCompleteness(
   sheetUrl: string,
-  rawGid: string | undefined,
+  rawTabName: string | undefined,
   fetchImpl: typeof fetch = fetch,
 ): Promise<CompletenessReport> {
   const id = spreadsheetIdOf(sheetUrl || '');
   if (!id) return judgeCompleteness(null, null, 'the ad spend sheet URL is not a Google Sheets link');
 
-  const derivedGid = derivedGidOf(sheetUrl);
-  if (!rawGid) {
-    return judgeCompleteness(null, null, 'the raw tab has not been identified in Settings');
-  }
-  if (rawGid === derivedGid) {
-    return judgeCompleteness(null, null, 'the raw tab and the derived tab are configured as the same tab');
-  }
+  const raw = (rawTabName ?? '').trim();
+  if (!raw) return judgeCompleteness(null, null, 'the raw tab has not been named in Settings');
 
-  const probe = async (gid: string): Promise<CountProbe | null> => {
+  const probe = async (tab: TabRef): Promise<CountProbe | null> => {
     try {
-      const res = await fetchImpl(buildCountUrl(id, gid));
+      const res = await fetchImpl(buildCountUrl(id, tab));
       if (!res.ok) return null;
       return parseGvizCount(await res.text());
     } catch {
@@ -203,6 +223,12 @@ export async function checkSheetCompleteness(
     }
   };
 
-  const [raw, derived] = await Promise.all([probe(rawGid), probe(derivedGid)]);
-  return judgeCompleteness(raw, derived);
+  // The DERIVED tab is addressed by the gid the app already reads its CSV from, so the
+  // comparison target is the tab the numbers on screen actually came from — not a tab we
+  // hope is the same one.
+  const [rawProbe, derivedProbe] = await Promise.all([
+    probe({ sheet: raw }),
+    probe({ gid: derivedGidOf(sheetUrl) }),
+  ]);
+  return judgeCompleteness(rawProbe, derivedProbe);
 }

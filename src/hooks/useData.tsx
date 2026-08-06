@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CallRow } from '@/lib/types';
 import { loadSettings, loadSettingsWithSource, isConfigured, type SettingsOrigin } from '@/lib/config';
+import { checkSheetCompleteness, DEFAULT_ADS_RAW_TAB, type CompletenessReport } from '@/lib/sheetCompleteness';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries, detectExclusionState, type ExclusionReport } from '@/lib/dataService';
 import { buildHonestNumbersReport, type HonestNumbersReport } from '@/lib/honestNumbers';
 import { computeSetterPayouts } from '@/lib/payout';
@@ -47,6 +48,11 @@ interface DataContextType {
   /** Underlying error text for 'local-unreachable'. Null otherwise — never invented. */
   settingsDetail: string | null;
   /**
+   * Is the ad spend feed COMPLETE, or is the sheet's array formula dropping rows?
+   * ⚠️ 'unverifiable' is a real state and NOT a synonym for healthy — see sheetCompleteness.
+   */
+  completeness: CompletenessReport;
+  /**
    * Is the campaign exclusion list actually filtering anything?
    *
    * @andrew accepted the loss of the 32 excluded campaigns, so performanceSpend ===
@@ -90,6 +96,10 @@ const defaultDataContext: DataContextType = {
   // have not earned. The pre-load render is gated on settingsLoaded anyway.
   settingsOrigin: 'local-not-configured',
   settingsDetail: null,
+  // Not 'complete': before anything has been probed, claiming the feed is whole is a
+  // definite statement made before we have looked.
+  completeness: { state: 'unverifiable', rawRows: null, derivedRows: null, droppedRows: 0,
+    reason: 'not checked yet' },
   // Derived from the SAME settings the rest of this default uses, rather than hand-written
   // as 'active'. A hand-written default would say "exclusions are working" before anything
   // has loaded — a definite claim made before we have looked, which is the defect
@@ -142,6 +152,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [sources, setSources] = useState<Record<SourceKey, SourceStatus>>(() => initialStatuses(loadSettings()));
   const [settingsOrigin, setSettingsOrigin] = useState<SettingsOrigin>('local-not-configured');
   const [settingsDetail, setSettingsDetail] = useState<string | null>(null);
+  const [completeness, setCompleteness] = useState<CompletenessReport>({
+    state: 'unverifiable', rawRows: null, derivedRows: null, droppedRows: 0, reason: 'not checked yet',
+  });
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -206,6 +219,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         calls: hasUsableData(statuses.callCenter.state),
       });
       setAccounts(result.accounts);
+
+      /**
+       * ⛔ DELIBERATELY NOT AWAITED AND NOT IN THE Promise.all ABOVE. @fable: "it must NOT
+       * block rendering. Incomplete data with an honest banner beats a blank page." Joining
+       * this to the data path would let a completeness probe delay — or, via a rejection,
+       * take down — the numbers it is only supposed to describe. checkSheetCompleteness
+       * cannot throw, and the .catch is belt-and-braces on that promise.
+       */
+      void checkSheetCompleteness(s.googleSheetUrl, s.adsRawTabName ?? DEFAULT_ADS_RAW_TAB)
+        .then(setCompleteness)
+        .catch(() => {});
       setUnmatchedAppointments(result.unmatchedAppointments);
 
       // Only claim a successful update if at least one source actually delivered.
@@ -300,6 +324,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       configured,
       settingsOrigin,
       settingsDetail,
+      completeness,
       settingsLoaded,
       exclusions,
       honestNumbers,

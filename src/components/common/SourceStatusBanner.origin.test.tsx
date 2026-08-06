@@ -49,6 +49,7 @@ function mount(origin: SettingsOrigin, detail: string | null = null) {
   useDataMock.mockReturnValue({
     settingsLoaded: true,
     adSpend: [],
+    completeness: { state: 'complete' as const, rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null },
     loading: false,
     refresh: () => {},
     settingsOrigin: origin,
@@ -108,6 +109,7 @@ describe('SourceStatusBanner — 18 of @bird’s 19 false claims come from here'
     useDataMock.mockReturnValue({
       settingsLoaded: false,
       adSpend: [],
+      completeness: { state: 'complete' as const, rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null },
       loading: true,
       refresh: () => {},
       settingsOrigin: 'local-not-configured' as SettingsOrigin,
