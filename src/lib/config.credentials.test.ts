@@ -6,113 +6,133 @@
  * persisted to the `app_settings` table. That table had RLS enabled and then four
  * policies granting anon SELECT/INSERT/UPDATE/DELETE with USING (true). The Supabase
  * publishable key ships in the browser bundle and the repo is public, so "anon" is the
- * open internet. A live Airtable PAT and a live Anthropic key were readable by anyone,
- * with no credential and no app access required — verified live, both authenticating.
+ * open internet. A live Airtable PAT and a live Anthropic key were readable by anyone —
+ * verified live, both authenticating.
  *
- * POPULATION: every key in CREDENTIAL_KEYS (2), across every sink that persists settings
- * (localStorage via saveSettingsToLocal, the DB via saveSettings) and every source that
- * adopts them (localStorage on load, the DB row on load). Enumerated from the exported
- * constant rather than hardcoded, so adding a credential without adding it to the strip
- * list fails HERE rather than in production.
+ * ⭐ THE GUARD IS AN ALLOWLIST, AND THE CENTRAL TEST IS THAT AN UNDECLARED KEY IS
+ * REFUSED — including a credential nobody has thought of yet. A blocklist passes every
+ * test you can write about the two keys you already know about, and lets the third in.
+ *
+ * POPULATION: every key of AppSettings (declared, must survive) plus undeclared keys —
+ * the two known credentials AND a never-before-seen one — enumerated from the exported
+ * ALLOWED_CONFIG_KEYS rather than hardcoded, so adding a field without declaring it
+ * fails HERE rather than in production.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { stripCredentials, CREDENTIAL_KEYS } from './config';
+import { sanitizeSettings, ALLOWED_CONFIG_KEYS } from './config';
 import { proveDetects, population } from '@/test/sabotage';
 
-/** A settings-shaped object carrying both credentials, as a legacy row/localStorage would. */
-const withCredentials = () => ({
+type Bag = Record<string, unknown>;
+
+/** Settings-shaped, carrying both known credentials AND one nobody has registered. */
+const withCredentials = (): Bag => ({
   googleSheetUrl: 'https://docs.google.com/spreadsheets/d/X/edit',
   airtableBaseId: 'appTEST123',
-  airtableToken: 'pat_PLACEHOLDER_NOT_A_REAL_TOKEN',
-  anthropicApiKey: 'sk-ant-PLACEHOLDER_NOT_A_REAL_KEY',
   excludedCampaigns: ['c1', 'c2'],
   pausedThresholdDays: 1,
+  airtableToken: 'pat_PLACEHOLDER_NOT_A_REAL_TOKEN',
+  anthropicApiKey: 'sk-ant-PLACEHOLDER_NOT_A_REAL_KEY',
+  // 🔴 THE ONE THAT MATTERS: a credential that did not exist when the guard was written.
+  metaAccessToken: 'EAAG_PLACEHOLDER_NOT_A_REAL_TOKEN',
 });
 
-describe('stripCredentials — a credential can never be persisted', () => {
-  it(`is sabotage-proven ${population('both CREDENTIAL_KEYS, present / absent / empty-string')}`, () => {
+/** The old, rejected design: a hand-maintained list of forbidden keys. */
+const blocklist = (forbidden: string[]) => (o: Bag): Bag => {
+  const c = { ...o };
+  for (const k of forbidden) delete c[k];
+  return c;
+};
+
+describe('sanitizeSettings — only DECLARED config can be persisted', () => {
+  it(`is sabotage-proven ${population('declared keys survive; undeclared keys — known AND unknown credentials — are refused')}`, () => {
     proveDetects({
-      subject: 'stripCredentials',
+      subject: 'sanitizeSettings',
       population:
-        'both keys in CREDENTIAL_KEYS, in each of: present-with-value, present-but-empty, absent',
-      real: stripCredentials as (o: Record<string, unknown>) => Record<string, unknown>,
+        'every key in ALLOWED_CONFIG_KEYS (must survive) + airtableToken, anthropicApiKey ' +
+        'and metaAccessToken (must not), the last being a credential the guard never named',
+      real: sanitizeSettings as (o: Bag) => Bag,
       poisons: {
-        // The single most likely real-world mistake: fix the one that was in the news.
-        'strips airtableToken only': (o => {
+        // ⭐ THE POISON THAT JUSTIFIES THE WHOLE INVERSION. This is exactly what the
+        // first version of this guard did, and it passes every test about the two
+        // credentials we already knew about.
+        'BLOCKLIST of the two known credentials (the original design)':
+          blocklist(['airtableToken', 'anthropicApiKey']),
+        'blocklist missing one of the two': blocklist(['airtableToken']),
+        'blanks the values instead of removing the keys': ((o: Bag) => {
           const c = { ...o };
-          delete c.airtableToken;
+          for (const k of ['airtableToken', 'anthropicApiKey', 'metaAccessToken']) {
+            if (k in c) c[k] = '';
+          }
           return c;
-        }) as (o: Record<string, unknown>) => Record<string, unknown>,
-        'strips anthropicApiKey only': (o => {
+        }) as (o: Bag) => Bag,
+        'only removes keys whose value is truthy': ((o: Bag) => {
           const c = { ...o };
-          delete c.anthropicApiKey;
+          for (const k of Object.keys(c)) {
+            if (!ALLOWED_CONFIG_KEYS.includes(k as never) && c[k]) delete c[k];
+          }
           return c;
-        }) as (o: Record<string, unknown>) => Record<string, unknown>,
-        // Looks right, and leaves the KEY present with an empty value — which still
-        // writes the key to the row and trips the DB trigger.
-        'blanks the values instead of removing the keys': (o => {
-          const c = { ...o };
-          for (const k of CREDENTIAL_KEYS) if (k in c) c[k] = '';
-          return c;
-        }) as (o: Record<string, unknown>) => Record<string, unknown>,
-        // The classic: only acts when the value is truthy, so an empty-string
-        // credential key survives and is persisted.
-        'only strips keys that have a truthy value': (o => {
-          const c = { ...o };
-          for (const k of CREDENTIAL_KEYS) if (c[k]) delete c[k];
-          return c;
-        }) as (o: Record<string, unknown>) => Record<string, unknown>,
-        'does nothing': (o => o) as (o: Record<string, unknown>) => Record<string, unknown>,
+        }) as (o: Bag) => Bag,
+        'does nothing': ((o: Bag) => o) as (o: Bag) => Bag,
+        'strips everything, including declared config': (() => ({})) as (o: Bag) => Bag,
       },
       assertions: impl => {
-        // ① both keys are ABSENT — `in`, not falsy. A present key with an empty value
-        //    is still a key, still written, still rejected by the DB trigger.
         const cleaned = impl(withCredentials());
-        for (const key of CREDENTIAL_KEYS) {
-          expect(key in cleaned, `${key} must not survive`).toBe(false);
+
+        // ① THE INVERSION: an undeclared key is refused, whether or not anyone
+        //    remembered to name it. `metaAccessToken` kills every blocklist.
+        for (const key of ['airtableToken', 'anthropicApiKey', 'metaAccessToken']) {
+          expect(key in cleaned, `undeclared key ${key} must not survive`).toBe(false);
         }
 
-        // ② a key present with an EMPTY STRING is removed too, not merely left blank.
-        const emptied = impl({ ...withCredentials(), airtableToken: '', anthropicApiKey: '' });
-        for (const key of CREDENTIAL_KEYS) {
+        // ② present-but-EMPTY is still a key, still written, still refused by the DB.
+        const emptied = impl({ ...withCredentials(), airtableToken: '', metaAccessToken: '' });
+        for (const key of ['airtableToken', 'metaAccessToken']) {
           expect(key in emptied, `${key} must not survive even when empty`).toBe(false);
         }
 
-        // ③ non-credential configuration is untouched — the strip must not be a wipe.
+        // ③ declared configuration is UNTOUCHED — the guard must not be a wipe.
         expect(cleaned.googleSheetUrl).toBe('https://docs.google.com/spreadsheets/d/X/edit');
         expect(cleaned.airtableBaseId).toBe('appTEST123');
         expect(cleaned.excludedCampaigns).toEqual(['c1', 'c2']);
+        expect(cleaned.pausedThresholdDays).toBe(1);
       },
     });
   });
 
-  it('does not mutate its input — a caller holding the original must not be silently altered', () => {
+  it('every key of a full settings object is declared — an omission would silently drop config', () => {
+    // Guards the OTHER failure direction: too-narrow an allowlist deletes real settings.
+    const full: Bag = {};
+    for (const k of ALLOWED_CONFIG_KEYS) full[k] = 'x';
+    expect(Object.keys(sanitizeSettings(full))).toHaveLength(ALLOWED_CONFIG_KEYS.length);
+  });
+
+  it('does not mutate its input', () => {
     const original = withCredentials();
-    stripCredentials(original);
+    sanitizeSettings(original);
     expect('airtableToken' in original).toBe(true);
   });
 
-  it('is idempotent and safe on an object that never had credentials', () => {
-    const plain = { googleSheetUrl: 'x', airtableBaseId: 'y' };
-    expect(stripCredentials(plain)).toEqual(plain);
-    expect(stripCredentials(stripCredentials(withCredentials()))).toEqual(
-      stripCredentials(withCredentials()),
-    );
+  it('ALLOWED_CONFIG_KEYS is non-empty — an empty allowlist would strip all config', () => {
+    expect(ALLOWED_CONFIG_KEYS.length).toBeGreaterThan(0);
   });
 
-  it('CREDENTIAL_KEYS is non-empty — an empty strip list would make every assertion vacuous', () => {
-    expect(CREDENTIAL_KEYS.length).toBeGreaterThan(0);
+  it('⚠️ BOUND, ASSERTED NOT ASSUMED: this filter is TOP-LEVEL ONLY — nesting passes it', () => {
+    // Documented limitation, pinned so nobody reads the guard as wider than it is.
+    // The nested case is covered in the DATABASE by a credential-SHAPE check over the
+    // whole serialised value. If that DB check is ever removed, this test is the record
+    // of what stopped being covered.
+    const nested = sanitizeSettings({
+      columnMappings: { token: 'sk-ant-PLACEHOLDER_NOT_A_REAL_KEY' },
+    } as Bag) as Bag;
+    expect((nested.columnMappings as Bag).token).toBe('sk-ant-PLACEHOLDER_NOT_A_REAL_KEY');
   });
 });
 
 describe('the app_settings lockdown migration', () => {
   const sql = readFileSync(
-    join(
-      process.cwd(),
-      'supabase/migrations/20260806000000_lock_down_app_settings.sql',
-    ),
+    join(process.cwd(), 'supabase/migrations/20260806000000_lock_down_app_settings.sql'),
     'utf8',
   );
 
@@ -128,31 +148,100 @@ describe('the app_settings lockdown migration', () => {
   });
 
   it('grants no DELETE policy — a visitor must not be able to destroy the config', () => {
-    // The 2026-08-05 wipe destroyed 32 excluded-campaign ids that had no other copy.
     expect(sql).not.toMatch(/CREATE POLICY[^;]*FOR DELETE/i);
   });
 
-  it('strips both credential keys from the stored row', () => {
-    for (const key of CREDENTIAL_KEYS) {
-      expect(sql, `migration must remove ${key} from the row`).toContain(`- '${key}'`);
+  it('guards by ALLOWLIST, not by a list of forbidden keys', () => {
+    expect(sql).toContain('allowed_config_keys');
+    expect(sql).toContain('rejects undeclared key');
+    // and the client allowlist must agree with the SQL one, key for key
+    for (const key of ALLOWED_CONFIG_KEYS) {
+      expect(sql, `SQL allowlist is missing ${key}`).toContain(`'${key}'`);
     }
   });
 
-  it('installs a trigger that rejects a credential on INSERT *and* UPDATE', () => {
+  it('rejects credential-shaped VALUES anywhere in the object, which covers nesting', () => {
+    expect(sql).toContain('credential-shaped value');
+    expect(sql).toContain('NEW.value::text'); // whole object, nested included
+    expect(sql).toMatch(/sk-ant-/); // at least the two we have seen in this project
+    expect(sql).toMatch(/pat\[A-Za-z0-9\]/);
+  });
+
+  it('installs the trigger on INSERT *and* UPDATE', () => {
     expect(sql).toContain('BEFORE INSERT OR UPDATE ON public.app_settings');
-    for (const key of CREDENTIAL_KEYS) {
-      expect(sql).toContain(`'${key}'`);
+  });
+
+  it('refuses to EMPTY a curated collection, not only to blank a connection string', () => {
+    // @raccoon's reproduced race (raccoon/stab ce0f31b) writes the browser's stale copy
+    // over the shared row. If that copy happens to hold a populated googleSheetUrl, the
+    // scalar guard stays SILENT and the curated lists are destroyed anyway — which is
+    // the 32-exclusions loss nobody could attribute. This is the half that catches it.
+    expect(sql).toContain('protected_collections');
+    expect(sql).toContain('refusing to empty');
+    for (const key of ['excludedCampaigns', 'setterBonusRates', 'accountAliases']) {
+      expect(sql, `collection guard must cover ${key}`).toContain(`'${key}'`);
     }
+    // and it must count members, not merely test presence — an empty array IS present
+    expect(sql).toContain('jsonb_array_length');
+  });
+
+  it('🎯 the guard fires on THE OBSERVED ATTACK SHAPE, not on an imagined one', () => {
+    // @bird measured the live row as DEFAULT_SETTINGS field-for-field (8/8 exact,
+    // including perfThresholds as a 4-tuple and all 21 columnMappings pairs), and
+    // @raccoon found the mechanism: Settings.tsx:116 debounce-autosaves
+    // performSave(form, accountMappings) where `form` is stuck on DEFAULTS.
+    //
+    // performSave does `{ ...formToSave, accountAliases: mappingsToSave }` — READ, not
+    // assumed: that is why accountAliases survives at 62 while the blob fields empty.
+    //
+    // So the write is DEFAULTS-with-real-aliases over the real row. These are the
+    // transitions it actually causes, and each must be covered:
+    const preWipe = {
+      googleSheetUrl: 'https://docs.google.com/spreadsheets/d/X/edit',
+      callCenterSheetUrl: 'https://docs.google.com/spreadsheets/d/Y/edit',
+      airtableBaseId: 'appTEST123',
+      excludedCampaigns: new Array(32).fill('c'),
+      inactiveSetters: new Array(4).fill('s'),
+      accountAliases: new Array(62).fill({}),
+    };
+    const defaultsWrite = {
+      googleSheetUrl: '',
+      callCenterSheetUrl: '',
+      airtableBaseId: '',
+      excludedCampaigns: [],
+      inactiveSetters: [],
+      accountAliases: new Array(62).fill({}), // ← replaced with the loaded mappings
+    };
+
+    const scalarHits = ['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId'].filter(
+      k => preWipe[k] !== '' && defaultsWrite[k] === '',
+    );
+    const collectionHits = ['excludedCampaigns', 'inactiveSetters', 'accountAliases'].filter(
+      k => (preWipe[k] as unknown[]).length > 0 && (defaultsWrite[k] as unknown[]).length === 0,
+    );
+
+    expect(scalarHits).toEqual(['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId']);
+    expect(collectionHits).toEqual(['excludedCampaigns', 'inactiveSetters']);
+    // ⚠️ accountAliases is deliberately NOT in that list — performSave repopulates it,
+    // so it never makes the transition. If a future reader "fixes" the guard by
+    // trusting a table instead of reading performSave, this is the line that objects.
+    expect(collectionHits).not.toContain('accountAliases');
+
+    // and every field that DOES transition must be named in the migration's guards
+    for (const k of [...scalarHits, ...collectionHits]) {
+      expect(sql, `guard must cover ${k}`).toContain(`'${k}'`);
+    }
+    // FIVE independent conditions fire on this shape — the write is refused five ways.
+    expect(scalarHits.length + collectionHits.length).toBe(5);
   });
 
   it('CONTROL: these assertions fail against a permissive migration', () => {
-    // Without this the four assertions above could all pass on any file containing the
-    // right words. Proves they discriminate.
     const permissive = `
       CREATE POLICY "Allow public read" ON public.app_settings FOR SELECT USING (true);
       CREATE POLICY "Allow public delete" ON public.app_settings FOR DELETE USING (true);
     `;
     expect(permissive).not.toContain('DROP POLICY IF EXISTS "Allow public read"');
     expect(permissive).toMatch(/CREATE POLICY[^;]*FOR DELETE/i);
+    expect(permissive).not.toContain('allowed_config_keys');
   });
 });

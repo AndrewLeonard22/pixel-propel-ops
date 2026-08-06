@@ -19,7 +19,14 @@ import { loadAccountMappings, getAccountMapping } from '@/lib/config';
  * A KEY IS NOT. Never introduce VITE_ANTHROPIC_API_KEY — it would be exactly as
  * exposed as the settings row was, just harder to notice.
  */
-const AI_PROXY_ENDPOINT: string = import.meta.env.VITE_AI_PROXY_ENDPOINT ?? '';
+const AI_PROXY_ENDPOINT: string =
+  import.meta.env.VITE_AI_PROXY_ENDPOINT ??
+  // Default to the Supabase edge function shipped in supabase/functions/anthropic-proxy.
+  // Deriving it means deploying the function is the ONLY step — no extra env var to
+  // forget, and forgetting one would leave this empty and the assistant silently dark.
+  (import.meta.env.VITE_SUPABASE_URL
+    ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/anthropic-proxy`
+    : '');
 
 function buildContext(accounts: any[], settings: any): string {
   const mappings = loadAccountMappings();
