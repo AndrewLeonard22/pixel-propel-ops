@@ -133,9 +133,15 @@ export function buildHonestNumbersReport(input: {
         'which nobody set.',
     );
   } else if (input.fabricatedRateCount > 0) {
+    // ⚠️ DELIBERATELY NUMBERLESS. @anvil disclosed that this count is computed over ALL
+    // appointments in useData, while Agents.tsx computes its rows over appointments
+    // filtered by BOTH the selected pay period AND leadValid === 'valid'. The two
+    // populations genuinely differ, so a number here can contradict the number on the
+    // page it is describing — the same banner-vs-row disagreement this branch spent the
+    // night removing. Pointing at the authoritative surface beats competing with it.
     messages.push(
-      `${input.fabricatedRateCount} setter${input.fabricatedRateCount === 1 ? '' : 's'} ` +
-        'have no configured bonus rate and are shown at the $5 default.',
+      'Some setters have no configured bonus rate and are shown at the $5 default. ' +
+        'See the Agents page for which ones.',
     );
   }
 

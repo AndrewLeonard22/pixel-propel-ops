@@ -161,18 +161,27 @@ describe('buildHonestNumbersReport — the banner payload', () => {
       allRatesFabricated: false,
     });
     expect(r.messages).toHaveLength(1);
-    expect(r.messages[0]).toContain('2 setters');
+    // 🔴 DELIBERATELY NUMBERLESS — the count is computed over a DIFFERENT population
+    // than the Agents page uses (page filters by pay period AND leadValid), so a number
+    // here can contradict the page it describes.
+    expect(r.messages[0]).not.toMatch(/\d+ setters?/);
+    expect(r.messages[0]).toContain('See the Agents page');
     expect(r.messages[0]).not.toContain('No setter bonus rates');
   });
 
-  it('singular/plural reads correctly — one setter is not "1 setters"', () => {
-    const r = buildHonestNumbersReport({
-      settings: makeSettings({ excludedCampaigns: ['222'] }),
-      campaignIdsInData: CAMPAIGNS,
-      fabricatedRateCount: 1,
-      allRatesFabricated: false,
-    });
-    expect(r.messages[0]).toContain('1 setter ');
-    expect(r.messages[0]).not.toContain('1 setters');
+  it('🔴 quotes NO count in the partial case, whatever the count is', () => {
+    // A number here would be authoritative-looking and disagree with the Agents page.
+    for (const n of [1, 2, 7]) {
+      const r = buildHonestNumbersReport({
+        settings: makeSettings({ excludedCampaigns: ['222'] }),
+        campaignIdsInData: CAMPAIGNS,
+        fabricatedRateCount: n,
+        allRatesFabricated: false,
+      });
+      // "$5" is legitimate — it is the default RATE. What must not appear is a COUNT
+      // of setters, because that is the figure the Agents page would contradict.
+      expect(r.messages[0]).not.toMatch(/\d+\s+setters?/);
+      expect(r.messages[0]).toContain('$5');
+    }
   });
 });
