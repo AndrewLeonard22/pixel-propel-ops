@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildAccountSummaries } from "./dataService";
+import { buildAccountSummaries, metricIsMeaningful } from "./dataService";
 import { makeAdSpendRow, makeAppointmentRow, makeCallRow, makeSettings } from "@/test/factories";
 
 /**
@@ -114,5 +114,41 @@ describe("buildAccountSummaries — source liveness reaches the ROW, not just th
     expect(acct.spend).toBeGreaterThan(0);
     expect(acct.appointments).toBeGreaterThan(0);
     expect(acct.costPerAppt).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * THE SECOND WAY A NUMBER CAN BE MEANINGLESS, and it fires on a perfectly healthy feed.
+ *
+ * @raccoon measured (RACC-031) that `costPerAppt` reads $0.00 for BOTH a dead source and a
+ * live account with no appointments — so it cannot discriminate, while `cpl` can ($50.00
+ * vs $0.00). The source flag alone does not fix that: a live Windsor feed with zero
+ * appointments still divides by zero and still renders a confident $0.00.
+ */
+describe("metricIsMeaningful — a ratio with a zero denominator is NOT zero", () => {
+  it("refuses when the SOURCE did not answer, whatever the denominator", () => {
+    expect(metricIsMeaningful(false, 10)).toBe(false);
+    expect(metricIsMeaningful(false, 0)).toBe(false);
+  });
+
+  it("refuses when the DENOMINATOR is zero, even on a healthy source", () => {
+    // RACC-031's case: spend is real, appointments are genuinely 0, and cost-per-
+    // appointment is undefined — not $0.00.
+    expect(metricIsMeaningful(true, 0)).toBe(false);
+    expect(metricIsMeaningful(undefined, 0)).toBe(false);
+  });
+
+  it("ALLOWS a real number — the anti-vacuity control", () => {
+    expect(metricIsMeaningful(true, 1)).toBe(true);
+    expect(metricIsMeaningful(true, 10)).toBe(true);
+  });
+
+  it("ABSENT MEANS KNOWN — Targets and TeamPerformance pass no flag at all", () => {
+    // `!undefined` is true, so a `!known` implementation would blank both pages.
+    expect(metricIsMeaningful(undefined, 10)).toBe(true);
+  });
+
+  it("does not treat a negative denominator as usable", () => {
+    expect(metricIsMeaningful(true, -1)).toBe(false);
   });
 });

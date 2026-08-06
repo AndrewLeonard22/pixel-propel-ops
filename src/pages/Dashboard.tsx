@@ -4,7 +4,7 @@ import { ConfigBanner, ErrorBanner } from '@/components/common/Banners';
 import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
-import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries } from '@/lib/dataService';
+import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries, metricIsMeaningful } from '@/lib/dataService';
 import { saveSettings, saveAccountMappings, loadAccountMappings, getAccountMapping } from '@/lib/config';
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check, X } from 'lucide-react';
 import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow, AccountMapping, AppSettings } from '@/lib/types';
@@ -64,20 +64,63 @@ function KPICard({ label, value, mono = true }: { label: string; value: string; 
   );
 }
 
-function CPLBadge({ value }: { value: number }) {
-  const color = value === 0 ? 'text-muted-foreground' : value < 35 ? 'text-success' : value <= 55 ? 'text-warning' : 'text-destructive';
-  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
+/**
+ * The only honest render for a source that did not answer. A zero here is a CLAIM — that
+ * the account booked nothing, closed nothing, earned nothing — and a dead feed cannot
+ * support it. @bird measured the tiles printing this while the table beside them printed
+ * $0.00 from the same dead source.
+ *
+ * ⚠️ ALWAYS COMPARE `=== false`, NEVER `!flag`. The flags are OPTIONAL: Targets.tsx and
+ * TeamPerformance.tsx build summaries without source outcomes, so their rows carry
+ * `undefined`, which means KNOWN. `!undefined` is true and would blank two working pages —
+ * the mirror of the bug this fixes.
+ */
+const UNKNOWN = '—';
+
+/**
+ * THE THREE RATIO BADGES, KEYED ON THE FLAG AND THE DENOMINATOR — NEVER ON THE VALUE.
+ *
+ * @raccoon (RACC-030/031) measured the two failure shapes that were sitting side by side
+ * in this file with OPPOSITE policies:
+ *
+ *   CostPerApptBadge   value === 0 -> grey, but PRINTS $0.00       fabricates a number  🔴
+ *   LeadToApptBadge    value === 0 -> "—"                          fails safe, still wrong
+ *
+ * Both were inferring "do we know this" FROM THE VALUE. The second only looks correct: a
+ * genuine 0% lead-to-appointment rate — a real and bad result a buyer needs to see — was
+ * being rendered as if we had no idea. Copying it would have fixed one badge and preserved
+ * the class in the other.
+ *
+ * ⚠️ AND IT GOT WORSE THE MOMENT I MADE "—" MEAN "the source did not answer": the same
+ * glyph then carried two unrelated meanings on one row, so a reader could not tell a dead
+ * feed from a zero. The value is no longer consulted for knownness anywhere.
+ */
+function RatioBadge({ known, denominator, color, children }: {
+  known: boolean | undefined;
+  denominator: number;
+  color: string;
+  children: React.ReactNode;
+}) {
+  if (!metricIsMeaningful(known, denominator)) {
+    return <span className="font-mono-tabular text-muted-foreground">{UNKNOWN}</span>;
+  }
+  return <span className={`font-mono-tabular font-semibold ${color}`}>{children}</span>;
 }
 
-function CostPerApptBadge({ value }: { value: number }) {
-  const color = value === 0 ? 'text-muted-foreground' : value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
-  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
+function CPLBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
+  const color = value < 35 ? 'text-success' : value <= 55 ? 'text-warning' : 'text-destructive';
+  return <RatioBadge known={known} denominator={leads} color={color}>{formatCurrency(value)}</RatioBadge>;
 }
 
-function LeadToApptBadge({ value }: { value: number }) {
-  if (value === 0) return <span className="font-mono-tabular text-muted-foreground">—</span>;
+function CostPerApptBadge({ value, appointments, known }: { value: number; appointments: number; known?: boolean }) {
+  const color = value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
+  return <RatioBadge known={known} denominator={appointments} color={color}>{formatCurrency(value)}</RatioBadge>;
+}
+
+function LeadToApptBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
+  // A true 0% now renders as 0% — it is a real result, not an absence.
   const color = value >= 10 ? 'text-success' : value >= 5 ? 'text-warning' : 'text-destructive';
-  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatPercent(value)}</span>;
+  return <RatioBadge known={known} denominator={leads} color={color}>{formatPercent(value)}</RatioBadge>;
 }
 
 function getPerfByProgram(program: string, cpl: number, costPerAppt: number, appointments: number): PerformanceLevel | null {
@@ -92,19 +135,6 @@ function getPerfByProgram(program: string, cpl: number, costPerAppt: number, app
   if (costPerAppt <= 240) return 'fair';
   return 'poor';
 }
-
-/**
- * The only honest render for a source that did not answer. A zero here is a CLAIM — that
- * the account booked nothing, closed nothing, earned nothing — and a dead feed cannot
- * support it. @bird measured the tiles printing this while the table beside them printed
- * $0.00 from the same dead source.
- *
- * ⚠️ ALWAYS COMPARE `=== false`, NEVER `!flag`. The flags are OPTIONAL: Targets.tsx and
- * TeamPerformance.tsx build summaries without source outcomes, so their rows carry
- * `undefined`, which means KNOWN. `!undefined` is true and would blank two working pages —
- * the mirror of the bug this fixes.
- */
-const UNKNOWN = '—';
 
 function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: (account: AccountSummary) => void }) {
   const mappings = loadAccountMappings();
@@ -132,15 +162,15 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
       </td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.spendKnown === false ? UNKNOWN : formatCurrency(account.spend)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.spendKnown === false ? UNKNOWN : formatNumber(account.leads)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.spendKnown === false ? UNKNOWN : <CPLBadge value={account.cpl} />}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell"><CPLBadge value={account.cpl} leads={account.leads} known={account.spendKnown} /></td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.callsKnown === false ? UNKNOWN : formatNumber(account.totalDials)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.apptsKnown === false ? UNKNOWN : formatNumber(account.appointments)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">
         {/* Two sources: leads come from Windsor, appointments from Airtable. Either one
             dead makes the ratio unknowable, not zero. */}
-        {account.spendKnown === false || account.apptsKnown === false ? UNKNOWN : <LeadToApptBadge value={account.leadPercent} />}
+        <LeadToApptBadge value={account.leadPercent} leads={account.leads} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} />
       </td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.spendKnown === false || account.apptsKnown === false ? UNKNOWN : <CostPerApptBadge value={account.costPerAppt} />}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} appointments={account.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.apptsKnown === false ? UNKNOWN : formatNumber(account.closed)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.apptsKnown === false ? UNKNOWN : formatCurrency(account.revenue)}</td>
     </tr>
@@ -234,11 +264,11 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
             </div>
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">CPL</p>
-              <p className="text-lg font-bold font-mono-tabular"><CPLBadge value={account.cpl} /></p>
+              <p className="text-lg font-bold font-mono-tabular"><CPLBadge value={account.cpl} leads={account.leads} known={account.spendKnown} /></p>
             </div>
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Cost/Appt</p>
-              <p className="text-lg font-bold font-mono-tabular"><CostPerApptBadge value={account.costPerAppt} /></p>
+              <p className="text-lg font-bold font-mono-tabular"><CostPerApptBadge value={account.costPerAppt} appointments={account.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></p>
             </div>
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Revenue</p>
@@ -353,9 +383,9 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                       <div className="flex flex-wrap gap-3 mt-1.5 ml-5">
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-xs font-mono-tabular font-semibold">{formatCurrency(c.spend)}</span></span>
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-xs font-mono-tabular font-semibold">{c.leads}</span></span>
-                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-xs font-mono-tabular font-semibold"><CPLBadge value={c.cpl} /></span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-xs font-mono-tabular font-semibold"><CPLBadge value={c.cpl} leads={c.leads} known={account.spendKnown} /></span></span>
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-xs font-mono-tabular font-semibold">{c.appointments}</span></span>
-                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-xs font-mono-tabular font-semibold"><CostPerApptBadge value={c.costPerAppt} /></span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-xs font-mono-tabular font-semibold"><CostPerApptBadge value={c.costPerAppt} appointments={c.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                       </div>
                     </div>
                     {isExpanded && c.adSets && c.adSets.length > 0 && (
@@ -379,9 +409,9 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                                 <div className="flex flex-wrap gap-3 mt-1 pl-5">
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[11px] font-mono-tabular font-semibold">{formatCurrency(as.spend)}</span></span>
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.leads}</span></span>
-                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} /></span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} leads={as.leads} known={account.spendKnown} /></span></span>
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.appointments}</span></span>
-                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} /></span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} appointments={as.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                                 </div>
                               </div>
                               {isAdSetExpanded && as.ads && as.ads.length > 0 && (
@@ -395,9 +425,9 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                                       <div className="flex flex-wrap gap-3 pl-3">
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[10px] font-mono-tabular font-semibold">{formatCurrency(ad.spend)}</span></span>
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[10px] font-mono-tabular font-semibold">{ad.leads}</span></span>
-                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[10px] font-mono-tabular font-semibold"><CPLBadge value={ad.cpl} /></span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[10px] font-mono-tabular font-semibold"><CPLBadge value={ad.cpl} leads={ad.leads} known={account.spendKnown} /></span></span>
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[10px] font-mono-tabular font-semibold">{ad.appointments}</span></span>
-                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[10px] font-mono-tabular font-semibold"><CostPerApptBadge value={ad.costPerAppt} /></span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[10px] font-mono-tabular font-semibold"><CostPerApptBadge value={ad.costPerAppt} appointments={ad.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                                       </div>
                                     </div>
                                   ))}

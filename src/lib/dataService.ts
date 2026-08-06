@@ -460,6 +460,33 @@ export interface SourceKnown {
   calls?: boolean;
 }
 
+/**
+ * May this metric be rendered as a NUMBER at all?
+ *
+ * Two DIFFERENT ways a figure can be meaningless, and both currently render as a confident
+ * zero:
+ *
+ *   ① THE SOURCE DID NOT ANSWER — `known === false`. A failed fetch contributes `[]`, and
+ *      every sum over `[]` is 0. @bird measured 61 of 61 accounts showing COST/APPT $0.00
+ *      from a dead feed.
+ *
+ *   ② THE DENOMINATOR IS ZERO — cost-per-appointment with no appointments is not $0.00,
+ *      it is UNDEFINED. `totalAppts > 0 ? spend/totalAppts : 0` collapses "cannot be
+ *      computed" into "computed, and it is nothing". This one fires even when every source
+ *      is perfectly healthy, which is why @raccoon measured that costPerAppt CANNOT
+ *      discriminate a dead source from a live one — it reads $0.00 in both (RACC-031).
+ *
+ * ⚠️ THIS APPLIES TO RATIOS, NOT TO SUMS. A live source reporting 0 dials genuinely made
+ * zero calls, and blanking that would hide a real and important fact. Only a quotient is
+ * meaningless at a zero denominator.
+ *
+ * ⚠️ `known === false`, never `!known` — absent means known, and `!undefined` is true.
+ */
+export function metricIsMeaningful(known: boolean | undefined, denominator: number): boolean {
+  if (known === false) return false;
+  return denominator > 0;
+}
+
 export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],
