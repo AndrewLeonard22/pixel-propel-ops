@@ -199,6 +199,21 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
     // "Edge Function returned a non-2xx status code", which names nothing a user can act on.
     let detail = invokeError.message;
     const ctx = (invokeError as { context?: Response }).context;
+
+    // 404 MEANS THE FUNCTION IS NOT DEPLOYED, AND THAT IS A DIFFERENT PROBLEM ENTIRELY.
+    // @apprentice measured that these 207 lines of Deno have NEVER executed — not run,
+    // not typechecked, not called, in any environment. Step 1 of DEPLOY.md is their first
+    // execution ever, so a failure there is EXPECTED at least once and must be legible.
+    // "Edge Function returned a non-2xx status code" would send someone to debug a token
+    // for a function that was never pasted.
+    if (ctx?.status === 404) {
+      throw new Error(
+        'Airtable proxy: the airtable-proxy Edge Function is not deployed. ' +
+          'Paste it and set AIRTABLE_TOKEN — see supabase/functions/DEPLOY.md. ' +
+          'This is not a token problem.',
+      );
+    }
+
     if (ctx && typeof ctx.json === 'function') {
       try {
         const body = await ctx.json();

@@ -105,6 +105,29 @@ describe("fetchAirtableData — a dead proxy must never read as zero appointment
     await expect(fetchAirtableData(SETTINGS)).rejects.toThrow(/unusable response/);
   });
 
+  it("🔑 404 says THE FUNCTION IS NOT DEPLOYED — the first-execution failure", async () => {
+    // @apprentice measured that the edge functions have NEVER executed in any
+    // environment. Step 1 of DEPLOY.md is their first run ever, so a failure there is
+    // expected at least once — and "returned a non-2xx status code" would send someone to
+    // debug a token for a function that was never pasted.
+    const err = Object.assign(new Error("Edge Function returned a non-2xx status code"), {
+      context: { status: 404, json: async () => ({}) },
+    });
+    invoke.mockResolvedValue({ data: null, error: err });
+
+    await expect(fetchAirtableData(SETTINGS)).rejects.toThrow(/not deployed/i);
+    await expect(fetchAirtableData(SETTINGS)).rejects.toThrow(/not a token problem/i);
+  });
+
+  it("CONTROL: a non-404 still surfaces the proxy's own message, not the 404 copy", async () => {
+    const err = Object.assign(new Error("non-2xx"), {
+      context: { status: 401, json: async () => ({ status: "auth_failed", message: "Airtable rejected the token." }) },
+    });
+    invoke.mockResolvedValue({ data: null, error: err });
+
+    await expect(fetchAirtableData(SETTINGS)).rejects.toThrow(/Airtable rejected the token/);
+  });
+
   it("ANTI-VACUITY CONTROL: a real payload maps through to AppointmentRows", async () => {
     invoke.mockResolvedValue({
       data: {
