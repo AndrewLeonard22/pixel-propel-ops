@@ -152,3 +152,39 @@ describe("metricIsMeaningful — a ratio with a zero denominator is NOT zero", (
     expect(metricIsMeaningful(true, -1)).toBe(false);
   });
 });
+
+/**
+ * REGRESSION LOCK ON @bird's DRIVEN ROW.
+ *
+ * He drove `stabilization @ f66eed2` and eyeballed the Backyard Paradiso row with the
+ * call-centre and Airtable sources killed:
+ *
+ *   SPEND        LEADS   CPL      DIALS  APPTS  L→A  C/APPT  CLOSED  REV
+ *   $150,296.18  7,178   $20.94   —      —      —    —       —       —
+ *
+ * The badge rework landed AFTER that drive, so these lock the decisions his run
+ * exercised. Every one must stay identical — the rework was supposed to change the
+ * live-source-zero-denominator case ONLY, and nothing he actually saw.
+ *
+ * ⭐ THE DISTINCTION HE VERIFIED, and the reason a blanket "—" would have been wrong:
+ *     Airtable killed, call-centre ALIVE  ->  DIALS 0   a real zero, honestly reported
+ *     call-centre killed                  ->  DIALS —   unknown, not zero
+ */
+describe("@bird's driven row (f66eed2) — locked against the later badge rework", () => {
+  const LEADS = 7178;
+
+  it("CPL still renders: spend known, 7,178 leads is a real denominator", () => {
+    expect(metricIsMeaningful(true, LEADS)).toBe(true);
+  });
+
+  it("every dead-source cell he saw stays blank, denominator irrelevant", () => {
+    expect(metricIsMeaningful(false, LEADS)).toBe(false);
+    expect(metricIsMeaningful(false, 0)).toBe(false);
+  });
+
+  it("THE NEW CASE HIS DRIVE DID NOT COVER: sources alive, zero appointments", () => {
+    // Before the rework this rendered a confident $0.00 on a perfectly healthy feed —
+    // @raccoon measured it at 61 of 61 accounts (RACC-031).
+    expect(metricIsMeaningful(true, 0)).toBe(false);
+  });
+});
