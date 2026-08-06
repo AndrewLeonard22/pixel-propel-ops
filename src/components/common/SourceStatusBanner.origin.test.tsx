@@ -48,12 +48,13 @@ function status(over: Partial<SourceStatus>): SourceStatus {
 type Comp = { state: 'complete' | 'truncated' | 'unverifiable'; rawRows: number | null; derivedRows: number | null; droppedRows: number; reason: string | null };
 const HEALTHY: Comp = { state: 'complete', rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null };
 
-function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY, refreshVerdict: unknown = null) {
+function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY, refreshVerdict: unknown = null, unresolvedClients = 0) {
   useDataMock.mockReturnValue({
     settingsLoaded: true,
     adSpend: [],
     completeness,
     refreshVerdict,
+    unresolvedClients,
     loading: false,
     refresh: () => {},
     settingsOrigin: origin,
@@ -227,5 +228,41 @@ describe('SourceStatusBanner — a REJECTED refresh says so on screen', () => {
     // whole component never renders and the rejection reaches no one.
     const { container } = mount('database', null, HEALTHY, REJECTED);
     expect(container.textContent).toMatch(/REJECTED/);
+  });
+});
+
+/**
+ * A — THE BANNER MUST NAME THE REMEDY, AND THE REMEDY MUST BE THE RIGHT ONE.
+ *
+ * @bird measured every candidate against the known account names: Attribution Key,
+ * Service/Campaign, Client Billing Model and Campaign Name all matched ZERO accounts —
+ * they hold campaign, service and billing. `Client Name` is the ONLY client identifier and
+ * it is a linked record.
+ *
+ * ⇒ So this is a SCHEMA change, not a columnMappings change, and the banner previously said
+ *   "until the Airtable field is mapped to a text column" — pointing at a text field THAT
+ *   DOES NOT EXIST. A remedy that cannot be followed is worse than no remedy: it sends the
+ *   reader to look for something that is not there and makes the tool look wrong.
+ */
+describe('SourceStatusBanner — the unresolved-client remedy', () => {
+  it('🔴 names the LOOKUP FIELD remedy, which is the one that exists', () => {
+    const { container } = mount('database', null, HEALTHY, null, 43);
+    const t = container.textContent ?? '';
+    expect(t).toMatch(/43 appointments are not matched/i);
+    expect(t).toMatch(/LINKED RECORD/i);
+    expect(t).toMatch(/Lookup field/i);
+    expect(t).toMatch(/pulls Name from the linked Client record/i);
+  });
+
+  it('🔑 says they ARE counted — the P0 was counting them, and the copy must agree', () => {
+    // If the banner said they were excluded while the tile counted them, the screen would
+    // contradict itself and one of the two would be believed.
+    const { container } = mount('database', null, HEALTHY, null, 43);
+    expect(container.textContent).toMatch(/counted in the totals/i);
+  });
+
+  it('🔴 ANTI-VACUITY CONTROL: zero unresolved renders no remedy at all', () => {
+    const { container } = mount('database', null, HEALTHY, null, 0);
+    expect(container.textContent ?? '').not.toMatch(/Lookup field/i);
   });
 });

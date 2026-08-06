@@ -137,9 +137,11 @@ export default function SourceStatusBanner() {
    * this line the appointment counts would simply be lower and nothing would say why.
    */
   const unresolved = unresolvedClients > 0
-    ? `${unresolvedClients.toLocaleString()} appointment field${unresolvedClients > 1 ? 's' : ''} could not be resolved to a client name — ` +
-      `Airtable returned a linked-record id instead of text. Those appointments are counted as UNMATCHED rather than ` +
-      `guessed at, so account-level appointment numbers are UNDERSTATED until the Airtable field is mapped to a text column.`
+    ? `${unresolvedClients.toLocaleString()} appointment${unresolvedClients > 1 ? 's are' : ' is'} not matched to an account: ` +
+      `Airtable's "Client Name" is a LINKED RECORD, so it returns a record id rather than the client's name. ` +
+      `They are counted in the totals but cannot be credited to an account. ` +
+      `TO FIX: in Airtable, add a Lookup field on the Appointments table that pulls Name from the linked Client record, ` +
+      `then point "Client Name" at it in Settings → column mappings.`
     : null;
 
   if (problems.length === 0 && !staleFeed && !incomplete && !rejected && !unresolved) return null;
