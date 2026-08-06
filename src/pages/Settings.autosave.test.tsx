@@ -47,7 +47,7 @@ vi.mock('@/lib/config', async () => {
 const useDataMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useData', () => ({ useData: useDataMock }));
 
-const { default: SettingsPage } = await import('./Settings');
+const { default: SettingsPage, stableStringify } = await import('./Settings');
 
 const DB_SETTINGS = makeSettings({
   googleSheetUrl: 'https://docs.google.com/spreadsheets/d/REAL/edit',
@@ -200,5 +200,33 @@ describe('Settings autosave — a page LOAD is not an EDIT', () => {
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(afterEdit);
+  });
+});
+
+/**
+ * @raccoon measured this edge on my fix and explicitly did NOT ask me to change it — he
+ * rated it low severity and correct that key order is stable today. Fixed anyway, because
+ * the failure mode IS @bird's P0 (an upsert with no user edit), and a claim about a
+ * serialiser is exactly the kind of thing that should be run rather than asserted.
+ */
+describe('stableStringify — key ORDER must not read as an edit', () => {
+  it('🔴 the edge @raccoon found: same values, different key order, SAME string', () => {
+    expect(stableStringify({ a: 'x', b: 'y' })).toBe(stableStringify({ b: 'y', a: 'x' }));
+  });
+
+  it('and plain JSON.stringify does NOT — so the fix is not a no-op', () => {
+    // The control. Without this, the assertion above passes trivially if stableStringify
+    // were ever reduced back to JSON.stringify on an already-ordered fixture.
+    expect(JSON.stringify({ a: 'x', b: 'y' })).not.toBe(JSON.stringify({ b: 'y', a: 'x' }));
+  });
+
+  it('ANTI-VACUITY: genuinely different VALUES still differ', () => {
+    expect(stableStringify({ a: 'x' })).not.toBe(stableStringify({ a: 'z' }));
+  });
+
+  it('sorts nested objects too, and does NOT reorder arrays', () => {
+    expect(stableStringify({ o: { b: 1, a: 2 } })).toBe(stableStringify({ o: { a: 2, b: 1 } }));
+    // Array order is MEANINGFUL for accountAliases — reordering it would hide a real edit.
+    expect(stableStringify({ l: [1, 2] })).not.toBe(stableStringify({ l: [2, 1] }));
   });
 });

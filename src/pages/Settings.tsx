@@ -18,6 +18,26 @@ const REQUIRED_MAPPINGS = [
   'Closed Revenue', 'Amount Charged', 'Project Value',
 ];
 
+/**
+ * ⚠️ KEY-ORDER-STABLE SERIALISATION — @raccoon measured this edge on my own fix.
+ *
+ *     {a:"x", b:"y"} vs {b:"y", a:"x"}   same VALUES, different key ORDER
+ *     JSON.stringify comparison ... NOT equal  ⇒ reads as an EDIT ⇒ schedules a write
+ *
+ * He rated it low severity and did not ask me to change it, and he is right that it is
+ * stable today: spreads preserve insertion order and the shape is seeded from
+ * DEFAULT_SETTINGS. ⭐ FIXED ANYWAY, because the failure mode IS @bird's P0 — an upsert
+ * with no user edit — and re-opening a P0 through a serialisation detail is not a class of
+ * risk worth carrying for three lines.
+ */
+export function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_k, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.keys(v as object).sort().map(k => [k, (v as Record<string, unknown>)[k]]))
+      : v,
+  );
+}
+
 export default function SettingsPage() {
   const { settings, setSettings, adSpend, accounts, callData, appointments, refresh, settingsOrigin, settingsLoaded } = useData();
   const [form, setForm] = useState<AppSettings>(settings);
@@ -64,7 +84,7 @@ export default function SettingsPage() {
     if (hydrated || !settingsLoaded) return;
     setForm(settings);
     setAccountMappings(current => {
-      baselineRef.current = JSON.stringify({ form: settings, mappings: current });
+      baselineRef.current = stableStringify({ form: settings, mappings: current });
       return current;
     });
     setHydrated(true);
@@ -108,7 +128,7 @@ export default function SettingsPage() {
          * because the hydration effect captures the mappings the same way.
          */
         setForm(currentForm => {
-          baselineRef.current = JSON.stringify({ form: currentForm, mappings: dbMappings });
+          baselineRef.current = stableStringify({ form: currentForm, mappings: dbMappings });
           return currentForm;
         });
       }
@@ -208,7 +228,7 @@ useEffect(() => {
     // is indistinguishable, to a dependency array, from the user typing. Comparing CONTENT
     // to the baseline is what separates them — a full page load now writes nothing, and a
     // real edit still saves on the in-app path where the autosave used to be dead.
-    const current = JSON.stringify({ form, mappings: accountMappings });
+    const current = stableStringify({ form, mappings: accountMappings });
     if (baselineRef.current === current) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
