@@ -2,6 +2,7 @@ import { AlertTriangle, PlugZap, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useData } from '@/hooks/useData';
 import { needsAttention, SOURCE_KEYS, type SourceStatus } from '@/lib/sourceStatus';
+import { settingsAreUnverified } from '@/lib/config';
 
 /**
  * Says, per source, what is wrong and what the numbers on screen are worth.
@@ -52,11 +53,58 @@ function stateLine(s: SourceStatus): { icon: typeof AlertTriangle; tone: string;
 }
 
 export default function SourceStatusBanner() {
-  const { sources, refresh, settingsLoaded, loading } = useData();
+  const { sources, refresh, settingsLoaded, loading, settingsOrigin, settingsDetail } = useData();
 
   // Before the settings have loaded, "not connected" is not known to be true. Saying it
   // early is the same defect as printing a zero for a source that failed.
   if (!settingsLoaded) return null;
+
+  /**
+   * 🔴 THE LINES BELOW NAME THE USER'S SETTINGS, SO THEY MUST NOT RUN WHEN WE NEVER READ THEM.
+   *
+   * @bird drove every routed page of the live broken deployment and counted NINETEEN
+   * "Missing: …" sentences across SIX routes — eighteen of them from this one component,
+   * three per route — and ZERO of them contained the words supabase, database or
+   * deployment. Every one blamed @andrew's configuration for a build that shipped without
+   * its database URL and had never read his settings at all.
+   *
+   * ⚠️ `missingSettings` IS DERIVED FROM AN UNVERIFIED LOCAL COPY in the two unverified
+   * origins, so enumerating it is inventing a specific, actionable, WRONG instruction.
+   * "Missing: Google Sheet URL" sends someone to paste a URL that may already be set.
+   *
+   * ⭐ AND THIS COMPONENT COULD NOT HAVE BEEN FIXED FROM ConfigBanner: that banner only
+   * renders when `configured` is FALSE and returns early, so it is a COLD-browser surface.
+   * @bird measured a WARM browser, where `configured` is true, ConfigBanner never mounts,
+   * and this is the component doing the talking. Two surfaces, one defect, and fixing the
+   * first says nothing about the second.
+   */
+  if (settingsAreUnverified(settingsOrigin)) {
+    const isBuild = settingsOrigin === 'local-not-configured';
+    return (
+      <div className="border border-destructive/30 rounded-xl bg-destructive/5 px-4 py-3 space-y-2" role="alert">
+        <div className="flex items-start gap-2.5 text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-destructive" />
+          <p className="flex-1 text-foreground/90">
+            {isBuild
+              ? 'This app was deployed without its database URL, so it never read your settings. Nothing below reflects your account, and your saved configuration has not been lost or changed.'
+              : 'Your settings could not be read from the database, so nothing below reflects your account. Your saved configuration has not been lost or changed.'}
+            {settingsDetail ? ` (${settingsDetail})` : ''}
+          </p>
+        </div>
+        {/* Retry is offered ONLY where retrying can work. A build with no URL will never
+            succeed on a second attempt, and a button that cannot help is a false promise. */}
+        {!isBuild && (
+          <button
+            onClick={() => refresh()}
+            disabled={loading}
+            className="text-xs font-medium underline text-foreground disabled:opacity-50"
+          >
+            Try again
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const problems = SOURCE_KEYS.map(k => sources[k]).filter(needsAttention);
   if (problems.length === 0) return null;

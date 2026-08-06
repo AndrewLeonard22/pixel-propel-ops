@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { settingsAreUnverified } from '@/lib/config';
 import { useData } from '@/hooks/useData';
 import { hasUsableData } from '@/lib/sourceStatus';
 import { ConfigBanner } from '@/components/common/Banners';
@@ -159,7 +160,12 @@ export default function Agents() {
             <p className="font-semibold text-destructive">
               {downSources.map(src => (
                 <span key={src.key} className="block">
-                  {src.label} — {src.state === 'not-configured'
+                  {/* ⚠️ `missingSettings` is unknowable when the settings themselves were
+                      never read — see SourceStatusBanner. @bird counted 19 "Missing:"
+                      claims on the live broken deploy, none naming the real cause.
+                      @raccoon owns this block; this gates his sentence, it does not
+                      replace it. */}
+                  {src.label} — {src.state === 'not-configured' && !settingsAreUnverified(settingsOrigin)
                     ? `not connected. Missing: ${src.missingSettings.join(', ')}.`
                     : `could not load${src.error ? `: ${src.error}` : ''}.`}
                 </span>
