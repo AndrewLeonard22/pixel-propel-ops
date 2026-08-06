@@ -24,9 +24,14 @@ dist-ssr
 *.sw?
 
 # Environment — NEVER commit. Contains the Supabase project URL and publishable key.
-.env
 .env.*
 !.env.example
+# ⛔ `.env` IS DELIBERATELY NOT IGNORED. It holds ONLY the Supabase project id, project URL
+# and PUBLISHABLE key — values that are compiled into the client bundle by Vite and are
+# therefore public to every visitor by design. Ignoring it did not hide anything; it removed
+# them from the build, and the deployed app came up with no database URL and read nobody's
+# settings. Secrets do NOT go here: server-side keys live in host secrets. See
+# supabase/functions/DEPLOY.md.
 
 # tsc -b build artifacts (the DoD gate command generates these)
 *.tsbuildinfo
