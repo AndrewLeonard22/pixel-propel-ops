@@ -7,6 +7,9 @@ const ACCOUNT_MAPPINGS_KEY = 'accountMappings';
 const DEFAULT_SETTINGS: AppSettings = {
   googleSheetUrl: '',
   googleSheetTab: 'Ads Data',
+  // @fable measured both tabs on @andrew's live sheet by these exact names:
+  // 'Ads Data' (derived) and 'Ads - Raw' (source), 38,997 rows each, differing sigs.
+  adsRawTabName: 'Ads - Raw',
   callCenterSheetUrl: '',
   callCenterSheetTab: 'RAW DATA',
   airtableBaseId: '',

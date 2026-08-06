@@ -4,6 +4,7 @@ import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMapp
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData } from '@/lib/dataService';
 import type { AppSettings, AccountMapping } from '@/lib/types';
 import { checkSettingsWrite } from '@/lib/settingsWriteGuard';
+import { DEFAULT_ADS_RAW_TAB } from '@/lib/sheetCompleteness';
 import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2, Search } from 'lucide-react';
 
 function isJunkAccount(name: string): boolean {
@@ -448,6 +449,25 @@ useEffect(() => {
             onChange={e => updateForm({ googleSheetTab: e.target.value })}
             className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
           />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-muted-foreground">Raw tab name (completeness check)</label>
+          <input
+            type="text"
+            value={form.adsRawTabName ?? ''}
+            onChange={e => updateForm({ adsRawTabName: e.target.value })}
+            placeholder={DEFAULT_ADS_RAW_TAB}
+            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+          />
+          {/* Says what it is FOR and what happens if it is wrong, because a name that
+              silently addresses the wrong tab is the fail-open this detector exists to
+              refuse — Google answers an unknown tab with the DEFAULT tab and HTTP 200. */}
+          <p className="mt-1 text-xs text-muted-foreground">
+            The tab your ad spend tab is generated FROM. Its row count is compared to the tab
+            above; a difference means the sheet's array formula has run out of range and rows
+            are being dropped. If this name is wrong the check reports &ldquo;could not be
+            verified&rdquo; rather than claiming your data is complete.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={testSheet} disabled={!form.googleSheetUrl || sheetStatus === 'loading'}
