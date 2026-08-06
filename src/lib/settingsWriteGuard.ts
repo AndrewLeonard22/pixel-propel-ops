@@ -51,11 +51,20 @@ export interface WriteVerdict {
   blankedFields: ProtectedField[];
 }
 
-/** Empty for our purposes: '', [], null, undefined. Zero and false are NOT empty. */
+/**
+ * Empty for our purposes: '', [], {}, null, undefined. Zero and false are NOT empty —
+ * they are values a user can legitimately choose.
+ *
+ * 🔻 The `{}` arm was MISSING until @apprentice diffed this against his database guard.
+ * Without it, `columnMappings` (21 pairs) and `perfThresholds` (4 keys) emptied to `{}`
+ * read as NOT EMPTY and passed straight through — the client layer was structurally
+ * blind to an emptied object.
+ */
 function isEmptyValue(v: unknown): boolean {
   if (v === null || v === undefined) return true;
   if (typeof v === 'string') return v.trim() === '';
   if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === 'object') return Object.keys(v as object).length === 0;
   return false;
 }
 
@@ -77,9 +86,21 @@ export function checkSettingsWrite(
   // Nothing stored yet -> nothing to destroy. A first write is safe.
   if (stored === null || stored === undefined) return { safe: true, reason: '', blankedFields: [] };
 
-  const blanked = PROTECTED_FIELDS.filter(
-    f => !isEmptyValue(stored[f]) && isEmptyValue(candidate[f]),
-  );
+  // 🔑 DRIVEN BY THE KEYS OF `stored`, NOT BY A TYPED LIST.
+  //
+  // A hardcoded PROTECTED_FIELDS typed against AppSettings CANNOT NAME a key the type
+  // does not model — and `activeSetters` was exactly that: absent from the interface,
+  // present in the row, and DELETED OUTRIGHT by the wipe. The single most destroyed
+  // field was the one a typed list is structurally unable to protect.
+  //
+  // Reading the keys off the stored row instead catches every off-schema field by
+  // construction, including ones nobody has thought of yet. PROTECTED_FIELDS remains as
+  // the documented floor and is asserted by the tests.
+  const storedRecord = stored as Record<string, unknown>;
+  const candidateRecord = candidate as Record<string, unknown>;
+  const blanked = Object.keys(storedRecord).filter(
+    f => !isEmptyValue(storedRecord[f]) && isEmptyValue(candidateRecord[f]),
+  ) as ProtectedField[];
 
   if (blanked.length === 0) return { safe: true, reason: '', blankedFields: [] };
   if (opts.allowClear) return { safe: true, reason: '', blankedFields: blanked };
