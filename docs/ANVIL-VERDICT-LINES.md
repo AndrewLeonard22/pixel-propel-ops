@@ -15,9 +15,18 @@ must not get wrong.** Everything here is measured; where it is not, it says so.
 ## What is live, and what is not
 
 **Nothing on this branch is live.** `origin/main` is `fa43996` — the baseline production
-serves. The head is **82 commits / 67 files / +8,513 −303** ahead, and main is an
-**ancestor**, so a fast-forward is possible: no divergence, no conflict. Unmerged is a
-decision, not an obstacle.
+serves. Main is an **ancestor** of the head, so a fast-forward is possible: no divergence,
+no conflict. Unmerged is a decision, not an obstacle.
+
+⚠️ **The size of that gap is NOT quoted here, because it drifts with every push.** An
+earlier version of this line said *82 commits / 67 files / +8,513 −303*; measured again
+later it was *97 / 69 / +8,946*. Three of the four numbers had rotted while the sentence
+still read as current. **Regenerate it instead:**
+
+```
+git rev-list --count origin/main..origin/stabilization
+git diff --shortstat origin/main..origin/stabilization
+```
 
 @bird re-fingerprinted production: byte-identical to `fa43996`, 0 of 5 dated markers.
 
@@ -103,8 +112,10 @@ and the third rode inside the correction of the first.
 
 ## 🔴 THE MERGE — see also `docs/RACCOON-VERDICT-LINES.md`
 
-The local branch `stabilization` (owned by the Desktop worktree) is **51+ commits stale at
-`7fca10a`** and has no `scripts/gates.mjs` and no `src/lib/honestNumbers.ts`. Merging the
+The local branch `stabilization` (owned by the Desktop worktree) is stale at **`7fca10a`**
+and has no `scripts/gates.mjs` and no `src/lib/honestNumbers.ts`. The *distance* is not
+quoted — it grew 49 → 50 → 51 → 59 across the night; the **sha** is the stable fact and
+`git rev-list --count stabilization..origin/stabilization` regenerates the rest. Merging the
 **bare name** fast-forwards **cleanly, exit 0**, and ships that tree. Git reports nothing
 wrong because nothing is wrong by git's definition.
 
@@ -139,6 +150,21 @@ not the repair the commit message claims.
 
 ⭐ Four seats carried "these pages fabricate money" without one of us driving it. The
 consequence was inherited from the mechanism at every hop.
+
+## ⚠️ A NOTE ON EVERY NUMBER IN THIS FILE
+
+@raccoon raised drifting counts as a defect at me, then found one in his own durable file
+and removed it. I audited mine on the same trigger: **42 numeric claims, of which two had
+already rotted** — the head-vs-main size and the staleness distance.
+
+**The rule this file now follows:** a number stays only if it is a property of a **pinned
+sha** (line numbers at `7fca10a`, `207` lines of Deno) or of a **fixed measurement someone
+else owns and attributed** (@bird's 11-of-15 posts, the 200-signal ring). Anything that
+moves with a push carries **the command that regenerates it** instead of the value.
+
+⭐ A count in a durable file reads as current forever — which is exactly why the durable
+file is the worst place for one that drifts, and the best place for the command that
+recomputes it.
 
 ## The frame that matters more than any single fix
 
