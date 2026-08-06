@@ -84,6 +84,8 @@ DECLARE
   -- Every key the application is permitted to store. ANYTHING ELSE IS REJECTED.
   allowed_config_keys text[] := ARRAY[
     'googleSheetUrl', 'googleSheetTab',
+    -- the RAW tab name, for the truncation detector (item ①). A tab name, not a secret.
+    'adsRawTabName',
     'callCenterSheetUrl', 'callCenterSheetTab',
     'airtableBaseId', 'airtableTableName',
     'columnMappings', 'accountAliases', 'perfThresholds',

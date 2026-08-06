@@ -162,9 +162,27 @@ describe('the app_settings lockdown migration', () => {
   it('guards by ALLOWLIST, not by a list of forbidden keys', () => {
     expect(sql).toContain('allowed_config_keys');
     expect(sql).toContain('rejects undeclared key');
-    // and the client allowlist must agree with the SQL one, key for key
+    /* THE TWO ALLOWLISTS MUST AGREE **IN BOTH DIRECTIONS**, and for a while this only
+       checked one. Iterating ALLOWED_CONFIG_KEYS proves every CLIENT key exists in the SQL —
+       but DELETING a key from the client simply shrinks the loop, so that direction passed
+       silently. My own truth table caught it: "remove from client only" stayed GREEN while
+       "remove from SQL only" went red.
+       ⇒ AND THE UNGUARDED DIRECTION IS THE ONE THAT LOSES DATA. A key present in the SQL but
+         missing from the client is STRIPPED BY sanitizeSettings ON EVERY SAVE — the setting
+         silently never persists, which is exactly how `adsRawTabName` would have failed. */
     for (const key of ALLOWED_CONFIG_KEYS) {
       expect(sql, `SQL allowlist is missing ${key}`).toContain(`'${key}'`);
+    }
+    const sqlKeys = [
+      ...(sql.split('allowed_config_keys text[] := ARRAY[')[1] ?? '').split('];')[0].matchAll(/'([A-Za-z]+)'/g),
+    ].map((m) => m[1]);
+    expect(sqlKeys.length, 'the SQL allowlist must be parseable — an empty parse would make this vacuous').toBeGreaterThan(5);
+    for (const key of sqlKeys) {
+      expect(
+        ALLOWED_CONFIG_KEYS as readonly string[],
+        `CLIENT allowlist is missing ${key} — sanitizeSettings will STRIP it on every save ` +
+          `and the setting will silently never persist`,
+      ).toContain(key);
     }
   });
 
