@@ -55,11 +55,15 @@ function parseDateSafe(dateStr: string): Date | null {
   return null;
 }
 
-function KPICard({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+function KPICard({ label, value, mono = true, note }: { label: string; value: string; mono?: boolean; note?: string }) {
   return (
     <div className="card-elevated p-5">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
       <p className={mono ? 'kpi-number text-foreground' : 'text-2xl font-bold text-foreground'}>{value}</p>
+      {/* ⭐ NAME THE POPULATION ON THE TILE. Two appointment tiles summed different
+          populations for weeks and nothing on screen said which. A number whose
+          population is unstated is a question the next reader has to re-open. */}
+      {note && <p className="text-[11px] text-muted-foreground mt-1">{note}</p>}
     </div>
   );
 }
@@ -729,20 +733,42 @@ export default function Dashboard() {
     const revenue = activeAccounts.reduce((s, a) => s + a.revenue, 0);
     const dials = activeAccounts.reduce((s, a) => s + a.totalDials, 0);
 
+    // ⭐ ONE POPULATION FOR BOTH APPOINTMENT TILES. Before this, `costPerAppt` summed
+    // DFY-only spend over DFY-only appointments while `leadToApptPct` summed ALL-account
+    // appointments over ALL-account leads. Each was internally consistent and they described
+    // DIFFERENT BUSINESSES, with nothing on screen saying so.
+    //
+    // DFY is the correct population and it is not a preference — four sites already encode it:
+    //   AIChatPanel.tsx  "Done With You (DWY): we only run ads, CLIENT HANDLES LEADS"
+    //   dataService.ts   DWY is judged on CPL; DFY/Other on cost-per-appointment
+    //   Dashboard.tsx    the same rule, mirrored, in getPerfByProgram
+    //   Targets.tsx      DFY and DWY split into separate populations deliberately
+    // DWY accounts contribute LEADS (we run their ads) and NOT appointments (their client
+    // books them), so an all-accounts lead→appt rate is understated by exactly the DWY lead
+    // volume. That is the defect: not a wrong sum, a denominator from another population.
     const dfyPerfSpend = dfyAccounts.reduce((s, a) => s + a.performanceSpend, 0);
+    const dfyPerfLeads = dfyAccounts.reduce((s, a) => s + a.performanceLeads, 0);
     const dfyAppts = dfyAccounts.reduce((s, a) => s + a.appointments, 0);
+    const dwyExcluded = activeAccounts.length - dfyAccounts.length;
 
     return {
       spend, leads,
       cpl: perfLeads > 0 ? perfSpend / perfLeads : 0,
       appts, dials,
-      leadToApptPct: perfLeads > 0 ? (appts / perfLeads) * 100 : 0,
+      leadToApptPct: dfyPerfLeads > 0 ? (dfyAppts / dfyPerfLeads) * 100 : 0,
+      dwyExcluded,
       costPerAppt: dfyAppts > 0 ? dfyPerfSpend / dfyAppts : 0,
       closed, revenue,
     };
   }, [filteredAccounts]);
 
   // Derive selectedAccount from name so it auto-updates after refresh
+  // Both appointment tiles are Done-For-You only; the note says so on the tile itself.
+  const apptPopulationNote =
+    totals.dwyExcluded > 0
+      ? `Done-For-You accounts only — ${totals.dwyExcluded} Done-With-You excluded`
+      : 'Done-For-You accounts only';
+
   const selectedAccount = useMemo(
     () => selectedAccountName ? dateFilteredAccounts.find(a => a.accountName === selectedAccountName) ?? null : null,
     [selectedAccountName, dateFilteredAccounts],
@@ -848,8 +874,8 @@ export default function Dashboard() {
           <KPICard label="Avg CPL" value={spendOk && totals.cpl > 0 ? formatCurrency(totals.cpl) : '—'} />
           <KPICard label="Total Dials" value={spendOk && callsOk ? formatNumber(totals.dials) : '—'} />
           <KPICard label="Total Appts" value={spendOk && apptsOk ? formatNumber(totals.appts) : '—'} />
-          <KPICard label="Lead → Appt %" value={spendOk && apptsOk && totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} />
-          <KPICard label="Avg Cost/Appt" value={spendOk && apptsOk && totals.costPerAppt > 0 ? formatCurrency(totals.costPerAppt) : '—'} />
+          <KPICard label="Lead → Appt %" value={spendOk && apptsOk && totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} note={apptPopulationNote} />
+          <KPICard label="Avg Cost/Appt" value={spendOk && apptsOk && totals.costPerAppt > 0 ? formatCurrency(totals.costPerAppt) : '—'} note={apptPopulationNote} />
           <KPICard label="Closed Deals" value={spendOk && apptsOk ? formatNumber(totals.closed) : '—'} />
           <KPICard label="Total Revenue" value={spendOk && apptsOk ? formatCurrency(totals.revenue) : '—'} />
         </div>
