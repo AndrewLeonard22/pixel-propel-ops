@@ -76,7 +76,22 @@ describe('mapAirtableRecords — a linked-record id never becomes a client name'
     expect(records[0].client).toBe('Acme Corp');
   });
 
-  it('counts EVERY unresolved link across records and fields', () => {
+  /**
+   * 🔴 THIS ARM USED TO ASSERT THE DEFECT. It was named "counts EVERY unresolved link across
+   * records and FIELDS" and expected 3 — the number of FIELD refusals. But the counter
+   * drives a banner that says "N appointments are not matched to an ACCOUNT", which is a
+   * claim about ATTRIBUTION.
+   *
+   * @fable's schema read is what exposed it: Client PPA Rate, Active? and Client Billing
+   * Model are `multipleLookupValues`, and lookups return ARRAYS — so the same val[0] path
+   * reaches them. Measured: a row whose CLIENT resolved to "Acme Corp" but whose billing
+   * model held a record id reported ONE UNMATCHED APPOINTMENT for a row that WAS matched.
+   *
+   * ⭐ A TRUE COUNT ON THE WRONG POPULATION, RENDERED AS A SPECIFIC CLAIM — and the test
+   * name said so out loud ("and FIELDS") while the banner said "appointments". Two
+   * populations, one number, and the name was the tell.
+   */
+  it('🔴 counts APPOINTMENTS whose CLIENT is unresolved — not field refusals', () => {
     const { unresolvedLinks } = mapAirtableRecords(
       [
         { fields: { 'Client Name': ['rec1234567890abcd'], 'Campaign Name': ['recABCDEFGHIJKLMN'] } },
@@ -84,7 +99,24 @@ describe('mapAirtableRecords — a linked-record id never becomes a client name'
       ],
       MAPPINGS,
     );
-    expect(unresolvedLinks).toBe(3);   // 3, not 6: the counter must not double-count
+    // TWO appointments, not three fields. The Campaign Name id is still REFUSED — it just
+    // is not an unmatched appointment.
+    expect(unresolvedLinks).toBe(2);
+  });
+
+  it('🔴 A RESOLVED CLIENT WITH AN ID IN ANOTHER FIELD IS **NOT** UNMATCHED', () => {
+    // The exact live shape @fable's schema read predicted, and the one that made the
+    // banner lie. The lookup field is still refused — an id must never render as a value —
+    // but the appointment is attributed and must not be counted against attribution.
+    const { records, unresolvedLinks } = mapAirtableRecords(
+      [{ fields: { 'Client Name': 'Acme Corp', 'Client Billing Model': ['rec1234567890abcd'] } }],
+      MAPPINGS,
+    );
+
+    expect(records[0].client).toBe('Acme Corp');
+    expect(records[0].clientUnresolved).toBeFalsy();
+    expect(records[0].clientBillingModel).toBe(UNRESOLVED_CLIENT);   // still refused
+    expect(unresolvedLinks).toBe(0);                                 // and NOT counted
   });
 });
 
