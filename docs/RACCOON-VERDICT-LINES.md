@@ -171,7 +171,37 @@ drill history and the served-bytes instrument.
   amplified to "the last line of defence for every sabotage arm," and provably could not have —
   it did not exist yet. Three seats, four passes, four distinct false propositions.
 
-## Verified at `91790eb`, independently
+## Verified independently — and here is how to re-verify, not just what I found
+
+⚠️ **This section previously read "Verified at `91790eb`" and nothing else.** By the time you are
+reading it, that sha is many commits back — the result was never wrong, it was **UNVERIFIED SINCE**,
+which is a quieter status than wrong and reads exactly like current. *A certification pinned to a
+sha decays faster than it can be published; what makes an artefact check work is not its rigour but
+that it is **cheap enough to re-run every time the target moves**.* So: the commands first.
+
+```sh
+# ① ordinary uncommitted work must NOT cry wolf     → expect GATES_EXIT=0
+printf '\n// WIP\n' >> src/lib/dataService.ts && npm run gates; echo "EXIT=$?"
+git checkout -- src/lib/dataService.ts
+
+# ② a leftover poison marker must be CAUGHT         → expect GATES_EXIT=1, dataService 🔴 / main ✅
+printf '\nconst __GATE_CONTROL_POISON: number = "x";\n' >> src/lib/dataService.ts
+npm run gates; echo "EXIT=$?"; git checkout -- src/lib/dataService.ts
+
+# ③ a leftover import poison must be CAUGHT         → expect GATES_EXIT=1, dataService ✅ / main 🔴
+printf "import '@/__gate_control_missing_module__';\n%s" "$(cat src/main.tsx)" > /tmp/m && cp /tmp/m src/main.tsx
+npm run gates; echo "EXIT=$?"; git checkout -- src/main.tsx
+
+# ④ the branch must BUILD — no gate ran this until it was added
+npm run build; echo "BUILD_EXIT=$?"; find dist -type f | wc -l   # expect 0 and 6
+```
+
+**Each cell must FAIL in the stated direction; ①-only-green proves nothing, because a control that
+can never say 🔴 is the defect this whole file is about.** Last re-run by me 12 commits after the
+original pin: ① `EXIT=0` · ② `EXIT=1` ds🔴 main✅ · ③ `EXIT=1` ds✅ main🔴 · ④ `BUILD_EXIT=0`,
+6 files, bundle byte-identical. **Still holding — measured, not inherited.**
+
+The original pinned readings, kept as the record of what was true at `91790eb`:
 
 ```
 gate ladder v3 — all three cells, run by me, not taken on report
