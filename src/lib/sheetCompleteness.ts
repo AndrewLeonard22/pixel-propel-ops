@@ -202,6 +202,25 @@ export function completenessMessage(r: CompletenessReport): string | null {
       `The array formula's range in the Google Sheet needs raising.`
     );
   }
+  /**
+   * ⭐ 'not checked yet' IS A NON-EVENT, NOT A FINDING. @andrew: «annoying just remove
+   * these popups».
+   *
+   * The completeness probe needs a raw-tab identifier that is not configured on his base,
+   * so it never runs — and the banner then announced, on every load, that a check nobody
+   * asked for had not happened. That is not a fact about his DATA, it is a fact about our
+   * CONFIGURATION, and it fired permanently rather than on an event.
+   *
+   * ⛔ THE OTHER UNVERIFIABLE REASONS STILL SPEAK. A probe that ran and could not
+   * discriminate — the gviz silent-tab fallback, equal counts with equal sigs — is a real
+   * finding: it means we LOOKED and could not tell, which is exactly the fail-open this
+   * detector exists to refuse. Only the never-ran case is silent.
+   *
+   * The distinction is "we could not tell" (say so) versus "we never asked" (say nothing).
+   * Collapsing those two was what made the banner permanent, and a permanent warning is
+   * one nobody reads by the second day.
+   */
+  if (r.reason === 'not checked yet') return null;
   return `Ad spend completeness could not be verified — ${r.reason}. Totals may be incomplete.`;
 }
 

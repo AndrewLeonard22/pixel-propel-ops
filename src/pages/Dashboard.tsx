@@ -982,7 +982,30 @@ export default function Dashboard() {
 
       {/* Above every number it describes. The exclusion loss inflates every CPL and
           cost-per-appointment on this page, and until this rendered, nothing said so. */}
-      <HonestNumbersBanner messages={honestNumbers.messages} />
+      {/*
+        ⭐ SCOPED TO WHAT THIS PAGE SHOWS. @andrew: «annoying just remove these popups».
+        He is right that they were noise, and the reason is precise rather than aesthetic:
+        TWO OF THE THREE WARNED HIM ABOUT NUMBERS THAT ARE NOT ON THIS PAGE.
+
+          setter bonus rates   payouts render on /agents. The dashboard has no payout
+                               figure, so the $5 default cannot mislead anyone HERE.
+          exclusions inert     kept — cost-per-lead and cost-per-appointment ARE on this
+                               page and ARE computed on unfiltered spend. That one changes
+                               a number he is looking at.
+
+        ⛔ NOT DELETED, MOVED. The setter warning is the ONLY thing standing between a
+        fabricated $5 rate and a payout sheet he might send someone — it belongs on
+        /agents, loudly, and Agents.tsx already renders its own. Silencing it everywhere
+        would re-create the exact defect this branch exists to remove.
+
+        ⭐ THE GENERAL RULE, now applied three times (call-centre source, this, and the
+        route-scoped SourceStatusBanner): A WARNING BELONGS WHERE THE NUMBER IT IS ABOUT
+        IS RENDERED. Everywhere else it is noise, and noise is how the warnings that DO
+        matter stop being read.
+      */}
+      <HonestNumbersBanner
+        messages={honestNumbers.messages.filter(m => !m.startsWith('No setter bonus rates') && !m.startsWith('Some setters have no configured bonus rate'))}
+      />
 
       {/* WRAPPED, not onRetry={refresh}: React hands a bare handler reference its click
           event as the first argument, which refresh read as an override settings object —
