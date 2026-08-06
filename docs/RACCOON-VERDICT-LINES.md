@@ -36,8 +36,22 @@ Absent from `7fca10a`:
 | path | at 7fca10a |
 |---|---|
 | `src/lib/honestNumbers.ts` | **MISSING** — the exclusion + defaulted-rate detectors, entirely |
-| `scripts/gates.mjs` | **MISSING** — the whole gate ladder (`vite build` gate: 0 occurrences vs 2 at head) |
-| `dataService.ts`, `Dashboard.tsx`, `Agents.tsx`, `Targets.tsx`, `Banners.tsx`, `useData.tsx`, +15 | differ |
+| `scripts/gates.mjs` | **MISSING** — the whole gate ladder (`vite build` gate: **0** occurrences) |
+| `dataService.ts`, `Dashboard.tsx`, `Agents.tsx`, `Targets.tsx`, `Banners.tsx`, `useData.tsx`, and more | differ |
+
+*No count of differing files here either. It read "+15" and the true total is now 26 — it grows with
+every ship, exactly like the commit count above it. **Second rotted number found in this file, and
+found only because I enumerated all 54 numeric claims instead of grepping for the one shape I had
+already caught.** An ad-hoc fix finds the instance; only a census finds the class. Regenerate:*
+
+```sh
+git diff --name-only 7fca10a origin/stabilization | wc -l
+git show 7fca10a:scripts/gates.mjs        # → fatal: path does not exist. That is the finding.
+```
+
+*The `vite build`-gate comparison to "the head" was dropped for the same reason: `scripts/gates.mjs`
+has been edited repeatedly tonight, so a number about **the head** rots while a number about
+`7fca10a` cannot. **Only the pinned half was ever load-bearing.***
 
 **Why it is silent:** `main` is an ancestor of `7fca10a`, so the merge is a clean fast-forward —
 no conflict, exit 0. *"stabilization merged, fast-forward, no conflict"* would be a **true sentence
