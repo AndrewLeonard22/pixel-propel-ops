@@ -528,9 +528,11 @@ export function mapAirtableRecords(
   records: { fields: Record<string, unknown> }[],
   columnMappings: Record<string, string>,
   knownFields: string[] = [],
-): { records: AppointmentRow[]; fields: string[] } {
+): { records: AppointmentRow[]; fields: string[]; unresolvedLinks: number } {
   const allRecords: AppointmentRow[] = [];
   let fields: string[] = knownFields;
+  // Counted, not swallowed: a silently blanked client is the same defect one layer down.
+  let unresolvedLinks = 0;
 
   {
     const data = { records };
@@ -544,8 +546,19 @@ export function mapAirtableRecords(
       const getField = (key: string) => {
         const mapped = columnMappings[key] || key;
         const val = f[mapped];
-        if (Array.isArray(val)) return val[0] || '';
-        return val || '';
+        const first = Array.isArray(val) ? (val[0] || '') : (val || '');
+        /**
+         * 🔴 REFUSE A RECORD ID. Returning '' leaves the field UNRESOLVED, which the
+         * matcher treats as "no client" — so the appointment lands in unmatchedAppointments
+         * instead of being attributed to whatever account a fuzzy match happens to find.
+         * An unresolved appointment is honest; one attributed on the strength of a record
+         * id is a wrong number wearing a name.
+         */
+        if (isAirtableRecordId(first)) {
+          unresolvedLinks++;
+          return '';
+        }
+        return first;
       };
       
       allRecords.push({
@@ -574,7 +587,7 @@ export function mapAirtableRecords(
     }
   }
 
-  return { records: allRecords, fields };
+  return { records: allRecords, fields, unresolvedLinks };
 }
 
 /**
@@ -626,6 +639,31 @@ export interface AccountLabel {
  * whitespace and has no real importers. Same name, different rule — do not assume which
  * one an unqualified `accountKey` refers to.
  */
+/**
+ * A — AN AIRTABLE RECORD ID MUST NEVER RENDER AS A NAME.
+ *
+ * @fable, from @andrew: the appointments ACCOUNT column was showing `recXXXXXXXXXXXXXX`.
+ * Cause: `Client Name` is a LINKED-RECORD field, so Airtable returns an ARRAY OF RECORD
+ * IDS, and `getField` did `val[0]` — handing the id straight through as the client name.
+ *
+ * ⭐ AN ID DISPLAYED AS A NAME IS A LABEL THAT IS NOT AN IDENTITY — the exact class this
+ * whole branch has been killing. And it is worse than a blank, because the 4-tier matcher
+ * then treats it as a real client name: Tier 3 caches it, Tier 4 fuzzy-matches it, and the
+ * appointment gets ATTRIBUTED TO AN ACCOUNT ON THE STRENGTH OF A RECORD ID.
+ *
+ * ⚠️ THIS IS THE INVARIANT HALF ONLY, AND IT IS DELIBERATELY INDEPENDENT OF THE FIX.
+ * @bird is pulling the raw payload to decide whether a text field already carries the name
+ * (a columnMappings change, no code) or whether the link must be resolved against the
+ * linked table. Either way an unresolved id must render as "—" and say so, so that half is
+ * built now and does not wait on the answer.
+ *
+ * Shape: 'rec' + 14 chars, which is Airtable's documented record id format. Anchored, so a
+ * legitimate client genuinely called "Recovery" cannot be mistaken for one.
+ */
+export function isAirtableRecordId(value: unknown): boolean {
+  return typeof value === 'string' && /^rec[A-Za-z0-9]{14}$/.test(value);
+}
+
 export function accountKey(raw: string | undefined | null): string {
   return String(raw ?? '').trim().toLowerCase();
 }
