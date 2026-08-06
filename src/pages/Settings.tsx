@@ -53,7 +53,31 @@ export default function SettingsPage() {
    * 🔴 THE BASELINE. Content of the form that is KNOWN to match what is stored. The autosave
    * fires only when `form` DIFFERS from this, which is the whole fix for @bird's P0.
    */
-  const baselineRef = useRef<string | null>(null);
+  /**
+   * 🔴 TWO HALVES, SET INDEPENDENTLY BY THE LOADER THAT OWNS EACH — and the single combined
+   * baseline this replaces was a REAL BUG I shipped, found by probing my own failing test.
+   *
+   * The mappings loader wrote `{form: <whatever the form held AT THAT MOMENT>, mappings}`.
+   * The mappings promise resolves after mount, so if a user is TYPING when it lands, their
+   * unsaved edit was captured into the baseline and RECORDED AS PERSISTED — the autosave
+   * then skipped it forever. A load swallowing a concurrent edit is the same shape as the
+   * defect this whole file exists to prevent.
+   *
+   * ⇒ A LOADER MAY ONLY VOUCH FOR THE HALF IT LOADED. The settings load speaks for `form`,
+   *   the mappings load speaks for `mappings`, and a successful save speaks for both.
+   */
+  const baselineFormRef = useRef<AppSettings | null>(null);
+  const baselineMapsRef = useRef<AccountMapping[]>(loadAccountMappings());
+  /**
+   * 🔴 BOTH LOADS MUST SETTLE BEFORE ANY WRITE. Measured race, not a precaution: with only
+   * the settings load gated, an edit could schedule a save while the mappings load was still
+   * in flight. The save persisted the EMPTY seed mappings and vouched for them, the real
+   * mappings then landed, the baseline halves disagreed, and a SECOND unrequested write
+   * fired. Two writes for one keystroke.
+   *
+   * ⇒ A baseline half can only be vouched for by a load that has FINISHED.
+   */
+  const [mappingsSettled, setMappingsSettled] = useState(false);
 
   /**
    * 🔴 @bird ISOLATED THIS ON THE DEPLOYED BUILD, ONE VARIABLE, SAME BUNDLE:
@@ -83,10 +107,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (hydrated || !settingsLoaded) return;
     setForm(settings);
-    setAccountMappings(current => {
-      baselineRef.current = stableStringify({ form: settings, mappings: current });
-      return current;
-    });
+    baselineFormRef.current = settings;
     setHydrated(true);
   }, [settings, settingsLoaded, hydrated]);
   const [showToken, setShowToken] = useState(false);
@@ -97,6 +118,14 @@ export default function SettingsPage() {
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
   const [airtableError, setAirtableError] = useState('');
   const [saved, setSaved] = useState(false);
+  /**
+   * 🔴 THE REFUSAL HAS TO LAND SOMEWHERE. @raccoon: "a guard refusing by THROW has no fixed
+   * outcome; the outcome belongs to the CALL SITE, and this call site drops it." The clobber
+   * guard in saveSettings refuses BY THROW, BY DESIGN — and that throw used to surface as an
+   * unhandled promise rejection: no state, no toast, nothing the user could see. The one
+   * deliberate safety mechanism in the write path produced silence.
+   */
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [callCenterStatus, setCallCenterStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [callCenterError, setCallCenterError] = useState('');
   const [callCenterCount, setCallCenterCount] = useState(0);
@@ -104,35 +133,38 @@ export default function SettingsPage() {
   const [mappingSearch, setMappingSearch] = useState('');
   const isFirstRender = useRef(true);
 
-  // On mount, load the latest account mappings from the DB to ensure we have the most up-to-date aliases
+  /**
+   * 🔴 THE SECOND NO-EDIT TRIGGER, AND I SHIPPED IT MYSELF IN 97d60d3.
+   *
+   * `accountMappings` is an autosave dependency, so this arrival is indistinguishable from a
+   * user editing an alias. Before 97d60d3 it was harmless BY ACCIDENT: the in-app path never
+   * hydrated, the autosave was dead, and this could not fire. Arming the autosave — a real
+   * fix for a real defect — made it reachable on EVERY entry path, INCLUDING the sidebar
+   * click @bird measured as safe.
+   *
+   * ⚠️ TWO THINGS THIS EFFECT MUST NOT DO, both of which it DID, and both found by probing
+   * a failing test rather than by reading:
+   *   ① it must not vouch for the FORM. Reading the current form here captured a user's
+   *      in-flight keystrokes as ALREADY PERSISTED and the autosave skipped them forever.
+   *      A loader may only vouch for the half it loaded.
+   *   ② it must SETTLE, and the autosave must wait for it. Otherwise an edit could schedule
+   *      a save while this was in flight: the save persisted the EMPTY seed mappings and
+   *      vouched for them, the real mappings landed, the halves disagreed, and a SECOND
+   *      unrequested write fired. Two writes for one keystroke.
+   */
   useEffect(() => {
-    loadAccountMappingsAsync().then(dbMappings => {
-      if (dbMappings && dbMappings.length > 0) {
-        setAccountMappings(dbMappings);
-        /**
-         * 🔴 THE SECOND NO-EDIT TRIGGER, AND I SHIPPED IT MYSELF IN 97d60d3.
-         *
-         * `accountMappings` is an autosave dependency, so this arrival is indistinguishable
-         * from a user editing an alias. Before 97d60d3 it was harmless BY ACCIDENT: the
-         * in-app path never hydrated, so the autosave was dead and could not fire. Arming
-         * the autosave — a real fix for a real defect — made this reachable on EVERY entry
-         * path, INCLUDING the sidebar click @bird measured as safe.
-         *
-         * ⚠️ MY OWN TEST MISSED IT BECAUSE THE FIXTURE RETURNED []. The `length > 0` branch
-         * never ran. An unrealistic fixture did not weaken the test; it hid a live defect
-         * that my own fix had just created.
-         *
-         * Folding the arrival into the baseline says what is true: this is a LOAD, not an
-         * edit. Written through setForm's updater so it reads the CURRENT form without
-         * adding a dependency — and it converges whichever order the two loads land in,
-         * because the hydration effect captures the mappings the same way.
-         */
-        setForm(currentForm => {
-          baselineRef.current = stableStringify({ form: currentForm, mappings: dbMappings });
-          return currentForm;
-        });
-      }
-    });
+    loadAccountMappingsAsync()
+      .then(dbMappings => {
+        if (dbMappings && dbMappings.length > 0) {
+          setAccountMappings(dbMappings);
+          baselineMapsRef.current = dbMappings;
+        }
+      })
+      .catch(() => {
+        // A failed mappings load must not wedge the page read-only forever. The seed value
+        // is then what we hold, and the baseline already vouches for exactly that.
+      })
+      .finally(() => setMappingsSettled(true));
   }, []);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -212,7 +244,7 @@ useEffect(() => {
     // ① GATE: never autosave from an unhydrated form. This is the fix for the wipe —
     // the async mappings load fires setAccountMappings, which used to reach performSave
     // with `form` still holding DEFAULT_SETTINGS.
-    if (!hydrated) return;
+    if (!hydrated || !mappingsSettled) return;
 
     // ⛔ ②a NEVER WRITE FROM AN UNVERIFIED COPY. @raccoon's blocker: on a warm browser the
     // local settings can be STALE-BUT-POPULATED — 1 excluded campaign where the DB has 4 —
@@ -229,7 +261,8 @@ useEffect(() => {
     // to the baseline is what separates them — a full page load now writes nothing, and a
     // real edit still saves on the in-app path where the autosave used to be dead.
     const current = stableStringify({ form, mappings: accountMappings });
-    if (baselineRef.current === current) return;
+    const baseline = stableStringify({ form: baselineFormRef.current, mappings: baselineMapsRef.current });
+    if (current === baseline) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
@@ -240,11 +273,38 @@ useEffect(() => {
         console.error('[settings] autosave REFUSED —', verdict.reason);
         return;
       }
-      baselineRef.current = current;
-      performSave(form, accountMappings);
+      /**
+       * 🔴 ORDER IS LOAD-BEARING — @raccoon found this inside the P0 fix itself.
+       *
+       * This used to advance the baseline BEFORE attempting the write. If the clobber guard
+       * refused, the edit was RECORDED AS SAVED while being rejected — and because the
+       * baseline then matched, RE-MAKING THE SAME EDIT WOULD NOT RETRY IT. A refusal
+       * designed to be loud became an edit that silently never persisted.
+       *
+       * ⇒ THE BASELINE NOW ADVANCES ONLY ON SUCCESS, so a refused write leaves the form
+       *   DIRTY and the next keystroke tries again.
+       *
+       * ⚠️ AND performSave's Promise.all does NOT cancel siblings on rejection (measured):
+       * a refused saveSettings still lets saveAccountMappings through. The error text says
+       * so rather than implying nothing was written.
+       */
+      performSave(form, accountMappings)
+        .then(() => {
+          baselineFormRef.current = form;
+          baselineMapsRef.current = accountMappings;
+          setSaveError(null);
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[settings] autosave FAILED —', msg);
+          setSaveError(
+            `${msg} — your change was NOT saved and will be retried on your next edit. ` +
+              `Account mappings may have saved separately.`,
+          );
+        });
     }, 800);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [form, accountMappings, performSave, hydrated, settings, settingsOrigin]);
+  }, [form, accountMappings, performSave, hydrated, mappingsSettled, settings, settingsOrigin]);
 
   const updateForm = (patch: Partial<AppSettings>) => {
     setForm(prev => ({ ...prev, ...patch }));
@@ -358,6 +418,13 @@ useEffect(() => {
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-bold">Settings</h1>
         {saved && <span className="text-success text-sm flex items-center gap-1 animate-in fade-in"><CheckCircle className="w-4 h-4" /> Saved</span>}
+        {/* The absence of a tick is not a signal — a user reads "nothing happened" as
+            "nothing needed to happen". A refused write has to SAY it was refused. */}
+        {saveError && (
+          <span role="alert" className="text-destructive text-sm flex items-start gap-1">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {saveError}
+          </span>
+        )}
       </div>
 
       {/* Section 1: Google Sheets */}
