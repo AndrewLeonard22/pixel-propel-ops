@@ -109,10 +109,58 @@ describe('describeFreshness — the states', () => {
     expect(freshnessLabel(r)).toMatch(/no dated rows/);
   });
 
-  it('a FUTURE-dated row is unknown, not current — one bad row must not mask a frozen feed', () => {
-    const r = describeFreshness([row('2027-01-01'), row('2026-01-01')], '2026-08-05');
+  /**
+   * 🔴 THE TEST THAT USED TO BE HERE HAD A NAME THAT CONTRADICTED ITS OWN ASSERTION.
+   *
+   * It was called "one bad row must not mask a frozen feed" and it asserted `state ===
+   * 'unknown'` — which IS the masking. @raccoon found the mechanism: `MAX` is the
+   * aggregation most vulnerable to a single outlier, and mine had no ceiling. One row dated
+   * 2126 made daysBetween negative, the feed read as fresher than today, and the
+   * lagging/stale thresholds could NEVER trip. Not degraded — DISABLED, permanently.
+   *
+   * ⭐ THE DETECTOR BUILT TO CATCH A SILENT FREEZE HAD A SILENT WAY TO BE SWITCHED OFF, and
+   * the symptom was the SAME symptom: everything looks fine. My test stated the right
+   * intent in its title and then locked the opposite behaviour in its body, so it passed.
+   */
+  it('🔴 A FUTURE-DATED ROW CANNOT SILENCE THE DETECTOR — @raccoon', () => {
+    // Exactly his arm: healthy-ish rows plus one typo year. The 2026-01-01 row is seven
+    // months stale, so the honest verdict is STALE, not "unknown".
+    const r = describeFreshness([row('2126-08-04'), row('2026-01-01')], '2026-08-05');
+    expect(r.state).toBe('stale');
+    expect(r.latestDate).toBe('2026-01-01');
+    expect(r.daysBehind).toBeGreaterThan(200);
+  });
+
+  it('🔴 and the FREEZE still fires with a future row present — the case that matters', () => {
+    // A typo'd row must not buy the frozen feed another day of silence.
+    const r = describeFreshness([row('2126-08-04'), row('2026-08-01')], '2026-08-05');
+    expect(r.state).toBe('stale');
+    expect(r.daysBehind).toBe(4);
+  });
+
+  it('⚠️ the ignored rows are COUNTED, not silently dropped — even when healthy', () => {
+    // A silent exclusion is the same defect one level down: an absence rendered as a fact.
+    const r = describeFreshness([row('2126-08-04'), row('2026-08-05')], '2026-08-05');
+    expect(r.state).toBe('current');
+    expect(r.futureRows).toBe(1);
+    expect(freshnessWarning(r)).toMatch(/dated in the future/);
+    expect(freshnessWarning(r)).toMatch(/mistyped year/);
+  });
+
+  it('CONTROL: tomorrow is ALLOWED — a sheet in a later timezone is not a typo', () => {
+    // Without this slack the fix would start ignoring legitimate rows, which is the mirror
+    // defect: a ceiling that trims real data makes the feed look staler than it is.
+    const r = describeFreshness([row('2026-08-06')], '2026-08-05');
+    expect(r.futureRows).toBe(0);
+    expect(r.latestDate).toBe('2026-08-06');
+    expect(r.state).toBe('current');
+  });
+
+  it('ALL rows in the future is genuinely unknown, and says how many', () => {
+    const r = describeFreshness([row('2126-01-01'), row('2126-02-01')], '2026-08-05');
     expect(r.state).toBe('unknown');
-    expect(r.daysBehind).toBeLessThan(0);
+    expect(r.latestDate).toBeNull();
+    expect(r.futureRows).toBe(2);
   });
 });
 
