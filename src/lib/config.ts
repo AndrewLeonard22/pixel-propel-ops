@@ -562,10 +562,9 @@ export function isConfigured(settings: AppSettings): boolean {
  */
 export const ALLOWED_CONFIG_KEYS = [
   'googleSheetUrl', 'googleSheetTab',
-  // The RAW tab, for the truncation detector (@anvil, item ① — the ~2026-08-12 capacity
-  // cliff). It is a TAB NAME, not a credential: declared here because a key absent from
-  // this list is STRIPPED ON EVERY SAVE and would never persist — the detector would
-  // silently fall back to a hardcoded name and stop describing the sheet Andrew edits.
+  // The RAW tab, for the truncation detector (item ①). ⚠️ NO DATE HERE ON PURPOSE: the
+  // ~2026-08-12 figure was derived from a formula range @apprentice could not reproduce,
+  // so it is a prediction, not a deadline. The detector needs neither.
   'adsRawTabName',
   'callCenterSheetUrl', 'callCenterSheetTab',
   'airtableBaseId', 'airtableTableName',

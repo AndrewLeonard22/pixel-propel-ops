@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { makeSettings, makeAdSpendRow, makeAppointmentRow } from "@/test/factories";
 import type { SourceKey, SourceStatus } from "@/lib/sourceStatus";
 import { buildAccountSummaries } from "@/lib/dataService";
@@ -106,5 +106,45 @@ describe("TOTAL APPTS — a total counts every appointment, matched or not", () 
     expect(tile("Total Appts")).toBe("4");        // the TOTAL moved
     expect(tile("Lead → Appt %")).toBe(rateBefore);   // the RATES did not
     expect(tile("Avg Cost/Appt")).toBe(costBefore);
+  });
+});
+
+/**
+ * 🟡 THE DISCLOSURE MUST SURVIVE THE FILTER — @bird, driven live.
+ *
+ * In a narrowed view the 43 unmatched are correctly EXCLUDED, and the note explaining them
+ * disappeared with them because it was gated on the same value. The banner two inches away
+ * still read "43 Unmatched Appointments".
+ *
+ * ⭐ THE APP WAS DROPPING 43 APPOINTMENTS SILENTLY WHILE ANOTHER ELEMENT ON THE SAME SCREEN
+ * SAID THEY EXISTED. The exclusion is correct; the disclosure vanished exactly when a
+ * reader would want it — a number changing composition with nothing on screen to say so is
+ * the defect ⑥ was built to remove, reappearing one filter later.
+ */
+describe('TOTAL APPTS — the disclosure survives narrowing', () => {
+  it('🔴 a NARROWED view says the unmatched are EXCLUDED, not nothing', () => {
+    mount([makeAppointmentRow({}), makeAppointmentRow({}), makeAppointmentRow({})]);
+    expect(screen.getByText(/includes 3 not matched/i)).toBeVisible();
+
+    // Narrow the view the way a user does — the real control, not a prop.
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'Acme' } });
+
+    expect(screen.getByText(/excludes 3 not matched to an account/i)).toBeVisible();
+    expect(screen.queryByText(/includes 3 not matched/i)).not.toBeInTheDocument();
+  });
+
+  it('🔴 and the TOTAL drops to the matched-only count in that state', () => {
+    mount([makeAppointmentRow({}), makeAppointmentRow({}), makeAppointmentRow({})]);
+    expect(tile("Total Appts")).toBe("4");
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'Acme' } });
+    expect(tile("Total Appts")).toBe("1");
+  });
+
+  it('🔑 ANTI-VACUITY CONTROL: with NO unmatched, narrowing renders no note either way', () => {
+    // Without this, a fix that always printed one of the two sentences would pass above.
+    mount([]);
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'Acme' } });
+    expect(screen.queryByText(/not matched to an account/i)).not.toBeInTheDocument();
   });
 });

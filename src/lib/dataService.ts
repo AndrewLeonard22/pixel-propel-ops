@@ -1470,6 +1470,18 @@ export function buildAccountSummaries(
       closed,
       revenue,
       billed,
+      /**
+       * ⚠️ DO NOT DELETE AS UNUSED — the DASHBOARD stopped showing dials on 2026-08-05
+       * (@andrew: "we store them on relay instead"), so a grep from that page finds no
+       * consumer. IT HAS THREE LIVE ONES:
+       *   Targets.tsx:156  dialsPerLead     — a target @andrew set ("sweet spot 5-20")
+       *   Targets.tsx:158  dialBookingRate  — a target @andrew set ("above 8%")
+       *   CallCenter.tsx   every setter-performance figure on that page
+       * The display was removed; the metric was not. Deleting this silently zeroes two of
+       * his targets and empties /call-center, which is why the removal was scoped to the
+       * dashboard column and tile only. `src/pages/Targets.dials.test.tsx` goes RED if this
+       * stops feeding the targets — verified by deleting this field, not assumed.
+       */
       totalDials: matchedDials,
       dialToApptPercent: matchedDials > 0 ? (totalAppts / matchedDials) * 100 : 0,
       avgCallDuration: matchedDials > 0 ? matchedDuration / matchedDials : 0,
