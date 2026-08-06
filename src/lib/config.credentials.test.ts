@@ -160,6 +160,71 @@ describe('the app_settings lockdown migration', () => {
     }
   });
 
+  // ── the two retired credential keys ──────────────────────────────────────
+  //
+  // 🔴 THE REGRESSION THESE EXIST FOR, STATED SO IT CANNOT BE TIDIED AWAY:
+  // the first version of this migration REJECTED any undeclared key, full stop.
+  // The DEPLOYED frontend still models airtableToken/anthropicApiKey and sends
+  // both on every save (empty, but present). So applying the migration before a
+  // frontend deploy would have made EVERY save from /settings fail — and I told
+  // Andrew to apply it FIRST, in ten separate posts, while he was mid-restore.
+  // ⇒ The defect was not in the SQL. It was in the ORDER the SQL required.
+  const retiredKeys = (() => {
+    const block = sql.split('retired_credential_keys text[] := ARRAY[')[1];
+    expect(block, 'migration must declare retired_credential_keys').toBeTruthy();
+    return [...block.split('];')[0].matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);
+  })();
+
+  it('the retired credential keys are NOT on the allowlist — they can never be STORED', () => {
+    expect(retiredKeys).toEqual(expect.arrayContaining(['airtableToken', 'anthropicApiKey']));
+    for (const key of retiredKeys) {
+      expect(ALLOWED_CONFIG_KEYS as readonly string[], `${key} must never be storable`).not.toContain(key);
+    }
+  });
+
+  it('🎯 an EMPTY retired key is STRIPPED, a NON-EMPTY one is REFUSED — the asymmetry IS the fix', () => {
+    const a0 = sql.split('(a0)')[2] ?? sql.split('retired_credential_keys text[] := ARRAY[')[1];
+    // strips: the key is removed from the row rather than rejected
+    expect(sql, 'an empty retired key must be stripped from NEW.value').toMatch(
+      /NEW\.value\s*:=\s*NEW\.value\s*-\s*k/,
+    );
+    // refuses: but only when it actually carries a value
+    expect(sql, 'a NON-EMPTY retired key must still raise').toMatch(
+      /coalesce\(NEW\.value ->> k, ''\)\s*<>\s*''/,
+    );
+    expect(sql).toContain('refuses to store');
+    // and the refusal must say WHERE the value belongs, or the user just retypes it
+    expect(sql, 'the refusal must name the correct home for the secret').toMatch(
+      /Edge Function secrets/i,
+    );
+    expect(a0.length).toBeGreaterThan(0);
+  });
+
+  it('🔴 REGRESSION: the payload the DEPLOYED frontend sends must be ACCEPTED', () => {
+    // The exact top-level key set a browser running the shipped bundle upserts:
+    // every declared setting, PLUS the two credential fields it still models.
+    const deployedPayloadKeys = [...ALLOWED_CONFIG_KEYS, ...retiredKeys];
+
+    for (const key of deployedPayloadKeys) {
+      const declared = (ALLOWED_CONFIG_KEYS as readonly string[]).includes(key);
+      const retired = retiredKeys.includes(key);
+      expect(
+        declared || retired,
+        `${key} is sent by the deployed site but is neither declared nor retired — ` +
+          `applying this migration would make every save fail`,
+      ).toBe(true);
+    }
+
+    // CONTROL — this assertion must be capable of FAILING. A key that is neither
+    // declared nor retired is exactly what breaks a save, and it must be caught.
+    const smuggled = 'metaAccessToken';
+    expect((ALLOWED_CONFIG_KEYS as readonly string[]).includes(smuggled)).toBe(false);
+    expect(retiredKeys.includes(smuggled)).toBe(false);
+    // ⇒ so an undeclared key IS still rejected: the fix did not open the door,
+    //   it only stopped the door falling on the two fields we are retiring.
+    expect(sql).toContain('rejects undeclared key');
+  });
+
   it('rejects credential-shaped VALUES anywhere in the object, which covers nesting', () => {
     expect(sql).toContain('credential-shaped value');
     expect(sql).toContain('NEW.value::text'); // whole object, nested included
