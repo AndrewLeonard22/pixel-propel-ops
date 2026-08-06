@@ -658,9 +658,16 @@ export default function Dashboard() {
   const [dateRange, setDateRange] = useState<DateRange>(ALL_TIME);
   const [selectedAccountName, setSelectedAccountName] = useState<string | null>(null);
 
-  const dateFilteredAccounts = useMemo(() => {
+  /**
+   * ⑥ RETURNS THE WHOLE RESULT NOW, NOT JUST `.accounts`.
+   *
+   * The unmatched appointments were being DISCARDED here, so the page had no date-filtered
+   * count of them — and TOTAL APPTS could only ever sum what had been attributed. @bird:
+   * "@andrew's headline is 636 when 679 exist."
+   */
+  const dateFilteredResult = useMemo(() => {
     const { from, to } = dateRange;
-    if (!from && !to) return accounts;
+    if (!from && !to) return { accounts, unmatchedAppointments };
     const filteredSpend = adSpend.filter(row => {
       const d = parseDateSafe(row.date);
       if (!d) return false;
@@ -691,11 +698,13 @@ export default function Dashboard() {
       spend: hasUsableData(sources.windsor.state),
       appts: hasUsableData(sources.airtable.state),
       calls: hasUsableData(sources.callCenter.state),
-    }).accounts;
+    });
   // `sources` IS A DEPENDENCY NOW, and omitting it would be a stale closure: the memo
   // reads the source states to build `known`, so a source dying without dateRange changing
   // would keep serving summaries stamped ALIVE.
   }, [accounts, adSpend, appointments, callData, settings, dateRange, sources]);
+
+  const dateFilteredAccounts = dateFilteredResult.accounts;
 
   const filteredAccounts = useMemo(() => {
     return dateFilteredAccounts.filter(a => {
@@ -728,7 +737,26 @@ export default function Dashboard() {
     const leads = activeAccounts.reduce((s, a) => s + a.leads, 0);
     const perfSpend = activeAccounts.reduce((s, a) => s + a.performanceSpend, 0);
     const perfLeads = activeAccounts.reduce((s, a) => s + a.performanceLeads, 0);
-    const appts = activeAccounts.reduce((s, a) => s + a.appointments, 0);
+    /**
+     * ⑥ A TOTAL MUST COUNT EVERY APPOINTMENT — @bird measured 636 on screen while 679
+     * existed, and @fable's own sentence for this class is "a real booking invisible to
+     * the headline".
+     *
+     * An UNMATCHED appointment belongs to no account, so reducing over accounts can never
+     * see it. It is still a real booking on a real date.
+     *
+     * ⛔ ONLY WHEN THE VIEW IS NOT NARROWED TO A SUBSET OF ACCOUNTS. Under a search, an
+     * account filter or a performance filter the tile describes THOSE accounts, and an
+     * appointment that belongs to no account is not in that population — adding it there
+     * would be the mirror defect, a number inflated by rows the filter excluded.
+     *
+     * ⚠️ AND IT IS DELIBERATELY NOT ADDED TO `dfyAppts` BELOW. @raccoon: "an unmatched appt
+     * has no ACCOUNT so it has no PROGRAM; adding it to a DFY-only RATE attributes a
+     * conversion to a population it may not be in. A TOTAL must count it, a RATE must not."
+     */
+    const viewIsNarrowed = Boolean(search) || accountFilter !== 'all' || perfFilter !== 'all';
+    const unmatchedInView = viewIsNarrowed ? 0 : dateFilteredResult.unmatchedAppointments.length;
+    const appts = activeAccounts.reduce((s, a) => s + a.appointments, 0) + unmatchedInView;
     const closed = activeAccounts.reduce((s, a) => s + a.closed, 0);
     const revenue = activeAccounts.reduce((s, a) => s + a.revenue, 0);
     const dials = activeAccounts.reduce((s, a) => s + a.totalDials, 0);
@@ -759,8 +787,9 @@ export default function Dashboard() {
       dwyExcluded,
       costPerAppt: dfyAppts > 0 ? dfyPerfSpend / dfyAppts : 0,
       closed, revenue,
+      unmatchedAppts: unmatchedInView,
     };
-  }, [filteredAccounts]);
+  }, [filteredAccounts, dateFilteredResult, search, accountFilter, perfFilter]);
 
   // Derive selectedAccount from name so it auto-updates after refresh
   // Both appointment tiles are Done-For-You only; the note says so on the tile itself.
@@ -873,7 +902,13 @@ export default function Dashboard() {
           <KPICard label="Total Leads" value={spendOk ? formatNumber(totals.leads) : '—'} />
           <KPICard label="Avg CPL" value={spendOk && totals.cpl > 0 ? formatCurrency(totals.cpl) : '—'} />
           <KPICard label="Total Dials" value={spendOk && callsOk ? formatNumber(totals.dials) : '—'} />
-          <KPICard label="Total Appts" value={spendOk && apptsOk ? formatNumber(totals.appts) : '—'} />
+          {/* ⑥ The tile counts UNMATCHED appointments, so it must say when it is doing so —
+              a number that silently changes composition is the defect one level up. */}
+          <KPICard
+            label="Total Appts"
+            value={spendOk && apptsOk ? formatNumber(totals.appts) : '—'}
+            note={totals.unmatchedAppts > 0 ? `includes ${totals.unmatchedAppts} not matched to an account` : undefined}
+          />
           <KPICard label="Lead → Appt %" value={spendOk && apptsOk && totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} note={apptPopulationNote} />
           <KPICard label="Avg Cost/Appt" value={spendOk && apptsOk && totals.costPerAppt > 0 ? formatCurrency(totals.costPerAppt) : '—'} note={apptPopulationNote} />
           <KPICard label="Closed Deals" value={spendOk && apptsOk ? formatNumber(totals.closed) : '—'} />
