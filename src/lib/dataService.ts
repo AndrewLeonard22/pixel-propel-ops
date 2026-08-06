@@ -215,6 +215,83 @@ export interface ColumnSpec {
  *   Agent Name /       absent ⇒ a missing LABEL. Nothing numeric moves.
  *   call_dispostion
  */
+/**
+ * ② EXTENDED TO AIRTABLE — @andrew asked what happens if he renames a column header, and
+ * until now the answer was NOTHING STOPS IT.
+ *
+ * `columnMappings[key]` points at a field that no longer exists, `getField` returns '',
+ * and the metric SILENTLY BECOMES ZERO:
+ *   rename `Closed Revenue ($)` ⇒ revenue reads $0
+ *   rename `Appointment Date`   ⇒ the calendar empties
+ *   rename `Client Name`        ⇒ every appointment becomes unmatched
+ *   rename `Lead Status`        ⇒ ⭐ THE CLOSED COUNT SURVIVES — and that is the finding.
+ *
+ * ⭐ `isClosedWon` reads STATUS **or** REVENUE, so losing either is masked by the other.
+ * THAT REDUNDANCY IS A COINCIDENCE, NOT A DESIGN: it means a single-source failure is
+ * invisible to its own consumer, and the healthier the fallback looks the longer the
+ * breakage survives. A contract is the only thing that can see it, because the CONSUMER
+ * structurally cannot.
+ *
+ * ⚠️ THE PREDICATE IS THE MAPPED NAME, NOT THE RAW ONE. `columnMappings` IS the read path —
+ * checking `'Closed Revenue'` would pass while the app reads `'Closed Revenue ($)'`, which
+ * is the field that actually has to exist.
+ *
+ * ⚠️ AND THE POPULATION IS THE UNION ACROSS ALL RECORDS, reusing the exact set D2 needed:
+ * Airtable OMITS EMPTY FIELDS PER RECORD and `Closed Revenue ($)` is on 46 of 679, so a
+ * single-record presence check would report ~90% of the schema missing. Built once in
+ * mapAirtableRecords, shared here.
+ */
+export const AIRTABLE_COLUMNS: ColumnSpec[] = [
+  { accept: ['Client Name'], critical: true },        // absent ⇒ every appt unmatched
+  { accept: ['Appointment Date'], critical: true },   // absent ⇒ the calendar empties
+  { accept: ['Closed Revenue'], critical: true },     // absent ⇒ revenue reads $0
+  { accept: ['Lead Status'], critical: true },        // absent ⇒ MASKED by closedRevenue
+  { accept: ['Campaign Name'], critical: false },
+  { accept: ['Ad Set Name'], critical: false },
+  { accept: ['Ad Name'], critical: false },
+  { accept: ['Setter'], critical: false },
+  { accept: ['Show Status'], critical: false },
+];
+
+export interface AirtableSchemaReport {
+  missingCritical: string[];
+  missingLabels: string[];
+  /** No records ⇒ nothing observed. NOT a clean bill of health. */
+  unverified: boolean;
+}
+
+/**
+ * Check the contract against the OBSERVED field union, resolving each column through
+ * `columnMappings` first.
+ *
+ * ⛔ RETURNS, NEVER THROWS. Airtable is ONE OF THREE SOURCES and per-source isolation is
+ * the point: the caller turns a critical miss into a FAILED SOURCE with the header named,
+ * and Windsor keeps rendering. A throw in here would also reach the Settings dropdown,
+ * which needs the field union even when the schema is broken — that is exactly when a user
+ * is trying to re-map it.
+ */
+export function checkAirtableSchema(
+  observedFields: string[],
+  columnMappings: Record<string, string>,
+  columns: ColumnSpec[] = AIRTABLE_COLUMNS,
+): AirtableSchemaReport {
+  if (!Array.isArray(observedFields) || observedFields.length === 0) {
+    return { missingCritical: [], missingLabels: [], unverified: true };
+  }
+  const present = new Set(observedFields.map(f => f.trim().toLowerCase()));
+  const resolves = (c: ColumnSpec) =>
+    c.accept.some(name => {
+      const mapped = columnMappings?.[name] || name;
+      return present.has(mapped.trim().toLowerCase());
+    });
+
+  return {
+    missingCritical: columns.filter(c => c.critical && !resolves(c)).map(c => columnMappings?.[c.accept[0]] || c.accept[0]),
+    missingLabels: columns.filter(c => !c.critical && !resolves(c)).map(c => columnMappings?.[c.accept[0]] || c.accept[0]),
+    unverified: false,
+  };
+}
+
 export const CALL_CENTRE_COLUMNS: ColumnSpec[] = [
   { accept: ['ghl_location_name'], critical: true },
   { accept: ['Call Duration'], critical: true },
@@ -402,6 +479,36 @@ export async function fetchCallCenterData(settings: AppSettings): Promise<CallRo
   });
 }
 
+/**
+ * Turn a critical schema miss into a FAILED SOURCE, named. Called on both Airtable paths.
+ *
+ * ⭐ THE THROW IS THE ISOLATION MECHANISM, NOT A CONTRADICTION OF "MUST NOT THROW".
+ * `refreshSources` settles each source independently (SourceOutcome: ok | not-configured |
+ * failed), so a rejection here marks AIRTABLE failed and Windsor and the call centre keep
+ * rendering. That is exactly "report a FAILED SOURCE and let Windsor keep rendering" —
+ * expressed in the mechanism this codebase already uses for every other source failure.
+ * The check itself returns rather than throws, so the Settings dropdown path is untouched.
+ */
+function enforceAirtableSchema(
+  fields: string[],
+  columnMappings: Record<string, string>,
+): void {
+  const report = checkAirtableSchema(fields, columnMappings);
+  if (report.missingLabels.length > 0) {
+    console.warn(`Airtable: missing label columns ${report.missingLabels.join(', ')}`);
+  }
+  if (report.missingCritical.length === 0) return;
+
+  throw new Error(
+    `Airtable is missing the column${report.missingCritical.length > 1 ? 's' : ''} ` +
+      `${report.missingCritical.map(c => `"${c}"`).join(', ')}. ` +
+      `A renamed or deleted header does not fail on its own — the field simply reads empty, ` +
+      `so the numbers it feeds would silently become zero. Re-map it in Settings → column ` +
+      `mappings, or rename the column back. Appointments are shown as unavailable rather ` +
+      `than as zero.`,
+  );
+}
+
 export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[], unresolvedLinks?: number }> {
   const { airtableBaseId, airtableTableName, columnMappings } = settings;
 
@@ -485,7 +592,11 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
       offset = body.offset;
     } while (offset);
 
-    return mapAirtableRecords(records, columnMappings, [], linkNames);
+    const direct = mapAirtableRecords(records, columnMappings, [], linkNames);
+    // The union built inside the mapper — one construction, shared by the contract and by
+    // the Settings dropdown (D2). Building it twice is how the two would drift.
+    enforceAirtableSchema(direct.observedFields, columnMappings);
+    return direct;
   }
 
   if (invokeError) {
@@ -525,12 +636,14 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
     );
   }
 
-  return mapAirtableRecords(
+  const mapped = mapAirtableRecords(
     (payload as { records: { fields: Record<string, unknown> }[] }).records,
     columnMappings,
     Array.isArray(payload.fields) ? payload.fields : [],
     linkNames,
   );
+  enforceAirtableSchema(mapped.observedFields, columnMappings);
+  return mapped;
 }
 
 /**
@@ -552,9 +665,22 @@ export function mapAirtableRecords(
    * TOP of a refusal that already works; it never replaces it.
    */
   linkNames: Map<string, string> = new Map(),
-): { records: AppointmentRow[]; fields: string[]; unresolvedLinks: number } {
+): {
+  records: AppointmentRow[];
+  /** For the Settings dropdown. An explicit proxy-supplied list WINS — it is the real schema. */
+  fields: string[];
+  /**
+   * 🔴 THE UNION ACTUALLY SEEN IN THE RECORDS — a DIFFERENT question from `fields`, and
+   * conflating them is a defect I shipped for one commit. The proxy DECLARES a field list
+   * that can be narrower than the data; enforcing the column contract against a declaration
+   * checks what the proxy SAID, not what arrived. The contract must read what arrived.
+   */
+  observedFields: string[];
+  unresolvedLinks: number;
+} {
   const allRecords: AppointmentRow[] = [];
   let fields: string[] = knownFields;
+  let observed: string[] = [];
   // Counted, not swallowed: a silently blanked client is the same defect one layer down.
   let unresolvedLinks = 0;
 
@@ -579,13 +705,15 @@ export function mapAirtableRecords(
      * rarer the field, the more likely it is missing from the sample AND the more likely
      * it matters. The union is O(records) once per refresh and cannot be wrong this way.
      */
-    if (data.records.length > 0 && fields.length === 0) {
-      const seen = new Set<string>();
-      for (const rec of data.records) {
-        for (const k of Object.keys(rec?.fields ?? {})) seen.add(k);
-      }
-      fields = Array.from(seen);
+    // Built ONCE, unconditionally — two consumers, two questions, one computation:
+    //   `fields`         the dropdown's option list (explicit proxy list wins)
+    //   `observedFields` what the records actually carried (the contract's population)
+    const seen = new Set<string>();
+    for (const rec of data.records) {
+      for (const k of Object.keys(rec?.fields ?? {})) seen.add(k);
     }
+    observed = Array.from(seen);
+    if (data.records.length > 0 && fields.length === 0) fields = observed;
 
     for (const rec of data.records) {
       // Degrade, never throw — the same contract the rest of this path follows. A record
@@ -660,7 +788,7 @@ export function mapAirtableRecords(
     }
   }
 
-  return { records: allRecords, fields, unresolvedLinks };
+  return { records: allRecords, fields, observedFields: observed, unresolvedLinks };
 }
 
 /**
