@@ -99,9 +99,16 @@ const passed = m ? Number(m[1]) : 0;
 log(/\d+ failed/.test(suite) === false && passed > 0, 'vitest', `${passed} passed`);
 
 console.log('\nCONTROLS — each gate must REJECT a planted fault, or it measures nothing');
-const original = readFileSync(POISON_FILE, 'utf8');
+// ⚡ BYTES, NOT A STRING — @bird's law: a control whose UNIT does not match the thing it
+// guards is not a control. His fingerprint reported String.length (UTF-16 code units)
+// labelled "bytes", and the character that broke it was the em-dash — 69 of them, the
+// app's own symbol for "this is not a zero". This file previously read utf8 and compared
+// STRINGS while printing "byte-identical": sound for valid UTF-8 by round-trip, and
+// therefore right by LUCK rather than by construction. A BOM or invalid UTF-8 would make
+// the decode lossy and the comparison could report identical while the bytes differed.
+const original = readFileSync(POISON_FILE);
 try {
-  writeFileSync(POISON_FILE, original + POISON);
+  writeFileSync(POISON_FILE, Buffer.concat([original, Buffer.from(POISON, 'utf8')]));
 
   const cB = exit('npx', ['tsc', '-b', '--noEmit']);
   log(cB !== 0, 'tsc -b rejects a planted type error', `exit=${cB}`);
@@ -114,9 +121,12 @@ try {
   // to tsc (it type-errors only if typed) but must break the bundle. This proves the build
   // gate is measuring resolution, not just re-running what tsc already did.
   const importPoisonFile = 'src/main.tsx';
-  const importOriginal = readFileSync(importPoisonFile, 'utf8');
+  const importOriginal = readFileSync(importPoisonFile);
   try {
-    writeFileSync(importPoisonFile, `import '@/__gate_control_missing_module__';\n` + importOriginal);
+    writeFileSync(
+      importPoisonFile,
+      Buffer.concat([Buffer.from("import '@/__gate_control_missing_module__';\n", 'utf8'), importOriginal]),
+    );
     const cBuild = exit('npx', ['vite', 'build', '--logLevel', 'error']);
     log(cBuild !== 0, 'vite build rejects an unresolvable import', `exit=${cBuild}`);
   } finally {
@@ -134,8 +144,8 @@ try {
   writeFileSync(POISON_FILE, original);
 }
 
-const restored = readFileSync(POISON_FILE, 'utf8') === original;
-log(restored, 'poison removed, file byte-identical');
+const restored = readFileSync(POISON_FILE).equals(original);
+log(restored, 'poison removed, file byte-identical', `${original.length} octets`);
 
 if (failed === 0) {
   console.log('\nALL GATES GREEN, ALL CONTROLS RED');
