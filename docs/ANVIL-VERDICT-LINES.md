@@ -144,9 +144,31 @@ consequence was inherited from the mechanism at every hop.
 
 Eight surfaces were found tonight — predicate, badge, row, panel, tile, Targets, Media
 Buying, Agents — **by four seats, each on a surface the previous one could not see.**
-That is a rate, not a completion. ⚠️ **Six were demonstrated defects; Targets and Media
-Buying were PREVENTIVE — see the retraction above.** The count is honest only with that
-split attached.
+That is a rate, not a completion.
+
+⚠️ **DO NOT QUOTE A "DEMONSTRATED" COUNT. I published "six demonstrated, two preventive"
+and I cannot support the six.** @raccoon measured what the suite can supply: **no test
+asserts the defect state on any of the eight.** The only two positive `$0.00` assertions
+both assert *correct* behaviour — an honest zero from a live source that must not be
+suppressed — with a control of 18 mentions proving the probe is not blind.
+
+**"Demonstrated" is a property of a DRIVE, and only @bird holds that evidence.** The two
+that fell out of the count fell out because he built `7fca10a` and looked. The correct
+buckets are three, not two:
+
+```
+DEMONSTRATED    a pre-fix drive exists          ⇐ @bird's record, not mine to assert
+PREVENTIVE      the source cannot produce it    ⇐ Targets · Media Buying · Accounts · Campaigns
+NOT-STAGEABLE   no rig can reach the state      ⇐ appointments known-and-empty:
+                                                   fetchAirtableData throws unconditionally,
+                                                   so a browser can never produce it.
+                                                   The test is the ONLY instrument that
+                                                   reaches it — an honest limit, not a gap.
+```
+
+Filed as "preventive" the third bucket reads speculative; filed as "demonstrated" it is
+unsupported. It is neither. **The classification belongs to the seat with the drive
+record; I should not have assigned it from this one.**
 
 Seven broken probes were caught. **None by diligence** — every one by a control whose
 answer was predictable in advance, or by a contradiction with something already known.
