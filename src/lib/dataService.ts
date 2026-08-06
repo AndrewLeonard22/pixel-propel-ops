@@ -189,6 +189,13 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
   //
   // The proxy paginates server-side and returns the complete set, so the client offset loop
   // is gone rather than left unreachable below a throw.
+  //
+  // ⚠️ LOAD-BEARING CONTRACT, NOT A CHECK — @bird's arm G. Because the loop is gone, this
+  // client SILENTLY IGNORES an `offset` in the response. If the proxy ever starts
+  // returning PARTIAL pages, a partial set renders as a complete one: no error, no dash,
+  // no way to tell. It is safe today because the proxy returns everything, and that is a
+  // CONTRACT rather than something this code verifies. Anyone changing the proxy's
+  // pagination must change this function in the same commit.
   const { data: payload, error: invokeError } = await supabase.functions.invoke(
     'airtable-proxy',
     { body: { baseId: airtableBaseId, tableName: airtableTableName } },

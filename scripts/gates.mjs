@@ -29,6 +29,25 @@
  * SO EVERY GATE HERE CARRIES A POSITIVE CONTROL: a planted fault it MUST reject. If a
  * control ever passes, the gate is not measuring anything and this script fails loudly
  * rather than reporting green.
+ *
+ * ⛔ WHAT THIS SCRIPT CANNOT DO, AND IT IS A FIFTH CATEGORY — @bird found it, @raccoon
+ * sharpened it, and stating it here is the point:
+ *
+ *   DIMENSION    the tool WORKED PERFECTLY and returned a TRUE answer to a question
+ *                that cannot express the defect.
+ *
+ * The four above are instrument FAILURES — the tool broke, and a control detects it
+ * because a control tests the tool. DIMENSION is an instrument LIMIT. NO CONTROL ON THAT
+ * INSTRUMENT CAN SEE IT; only a SECOND INSTRUMENT can. Measured instances on this branch,
+ * every one sound and every one TRUE:
+ *   a numeric $0.00 sweep passed clean while the defect sat beside it IN PROSE
+ *   a badge check passed while the identical defect was in the TILES
+ *   a one-page census passed while two other pages bled
+ *
+ * ⇒ A CONTROL PROVES THE INSTRUMENT WORKS. IT CANNOT PROVE THE INSTRUMENT IS ASKING THE
+ *   RIGHT QUESTION. Those are different properties, and everything below tests the first.
+ *   Green here means the gates ran and could have failed. It does not mean they asked
+ *   about the thing that is broken.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
