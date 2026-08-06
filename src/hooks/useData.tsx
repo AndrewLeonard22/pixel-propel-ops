@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CallRow } from '@/lib/types';
 import { loadSettings, loadSettingsWithSource, isConfigured, type SettingsOrigin } from '@/lib/config';
 import { checkSheetCompleteness, DEFAULT_ADS_RAW_TAB, type CompletenessReport } from '@/lib/sheetCompleteness';
+import { judgeRefresh, snapshotOf, type RefreshVerdict, type RefreshSnapshot } from '@/lib/refreshValidation';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries, detectExclusionState, type ExclusionReport } from '@/lib/dataService';
 import { buildHonestNumbersReport, type HonestNumbersReport } from '@/lib/honestNumbers';
 import { computeSetterPayouts } from '@/lib/payout';
@@ -53,6 +54,11 @@ interface DataContextType {
    */
   completeness: CompletenessReport;
   /**
+   * ③ Was the last refresh accepted? A REJECTED refresh leaves the previous data on screen
+   * — `accept: false` means the numbers below are the LAST GOOD ones, not the newest.
+   */
+  refreshVerdict: RefreshVerdict | null;
+  /**
    * Is the campaign exclusion list actually filtering anything?
    *
    * @andrew accepted the loss of the 32 excluded campaigns, so performanceSpend ===
@@ -100,6 +106,7 @@ const defaultDataContext: DataContextType = {
   // definite statement made before we have looked.
   completeness: { state: 'unverifiable', rawRows: null, derivedRows: null, droppedRows: 0,
     reason: 'not checked yet' },
+  refreshVerdict: null,
   // Derived from the SAME settings the rest of this default uses, rather than hand-written
   // as 'active'. A hand-written default would say "exclusions are working" before anything
   // has loaded — a definite claim made before we have looked, which is the defect
@@ -155,6 +162,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [completeness, setCompleteness] = useState<CompletenessReport>({
     state: 'unverifiable', rawRows: null, derivedRows: null, droppedRows: 0, reason: 'not checked yet',
   });
+  const [refreshVerdict, setRefreshVerdict] = useState<RefreshVerdict | null>(null);
+  /** The snapshot of the last ACCEPTED refresh. A ref: the gate must not re-run a render. */
+  const lastGoodRef = useRef<RefreshSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -205,6 +215,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       // A newer refresh started while this one was in the air. Its answer is the current
       // one; ours is stale by definition, so we drop it rather than overwrite.
       if (seq !== requestSeq.current) return;
+
+      /**
+       * ③ THE VALIDATION GATE. Compare THIS refresh to the LAST ACCEPTED one before it is
+       * allowed to replace anything.
+       *
+       * ⭐ THE COMPARISON IS THE WHOLE VALUE: 19,000 rows and $320,000 are plausible on
+       * their own and only look wrong beside the 38,997 and $655,675 that were there a
+       * minute ago. A single-refresh check cannot see spend halving.
+       *
+       * ⛔ AND IT NEVER BLANKS THE PAGE — on rejection we simply do not call setData, so the
+       * previous numbers stay exactly where they are and the banner says they are stale.
+       */
+      const nextAccounts = buildAccountSummaries(nextData.adSpend, nextData.appointments, s, nextData.callData).accounts;
+      const verdict = judgeRefresh(snapshotOf(nextData.adSpend, nextAccounts.length), lastGoodRef.current);
+      setRefreshVerdict(verdict);
+      if (!verdict.accept) {
+        // Statuses still update: the sources answered, and hiding that would replace one
+        // lie with another. Only the DATA is withheld.
+        setSources(statuses);
+        return;
+      }
+      lastGoodRef.current = verdict.next;
 
       setData(nextData);
       setSources(statuses);
@@ -325,6 +357,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       settingsOrigin,
       settingsDetail,
       completeness,
+      refreshVerdict,
       settingsLoaded,
       exclusions,
       honestNumbers,

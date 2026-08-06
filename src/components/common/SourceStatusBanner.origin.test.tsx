@@ -48,11 +48,12 @@ function status(over: Partial<SourceStatus>): SourceStatus {
 type Comp = { state: 'complete' | 'truncated' | 'unverifiable'; rawRows: number | null; derivedRows: number | null; droppedRows: number; reason: string | null };
 const HEALTHY: Comp = { state: 'complete', rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null };
 
-function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY) {
+function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY, refreshVerdict: unknown = null) {
   useDataMock.mockReturnValue({
     settingsLoaded: true,
     adSpend: [],
     completeness,
+    refreshVerdict,
     loading: false,
     refresh: () => {},
     settingsOrigin: origin,
@@ -180,12 +181,51 @@ describe('SourceStatusBanner — the CLIFF actually reaches the screen', () => {
     useDataMock.mockReturnValue({
       settingsLoaded: true, loading: false, refresh: () => {},
       settingsOrigin: 'database' as SettingsOrigin, settingsDetail: null,
-      adSpend: [], completeness: TRUNCATED,
+      adSpend: [], completeness: TRUNCATED, refreshVerdict: null,
       sources: {
         windsor: status({ state: 'valid' }), airtable: status({ state: 'valid' }), callCenter: status({ state: 'valid' }),
       } as Record<SourceKey, SourceStatus>,
     });
     const { container } = render(<MemoryRouter><SourceStatusBanner /></MemoryRouter>);
     expect(container.textContent).toMatch(/INCOMPLETE/);
+  });
+});
+
+/**
+ * ③ THE VALIDATION GATE REACHES THE SCREEN.
+ *
+ * @fable's contract: "a collapse means REJECT, keep last-known-good, and say so on screen
+ * with BOTH numbers." The predicate is locked in refreshValidation.test.ts and — as this
+ * branch has now proven six times — a perfect predicate with no consumer renders nothing.
+ */
+describe('SourceStatusBanner — a REJECTED refresh says so on screen', () => {
+  const REJECTED = {
+    accept: false,
+    reasons: ['total spend fell from $655,675.16 to $320,000.00'],
+    next: { rowCount: 38997, totalSpend: 320000, accountCount: 61 },
+    lastGood: { rowCount: 38997, totalSpend: 655675.16, accountCount: 61 },
+  };
+  const ACCEPTED = { accept: true, reasons: [], next: REJECTED.next, lastGood: REJECTED.lastGood };
+
+  it('🔴 ANTI-VACUITY CONTROL: an ACCEPTED refresh says nothing about rejection', () => {
+    const { container } = mount('database', null, HEALTHY, ACCEPTED);
+    expect(container.textContent ?? '').not.toMatch(/REJECTED/);
+  });
+
+  it('🔴 a REJECTED refresh is ON SCREEN with BOTH numbers', () => {
+    const { container } = mount('database', null, HEALTHY, REJECTED);
+    const t = container.textContent ?? '';
+    expect(t).toMatch(/REJECTED/);
+    expect(t).toMatch(/655,675\.16/);
+    expect(t).toMatch(/320,000\.00/);
+    expect(t).toMatch(/previous data is still shown/);
+  });
+
+  it('a rejection alone MOUNTS the banner — no failed source needed', () => {
+    // The wiring fact: every other predicate here asks whether a source FAILED, and a
+    // rejected refresh fails nothing. Without an explicit term in the early return the
+    // whole component never renders and the rejection reaches no one.
+    const { container } = mount('database', null, HEALTHY, REJECTED);
+    expect(container.textContent).toMatch(/REJECTED/);
   });
 });
