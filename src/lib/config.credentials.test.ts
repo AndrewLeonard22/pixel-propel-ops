@@ -225,6 +225,86 @@ describe('the app_settings lockdown migration', () => {
     expect(sql).toContain('rejects undeclared key');
   });
 
+  it('🔴 the guard covers EVERY ROW, not just app_settings', () => {
+    // account_mappings holds 62 mappings and is the row that SURVIVED the wipe.
+    // The whole guard body used to sit inside `IF NEW.key = 'app_settings'`, so
+    // that row had no shape check and no collapse protection whatsoever.
+    // ⚠️ Measure CODE, not prose. An earlier version of this test split on 'BEGIN',
+    // which also occurs inside the PEM pattern `-----BEGIN ... PRIVATE KEY-----`,
+    // so it silently measured a fragment. Strip line comments first: the guard's own
+    // documentation quotes the very strings being searched for.
+    const body = sql.replace(/^\s*--.*$/gm, '');
+    const scoped = body.indexOf("IF NEW.key = 'app_settings' THEN");
+    expect(scoped, 'the app_settings-specific block must still exist').toBeGreaterThan(0);
+
+    // the shape check must appear BEFORE the key-scoped block, i.e. unscoped
+    const shapeAt = body.indexOf('sk-ant-');
+    expect(shapeAt, 'credential-shape check must exist').toBeGreaterThan(0);
+    expect(
+      shapeAt < scoped,
+      'the credential-shape check must run on EVERY row — if it sits inside the ' +
+        'app_settings block, account_mappings can hold a credential',
+    ).toBe(true);
+
+    // and the collapse guard must likewise be unscoped
+    const collapseAt = body.indexOf('refusing to empty row');
+    expect(collapseAt, 'an every-row collapse guard must exist').toBeGreaterThan(0);
+    expect(
+      collapseAt < scoped,
+      'the collapse guard must run on EVERY row, so a key nobody has created yet ' +
+        'is protected the day it appears',
+    ).toBe(true);
+  });
+
+  it('the every-row collapse guard is keyed on SHAPE, not on a list of row names', () => {
+    // comments stripped for the same reason as above — the block's own commentary
+    // names `account_mappings` deliberately, and a naive match would read that as code
+    const body = sql
+      .replace(/^\s*--.*$/gm, '')
+      .split("IF NEW.key = 'app_settings' THEN")[0];
+    // it must not name account_mappings — naming rows is the enumeration this replaced
+    expect(body).not.toContain("'account_mappings'");
+    // a scalar row must be exempt, or a legitimate string write would be refused
+    expect(body, 'non-collections must be exempt via a sentinel').toContain('ELSE -1');
+    expect(body).toMatch(/old_n > 0 AND new_n = 0/);
+  });
+
+  it('🎯 the bulk-deletion guard catches a PARTIAL revert, not only a wipe to empty', () => {
+    const body = sql.replace(/^\s*--.*$/gm, '');
+    // @raccoon's bound on the collapse guard: 62 -> 1 passed it. The realistic
+    // clobber is a stale copy holding an OLDER populated list, not an empty one.
+    expect(body, 'a magnitude rule must exist, not only old>0 && new=0').toMatch(
+      /new_n < old_n - 1/,
+    );
+    expect(sql).toContain('refusing to remove');
+  });
+
+  it('⛔ the magnitude rule is ARRAYS-ONLY — on objects it would reject every save', () => {
+    const body = sql.replace(/^\s*--.*$/gm, '');
+    const magnitude = body.indexOf('new_n < old_n - 1');
+    expect(magnitude).toBeGreaterThan(0);
+    // the guarded line must be conditioned on BOTH sides being arrays
+    const clause = body.slice(Math.max(0, magnitude - 220), magnitude + 40);
+    expect(
+      /jsonb_typeof\(OLD\.value\) = 'array'/.test(clause) &&
+        /jsonb_typeof\(NEW\.value\) = 'array'/.test(clause),
+      'the magnitude rule MUST be array-only: (a0) strips up to two keys from the ' +
+        'app_settings OBJECT, so an object magnitude rule would compare a 17-key OLD ' +
+        'against a 15-key NEW and reject every save from the deployed frontend',
+    ).toBe(true);
+  });
+
+  it('CONTROL: the strip and the magnitude rule cannot collide — arithmetic, stated', () => {
+    // The deployed frontend sends ALLOWED + the 2 retired keys. (a0) strips them.
+    const sent = [...ALLOWED_CONFIG_KEYS, ...retiredKeys].length;
+    const afterStrip = sent - retiredKeys.length;
+    expect(afterStrip).toBe(sent - 2);
+    // If the magnitude rule applied to objects, this write would be refused:
+    expect(afterStrip < sent - 1, 'a 2-key strip DOES trip an object magnitude rule').toBe(true);
+    // ⇒ which is exactly why the rule is array-only. This assertion documents the
+    //   collision that the array-only scoping avoids, so nobody "generalises" it later.
+  });
+
   it('rejects credential-shaped VALUES anywhere in the object, which covers nesting', () => {
     expect(sql).toContain('credential-shaped value');
     expect(sql).toContain('NEW.value::text'); // whole object, nested included
