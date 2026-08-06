@@ -37,7 +37,10 @@ vi.mock('@/lib/config', async () => {
     saveSettings: async (s: unknown) => { performed.saves.push(s); },
     saveAccountMappings: async () => {},
     loadAccountMappings: () => [],
-    loadAccountMappingsAsync: async () => [],
+    // ⚠️ NON-EMPTY, DELIBERATELY. My first version of this file returned [] here, so the
+    // `dbMappings.length > 0` branch never ran and a SECOND no-edit autosave trigger was
+    // invisible. An unrealistic fixture did not weaken a test — it hid a live defect.
+    loadAccountMappingsAsync: async () => [{ sheetName: 'Acme', airtableName: 'Acme Inc', program: 'DFY', status: 'Active' }],
   };
 });
 
@@ -148,6 +151,33 @@ describe('Settings autosave — a page LOAD is not an EDIT', () => {
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(1);
+  });
+
+  it('🔴 THE SECOND NO-EDIT TRIGGER: the async ACCOUNT MAPPINGS load must not autosave', async () => {
+    // Settings.tsx mounts, then loadAccountMappingsAsync resolves and calls
+    // setAccountMappings — a change to an autosave dependency with no user involvement at
+    // all. Same defect as @bird's P0, different trigger, and it fires on EVERY entry path
+    // including the in-app click that was measured safe.
+    mount('database');
+    await letAutosaveFire();
+
+    expect(performed.saves).toHaveLength(0);
+  });
+
+  it('🔑 THE OTHER ORDER: mappings landing BEFORE the settings load also writes nothing', async () => {
+    // The comment in Settings.tsx claims the two loaders converge whichever order they land
+    // in. That claim was untested until this arm, and an untested claim in a comment is a
+    // test that never runs. Mount with the settings load still in flight, let the mappings
+    // promise resolve first, THEN complete the settings load.
+    const { rerender } = mount('database', /* settingsLoaded */ false);
+    await letAutosaveFire();
+    expect(performed.saves).toHaveLength(0);
+
+    mount('database', true);          // re-arm the mock with the load resolved
+    rerender(<SettingsPage />);
+    await letAutosaveFire();
+
+    expect(performed.saves).toHaveLength(0);
   });
 
   it('does not write while the settings load is still in flight', async () => {

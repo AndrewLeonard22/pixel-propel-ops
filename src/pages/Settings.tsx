@@ -89,6 +89,28 @@ export default function SettingsPage() {
     loadAccountMappingsAsync().then(dbMappings => {
       if (dbMappings && dbMappings.length > 0) {
         setAccountMappings(dbMappings);
+        /**
+         * 🔴 THE SECOND NO-EDIT TRIGGER, AND I SHIPPED IT MYSELF IN 97d60d3.
+         *
+         * `accountMappings` is an autosave dependency, so this arrival is indistinguishable
+         * from a user editing an alias. Before 97d60d3 it was harmless BY ACCIDENT: the
+         * in-app path never hydrated, so the autosave was dead and could not fire. Arming
+         * the autosave — a real fix for a real defect — made this reachable on EVERY entry
+         * path, INCLUDING the sidebar click @bird measured as safe.
+         *
+         * ⚠️ MY OWN TEST MISSED IT BECAUSE THE FIXTURE RETURNED []. The `length > 0` branch
+         * never ran. An unrealistic fixture did not weaken the test; it hid a live defect
+         * that my own fix had just created.
+         *
+         * Folding the arrival into the baseline says what is true: this is a LOAD, not an
+         * edit. Written through setForm's updater so it reads the CURRENT form without
+         * adding a dependency — and it converges whichever order the two loads land in,
+         * because the hydration effect captures the mappings the same way.
+         */
+        setForm(currentForm => {
+          baselineRef.current = JSON.stringify({ form: currentForm, mappings: dbMappings });
+          return currentForm;
+        });
       }
     });
   }, []);
