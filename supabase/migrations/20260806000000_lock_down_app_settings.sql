@@ -51,7 +51,15 @@ ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 -- amount of friction in exchange for a door that cannot be left open by
 -- omission.
 --
+-- ⚠️ WITH ONE DELIBERATE EXCEPTION, AND IT IS AN EXCEPTION TO THE *REJECTION*,
+-- NEVER TO THE *STORAGE*: the two retired credential keys are stripped when
+-- empty instead of refused, because the deployed frontend still sends them.
+-- They are not on the allowlist and they can never be stored. See (a0).
+-- ⇒ A guard whose correctness depends on a deploy landing first is a guard that
+--   will be run in the wrong order. This one no longer has an order.
+--
 -- POPULATION THIS GUARD COVERS, STATED RATHER THAN IMPLIED:
+--   (a0) THE TWO RETIRED CREDENTIAL KEYS — stripped if empty, REFUSED if not.
 --   (a) TOP-LEVEL KEYS, EXACT CASE — via the allowlist.
 --       A nested key (value->'airtable'->>'token') is NOT a top-level key and
 --       the allowlist alone would not see it.
@@ -60,6 +68,9 @@ ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 --       matches on the SHAPE OF THE SECRET rather than on the name of its key.
 --   ⇒ (b) exists precisely because (a) is top-level and case-sensitive. Neither
 --     covers the other; the pair is the guard.
+--   ⇒ AND (b) IS WHY (a0)'s STRIP IS SAFE: a credential smuggled under one of
+--     the retired names is caught by its SHAPE even if the strip ran first —
+--     except it cannot get that far, because (a0) refuses a non-empty one.
 --
 CREATE OR REPLACE FUNCTION public.app_settings_reject_unsafe()
 RETURNS trigger
@@ -80,6 +91,15 @@ DECLARE
     'activeSetters', 'inactiveSetters',
     'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays'
   ];
+  -- ⚠️ THE TWO CREDENTIAL FIELDS THE OLD FRONTEND STILL MODELS.
+  -- These are NOT on the allowlist and never will be. They get SPECIAL handling below
+  -- rather than a flat rejection, and the reason is a deployment fact, not a design taste:
+  -- the DEPLOYED frontend still carries both fields and sends them on EVERY save (empty,
+  -- but present). A flat rejection would make this migration correct only AFTER a frontend
+  -- deploy nobody here controls — i.e. correct in exactly one ordering. Orderings get run
+  -- in the wrong order; I proved that on myself by telling Andrew to apply this FIRST,
+  -- ten times, which would have frozen every save on the page mid-restore.
+  retired_credential_keys text[] := ARRAY['airtableToken', 'anthropicApiKey'];
   -- scalar fields whose loss takes the product down
   protected_keys text[] := ARRAY['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId'];
   -- COLLECTIONS whose loss silently changes every number without breaking anything.
@@ -103,7 +123,32 @@ BEGIN
   -- Only the settings row carries a config object; other keys hold arrays.
   IF NEW.key = 'app_settings' THEN
 
-    -- (a) ALLOWLIST: an undeclared top-level key is refused.
+    -- (a0) THE TWO RETIRED CREDENTIAL KEYS — ASYMMETRIC ON PURPOSE.
+    --
+    --   EMPTY     -> STRIPPED silently. This is the deployed frontend saying "I still have
+    --                a box for this and it is blank". Nothing is lost and nothing leaks, so
+    --                refusing would only break a save that carries no secret.
+    --   NON-EMPTY -> REJECTED, loudly, naming where the value belongs. A silent drop here
+    --                would be worse than either: someone types a real token, sees the page
+    --                say saved, and never learns it went nowhere — so they retype it, and
+    --                the product stays broken for a reason the UI has hidden from them.
+    --
+    -- ⇒ The asymmetry is what makes this migration safe to apply at ANY point in the
+    --   sequence, which is the property it should have had from the start.
+    FOREACH k IN ARRAY retired_credential_keys LOOP
+      IF NEW.value ? k THEN
+        IF coalesce(NEW.value ->> k, '') <> '' THEN
+          RAISE EXCEPTION
+            'app_settings refuses to store "%": this row is world-readable, so credentials '
+            'now live in Edge Function secrets. Set AIRTABLE_TOKEN / ANTHROPIC_API_KEY on '
+            'the functions instead — the browser must never hold one.', k
+            USING ERRCODE = 'check_violation';
+        END IF;
+        NEW.value := NEW.value - k;
+      END IF;
+    END LOOP;
+
+    -- (a) ALLOWLIST: any OTHER undeclared top-level key is refused.
     FOR k IN SELECT jsonb_object_keys(NEW.value) LOOP
       IF NOT (k = ANY (allowed_config_keys)) THEN
         RAISE EXCEPTION
