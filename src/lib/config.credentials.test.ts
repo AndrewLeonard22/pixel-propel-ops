@@ -225,6 +225,50 @@ describe('the app_settings lockdown migration', () => {
     expect(sql).toContain('rejects undeclared key');
   });
 
+  it('🔴 the guard covers EVERY ROW, not just app_settings', () => {
+    // account_mappings holds 62 mappings and is the row that SURVIVED the wipe.
+    // The whole guard body used to sit inside `IF NEW.key = 'app_settings'`, so
+    // that row had no shape check and no collapse protection whatsoever.
+    // ⚠️ Measure CODE, not prose. An earlier version of this test split on 'BEGIN',
+    // which also occurs inside the PEM pattern `-----BEGIN ... PRIVATE KEY-----`,
+    // so it silently measured a fragment. Strip line comments first: the guard's own
+    // documentation quotes the very strings being searched for.
+    const body = sql.replace(/^\s*--.*$/gm, '');
+    const scoped = body.indexOf("IF NEW.key = 'app_settings' THEN");
+    expect(scoped, 'the app_settings-specific block must still exist').toBeGreaterThan(0);
+
+    // the shape check must appear BEFORE the key-scoped block, i.e. unscoped
+    const shapeAt = body.indexOf('sk-ant-');
+    expect(shapeAt, 'credential-shape check must exist').toBeGreaterThan(0);
+    expect(
+      shapeAt < scoped,
+      'the credential-shape check must run on EVERY row — if it sits inside the ' +
+        'app_settings block, account_mappings can hold a credential',
+    ).toBe(true);
+
+    // and the collapse guard must likewise be unscoped
+    const collapseAt = body.indexOf('refusing to empty row');
+    expect(collapseAt, 'an every-row collapse guard must exist').toBeGreaterThan(0);
+    expect(
+      collapseAt < scoped,
+      'the collapse guard must run on EVERY row, so a key nobody has created yet ' +
+        'is protected the day it appears',
+    ).toBe(true);
+  });
+
+  it('the every-row collapse guard is keyed on SHAPE, not on a list of row names', () => {
+    // comments stripped for the same reason as above — the block's own commentary
+    // names `account_mappings` deliberately, and a naive match would read that as code
+    const body = sql
+      .replace(/^\s*--.*$/gm, '')
+      .split("IF NEW.key = 'app_settings' THEN")[0];
+    // it must not name account_mappings — naming rows is the enumeration this replaced
+    expect(body).not.toContain("'account_mappings'");
+    // a scalar row must be exempt, or a legitimate string write would be refused
+    expect(body, 'non-collections must be exempt via a sentinel').toContain('ELSE -1');
+    expect(body).toMatch(/old_n > 0 AND new_n = 0/);
+  });
+
   it('rejects credential-shaped VALUES anywhere in the object, which covers nesting', () => {
     expect(sql).toContain('credential-shaped value');
     expect(sql).toContain('NEW.value::text'); // whole object, nested included

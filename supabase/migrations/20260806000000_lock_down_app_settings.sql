@@ -120,7 +120,62 @@ DECLARE
   old_n int;
   new_n int;
 BEGIN
-  -- Only the settings row carries a config object; other keys hold arrays.
+  -- ══ EVERY-ROW GUARDS ══════════════════════════════════════════════════════
+  --
+  -- 🔴 THESE USED TO SIT INSIDE `IF NEW.key = 'app_settings'`, WHICH MEANT THE
+  -- ENTIRE GUARD INSPECTED ONE ROW OUT OF TWO. `account_mappings` — 62 account
+  -- mappings, the row that SURVIVED the wipe and the reason accountAliases came
+  -- back — was completely unguarded: a write emptying it to `[]` sailed through,
+  -- and so did a credential smuggled into any of its fields.
+  --
+  -- Found by auditing a teammate's conclusion that this trigger was COMPLETE.
+  -- A guard scoped to the row you were thinking about is not a guard on the TABLE.
+
+  -- (b) CREDENTIAL SHAPE — every row, every key, nested included, any casing.
+  --     No key of this table may EVER hold something credential-shaped, whether
+  --     or not anyone has thought about that key yet.
+  serialised := NEW.value::text;
+  IF serialised ~* 'sk-ant-[A-Za-z0-9_-]{20}'                    -- Anthropic
+     OR serialised ~  'pat[A-Za-z0-9]{14}\.[A-Za-z0-9]{40}'      -- Airtable PAT
+     OR serialised ~  '\mkey[A-Za-z0-9]{14}\M'                   -- Airtable legacy
+     OR serialised ~  '\mgh[pousr]_[A-Za-z0-9]{30}'              -- GitHub
+     OR serialised ~  '\mAKIA[0-9A-Z]{16}\M'                     -- AWS
+     OR serialised ~  '\mAIza[0-9A-Za-z_-]{30}'                  -- Google API
+     OR serialised ~  '\mxox[baprs]-[0-9A-Za-z-]{10}'            -- Slack
+     OR serialised ~  'eyJ[A-Za-z0-9_-]{10}\.eyJ[A-Za-z0-9_-]{10}\.'  -- JWT
+     OR serialised ~  '-----BEGIN [A-Z ]*PRIVATE KEY-----'       -- PEM
+  THEN
+    RAISE EXCEPTION
+      'app_settings rejects a credential-shaped value in row "%": this table is readable '
+      'by anon. Credentials belong in Edge Function secrets.', NEW.key
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- (e) COLLAPSE GUARD — ANY row, not a named list of them.
+  --     An UPDATE may not take a populated collection to empty. Keyed on the
+  --     SHAPE OF THE WRITE rather than on an enumeration of rows, so a key
+  --     nobody has created yet is protected the day it appears.
+  --     (@raccoon's «stop driving off a list» applied one layer down.)
+  IF TG_OP = 'UPDATE' THEN
+    old_n := CASE jsonb_typeof(OLD.value)
+               WHEN 'array'  THEN jsonb_array_length(OLD.value)
+               WHEN 'object' THEN (SELECT count(*)::int FROM jsonb_object_keys(OLD.value))
+               ELSE -1 END;
+    new_n := CASE jsonb_typeof(NEW.value)
+               WHEN 'array'  THEN jsonb_array_length(NEW.value)
+               WHEN 'object' THEN (SELECT count(*)::int FROM jsonb_object_keys(NEW.value))
+               ELSE -1 END;
+    -- -1 means "not a collection" — a scalar row is not this guard's business.
+    IF old_n > 0 AND new_n = 0 THEN
+      RAISE EXCEPTION
+        'refusing to empty row "%": it currently holds % entries and this write leaves none. '
+        'That is the shape of a stale-copy overwrite, not an edit.', NEW.key, old_n
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- ══ THE app_settings ROW SPECIFICALLY ═════════════════════════════════════
+  -- Only this row carries a config OBJECT with named fields; the others hold arrays.
   IF NEW.key = 'app_settings' THEN
 
     -- (a0) THE TWO RETIRED CREDENTIAL KEYS — ASYMMETRIC ON PURPOSE.
@@ -158,25 +213,9 @@ BEGIN
       END IF;
     END LOOP;
 
-    -- (b) SHAPE CHECK over the WHOLE value, nested included, case-insensitive.
-    --     Catches a credential smuggled under an allowed key, or nested, or
-    --     under a differently-cased name — none of which (a) can see.
-    serialised := NEW.value::text;
-    IF serialised ~* 'sk-ant-[A-Za-z0-9_-]{20}'                    -- Anthropic
-       OR serialised ~  'pat[A-Za-z0-9]{14}\.[A-Za-z0-9]{40}'      -- Airtable PAT
-       OR serialised ~  '\mkey[A-Za-z0-9]{14}\M'                   -- Airtable legacy
-       OR serialised ~  '\mgh[pousr]_[A-Za-z0-9]{30}'              -- GitHub
-       OR serialised ~  '\mAKIA[0-9A-Z]{16}\M'                     -- AWS
-       OR serialised ~  '\mAIza[0-9A-Za-z_-]{30}'                  -- Google API
-       OR serialised ~  '\mxox[baprs]-[0-9A-Za-z-]{10}'            -- Slack
-       OR serialised ~  'eyJ[A-Za-z0-9_-]{10}\.eyJ[A-Za-z0-9_-]{10}\.'  -- JWT
-       OR serialised ~  '-----BEGIN [A-Z ]*PRIVATE KEY-----'       -- PEM
-    THEN
-      RAISE EXCEPTION
-        'app_settings rejects a credential-shaped value: this row is readable by anon. '
-        'Credentials belong in server-side secrets.'
-        USING ERRCODE = 'check_violation';
-    END IF;
+    -- (b) MOVED OUT — the credential-shape check now runs on EVERY row, above.
+    --     It was here, inside this `IF`, which is exactly how account_mappings
+    --     ended up with no shape check at all.
 
     -- (c) an update may not blank a connection field that currently has a value.
     IF TG_OP = 'UPDATE' THEN
