@@ -218,4 +218,26 @@ describe('resolveRecordId', () => {
     expect(resolveRecordId('Acme Corp', names)).toBeNull();       // a real name is not an id
     expect(resolveRecordId('Recovery Plumbing', names)).toBeNull();
   });
+
+  it('🔴 THE ID-SHAPE GUARD IS LOAD-BEARING — a non-id key in the map must NOT resolve', () => {
+    // My first arm used values ABSENT from the map, so deleting the shape guard changed
+    // nothing observable and the sabotage passed. The guard only shows its work when a
+    // NON-ID string IS a key: without it, any plain client name colliding with the lookup
+    // would be silently rewritten to whatever that key points at.
+    const poisoned = new Map([
+      ['rec1234567890abcd', 'Acme'],
+      ['Acme Corp', 'WRONG — a name is not an id'],
+    ]);
+    expect(resolveRecordId('Acme Corp', poisoned)).toBeNull();
+    expect(resolveRecordId('rec1234567890abcd', poisoned)).toBe('Acme');   // control
+  });
+
+  it('🔑 and the guard holds THROUGH the mapper — a plain name is never looked up', () => {
+    const poisoned = new Map([['Acme Corp', 'WRONG']]);
+    const { records, unresolvedLinks } = mapAirtableRecords(
+      [{ fields: { 'Client Name': 'Acme Corp' } }], {}, [], poisoned,
+    );
+    expect(records[0].client).toBe('Acme Corp');   // untouched, not rewritten
+    expect(unresolvedLinks).toBe(0);
+  });
 });
