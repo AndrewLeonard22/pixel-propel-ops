@@ -135,6 +135,84 @@ function isRealDate(y: number, m: number, d: number): boolean {
  * An EMPTY sheet is exempt on purpose: with no rows there are no fabricated numbers, and a
  * genuinely empty tab is a legitimate state this must not turn into an error.
  */
+/**
+ * ② THE COLUMN CONTRACT — item ②, and it is the half `assertSheetSchema` does NOT cover.
+ *
+ * @fable: "a misconfigured source CANNOT FAIL LOUDLY TODAY. It returns confident, complete,
+ * WRONG data — one settings typo away at all times."
+ *
+ * ⭐ MY EXISTING GUARD COVERS THE *TAB* HALF AND MISSES THE *COLUMN* HALF, AND I SAID SO IN
+ * ITS OWN DOCBLOCK WITHOUT NOTICING THE GAP. It asserts ONE column — enough to catch a
+ * wrong tab, where ALL columns vanish at once. It is blind to DRIFT: if Windsor renames
+ * `Spent` to `Amount Spent`, `Account Name` still resolves, the guard stays silent,
+ * parseNumber('') returns 0, and EVERY SPEND TOTAL SILENTLY BECOMES ZERO.
+ *
+ * ⚠️ TWO TIERS, BECAUSE THEY FAIL DIFFERENTLY AND MUST BE TREATED DIFFERENTLY:
+ *   CRITICAL  absence produces a WRONG NUMBER that renders confidently ⇒ THROW.
+ *             A dead source is honest; a source reporting £0 spend is not.
+ *   LABEL     absence loses a NAME, not a number ⇒ REPORT, never throw. Throwing here
+ *             would take the dashboard down over a missing `Ad Name`, and a check that
+ *             costs more than the defect is a check people delete.
+ *
+ * ⭐ THE ALTERNATES ARE NOT STYLE — THEY ARE READ OFF THE MAPPER. `campaignId` accepts
+ * 'Campaign Id' OR 'Campaign ID'; a contract that demanded one spelling would throw on a
+ * sheet that works today. Retyping the list from memory is how a guard starts disagreeing
+ * with the code it guards, so every entry below mirrors a line in the map above it.
+ */
+export interface ColumnSpec {
+  /** Any one of these headers satisfies the column. Mirrors the mapper's `||` chain. */
+  accept: string[];
+  /** Absence produces a wrong NUMBER rather than a missing label. */
+  critical: boolean;
+}
+
+export const WINDSOR_COLUMNS: ColumnSpec[] = [
+  { accept: ['Account Name'], critical: true },              // absent ⇒ ONE fake account
+  { accept: ['Spent', 'Spend'], critical: true },            // absent ⇒ every total £0
+  { accept: ['Leads'], critical: true },                     // absent ⇒ CPL divides by zero
+  { accept: ['Date'], critical: true },                      // absent ⇒ freshness blind
+  { accept: ['Month'], critical: false },
+  { accept: ['Campaign'], critical: false },
+  { accept: ['Campaign Id', 'Campaign ID'], critical: false },
+  { accept: ['Adset Name', 'Ad Set Name'], critical: false },
+  { accept: ['Adset Id', 'Ad Set ID'], critical: false },
+  { accept: ['Ad Name'], critical: false },
+  { accept: ['Ad Id', 'Ad ID'], critical: false },
+];
+
+export interface SchemaDrift {
+  /** LABEL columns that are absent. The feed still works; something is unnamed. */
+  missingLabels: string[];
+}
+
+/**
+ * Check a parsed sheet against a column contract.
+ * THROWS when a CRITICAL column is missing; RETURNS the drift for the rest.
+ */
+export function checkColumnContract(
+  rows: Record<string, string>[],
+  columns: ColumnSpec[],
+  label: string,
+): SchemaDrift {
+  if (rows.length === 0) return { missingLabels: [] };
+  const present = new Set(Object.keys(rows[0]));
+  const satisfied = (c: ColumnSpec) => c.accept.some(h => present.has(h));
+
+  const missingCritical = columns.filter(c => c.critical && !satisfied(c));
+  if (missingCritical.length > 0) {
+    const names = missingCritical.map(c => `"${c.accept[0]}"`).join(', ');
+    throw new Error(
+      `${label}: the sheet is missing the column${missingCritical.length > 1 ? 's' : ''} ${names}, ` +
+        `which every total is computed from. This is either the WRONG TAB or a renamed column — ` +
+        `the tab name in Settings does not select a tab, only the gid= in the sheet URL does. ` +
+        `Columns found: ${Object.keys(rows[0]).slice(0, 10).join(', ')}. ` +
+        `Refusing to report zeros drawn from columns that are not there.`,
+    );
+  }
+
+  return { missingLabels: columns.filter(c => !c.critical && !satisfied(c)).map(c => c.accept[0]) };
+}
+
 export function assertSheetSchema(
   rows: Record<string, string>[],
   required: string[],
@@ -163,9 +241,15 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
   
   const text = await response.text();
   const rows = parseCsv(text);
-  // Without `Account Name` every row groups under 'Unknown' and the whole dashboard is one
-  // fake account — a wrong tab that reads as a successful fetch.
-  assertSheetSchema(rows, ['Account Name'], 'Ad spend sheet');
+  // ② FULL COLUMN CONTRACT, not just one column. A wrong TAB loses every column at once
+  // and the old single-column check caught that; COLUMN DRIFT loses one, keeps the rest,
+  // and was completely invisible.
+  const drift = checkColumnContract(rows, WINDSOR_COLUMNS, 'Ad spend sheet');
+  if (drift.missingLabels.length > 0) {
+    // Reported, not thrown: these lose a NAME, not a number. Taking the dashboard down over
+    // a missing `Ad Name` is a check that costs more than the defect it prevents.
+    console.warn(`Ad spend sheet: missing label columns ${drift.missingLabels.join(', ')}`);
+  }
 
   return rows.map(r => ({
     month: r['Month'] || '',
