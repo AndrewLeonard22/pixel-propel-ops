@@ -267,3 +267,33 @@ describe('🔑 THE THIRD CATEGORY — a DANGLING reference is unattributed too',
     expect(acct.unattributedAppointments).toBe(2);   // the orphan AND the dangling row
   });
 });
+
+describe('🔴 THE ⑥ POPULATION AND THIS ONE ARE NOT THE SAME ROWS — equal sums are not identity', () => {
+  it('a row can be ACCOUNT-ATTACHED and CAMPAIGN-UNATTRIBUTED at the same time', () => {
+    /**
+     * @bird measured a striking coincidence on live data: his four states partition 679 as
+     * 636 resolve + 27 all-six-empty + 7 dangling + 9 name-only, and 27+7+9 = 43 — the same
+     * 43 that ⑥ discloses as "not matched to an account". He inferred the two disclosures are
+     * two views of ONE defect.
+     *
+     * 🔴 THEY ARE NOT, AS A MATTER OF MECHANISM. Account attachment has a route that campaign
+     * attachment does not: the CLIENT NAME. An appointment whose client matches an account
+     * exactly, carrying no campaign evidence at all, is ATTACHED to the account (so it is not
+     * one of the 43) and INVISIBLE to every campaign reduce (so it is in this count).
+     *
+     * ⭐ EQUAL CARDINALITY IS NOT SET IDENTITY. The sums may coincide on today's data — that
+     * is a fact about the data, not about the code — and the risk of merging them is
+     * concrete: fix one and believe you fixed both.
+     */
+    const spend = [makeAdSpendRow({ accountName: 'Archadeck', campaignId: 'C1', adsetId: 'AS1', adsetName: 'S1', adId: 'AD1', adName: 'A1', spent: 100, leads: 10 })];
+    const appts = [
+      makeAppointmentRow({ client: 'Archadeck', campaignId: 'C1', adSetId: 'AS1', adSetName: 'S1', adId: 'AD1', adName: 'A1' }),
+      makeAppointmentRow({ client: 'Archadeck', campaignId: '', adSetId: '', adSetName: '', adId: '', adName: '', campaignName: '' }),
+    ];
+    const { accounts, unmatchedAppointments } = buildAccountSummaries(spend, appts, SETTINGS, []);
+
+    expect(accounts[0].appointments).toBe(2);            // BOTH attached to the account
+    expect(unmatchedAppointments).toHaveLength(0);       // ⇒ neither is one of ⑥'s 43
+    expect(accounts[0].unattributedAppointments).toBe(1); // yet one IS campaign-unattributed
+  });
+});
