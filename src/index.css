@@ -3,27 +3,36 @@
 @tailwind utilities;
 
 @layer base {
+  /* ── RELAY PALETTE (Andrew 2026-08-05: "change the coloring to relay").
+     Ported from ~/quo-dashboard/src/index.css — the SOURCE, converted to the HSL
+     triplets Tailwind 3 expects rather than eyedropped. Relay blue is #1a6eff and
+     Relay navy is #101623 / #0a0f1a.
+     ⛔ SEMANTIC COLOURS ARE NOT PART OF THE RECOLOUR: --success, --warning and
+     --destructive keep their hues on purpose. They carry MEANING on the honest-state
+     banners, and Relay blue is a neutral accent that does not collide with any of
+     green / amber / red. A recolour that made a warning stop reading as a warning
+     would have broken the product to change its paint. */
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --background: 0 0% 100%;              /* Relay: the brightest white */
+    --foreground: 240 2% 12%;             /* Relay ink #1f1f20 */
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 240 2% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 240 2% 12%;
 
-    --primary: 222 47% 11%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 218 100% 55%;              /* Relay blue #1a6eff */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 210 20% 98%;             /* Relay bg-soft #f9fafb */
+    --secondary-foreground: 240 1% 20%;   /* Relay ink2 #323233 */
 
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
+    --muted: 210 20% 98%;
+    --muted-foreground: 240 0% 53%;       /* Relay text-muted #878788 */
 
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
+    --accent: 224 100% 97%;               /* Relay selected #f0f4ff */
+    --accent-foreground: 218 87% 45%;     /* Relay pill-active text #0f58d6 */
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -34,59 +43,59 @@
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 222 47% 11%;
+    --border: 220 13% 91%;                /* Relay border #e5e7eb */
+    --input: 220 13% 91%;
+    --ring: 218 100% 55%;                 /* Relay blue */
 
     --radius: 0.75rem;
 
-    --sidebar-background: 222 47% 11%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 160 84% 39%;
+    --sidebar-background: 221 44% 7%;     /* Relay navy sidebar #0a0f1a */
+    --sidebar-foreground: 225 53% 94%;    /* Relay dark ink #e8ecf8 */
+    --sidebar-primary: 218 100% 55%;      /* Relay blue — was emerald */
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 17%;
-    --sidebar-ring: 160 84% 39%;
-    --sidebar-muted: 215 16% 47%;
+    --sidebar-accent: 221 45% 16%;        /* Relay navy selected #17233c */
+    --sidebar-accent-foreground: 225 53% 94%;
+    --sidebar-border: 223 32% 22%;        /* Relay navy border #26304a */
+    --sidebar-ring: 218 100% 55%;
+    --sidebar-muted: 226 19% 62%;         /* Relay dark muted #8a93b0 */
 
     --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
   }
 
   .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    --card: 217 33% 17%;
-    --card-foreground: 210 40% 98%;
-    --popover: 217 33% 17%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
+    --background: 221 37% 10%;            /* Relay navy #101623 */
+    --foreground: 225 53% 94%;            /* Relay dark ink #e8ecf8 */
+    --card: 221 34% 16%;                  /* Relay navy hover #1b2437 */
+    --card-foreground: 225 53% 94%;
+    --popover: 221 34% 16%;
+    --popover-foreground: 225 53% 94%;
+    --primary: 222 100% 68%;              /* Relay blue on navy #5a8cff */
+    --primary-foreground: 221 37% 10%;
+    --secondary: 222 33% 22%;             /* Relay navy active #253049 */
+    --secondary-foreground: 224 33% 84%;  /* Relay dark ink2 #c9d0e4 */
+    --muted: 221 34% 16%;
+    --muted-foreground: 226 19% 62%;      /* Relay dark muted #8a93b0 */
+    --accent: 221 45% 16%;                /* Relay navy selected #17233c */
+    --accent-foreground: 222 100% 68%;
     --destructive: 0 62% 31%;
     --destructive-foreground: 210 40% 98%;
     --success: 160 84% 39%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 212 27% 84%;
-    --sidebar-background: 222 60% 7%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 160 84% 39%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 33% 12%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 12%;
-    --sidebar-ring: 160 84% 39%;
-    --sidebar-muted: 215 20% 65%;
+    --border: 223 32% 22%;                /* Relay navy border #26304a */
+    --input: 223 32% 22%;
+    --ring: 222 100% 68%;                 /* Relay blue on navy */
+    --sidebar-background: 221 44% 7%;     /* Relay navy sidebar #0a0f1a */
+    --sidebar-foreground: 225 53% 94%;
+    --sidebar-primary: 222 100% 68%;      /* Relay blue — was emerald */
+    --sidebar-primary-foreground: 221 37% 10%;
+    --sidebar-accent: 221 45% 16%;
+    --sidebar-accent-foreground: 225 53% 94%;
+    --sidebar-border: 223 32% 22%;
+    --sidebar-ring: 222 100% 68%;
+    --sidebar-muted: 226 19% 62%;
   }
 }
 
