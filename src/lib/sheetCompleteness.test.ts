@@ -48,11 +48,22 @@ describe('parseGvizCount — the wire format, measured from a live response', ()
 });
 
 describe('URL construction', () => {
-  it('asks for a COUNT, not a payload', () => {
-    const u = buildCountUrl('SHEETID', '123');
-    expect(u).toContain('/gviz/tq');
-    expect(u).toContain('gid=123');
-    expect(u).toContain(encodeURIComponent('select count(A)'));
+  it('asks for a COUNT, not a payload — by gid or by name', () => {
+    const byGid = buildCountUrl('SHEETID', { gid: '123' });
+    expect(byGid).toContain('/gviz/tq');
+    expect(byGid).toContain('gid=123');
+    expect(byGid).toContain(encodeURIComponent('select count(A)'));
+
+    const byName = buildCountUrl('SHEETID', { sheet: 'Ads - Raw' });
+    expect(byName).toContain(`sheet=${encodeURIComponent('Ads - Raw')}`);
+  });
+
+  it('🔑 THE QUERY IS IDENTICAL FOR BOTH TABS — or the sig proof becomes a rubber stamp', () => {
+    // `sig` is a function of (tab content, QUERY). If the two probes used different queries
+    // their sigs would differ for a reason unrelated to which tab answered, and the
+    // distinct-tabs proof would pass unconditionally.
+    const q = (u: string) => u.split('&tq=')[1];
+    expect(q(buildCountUrl('S', { gid: '1' }))).toBe(q(buildCountUrl('S', { sheet: 'X' })));
   });
 
   it('reads the ids out of a real sheet URL, and the derived gid defaults to 0', () => {
@@ -133,7 +144,7 @@ describe('checkSheetCompleteness — never throws, never blocks a render', () =>
       .mockResolvedValueOnce({ ok: true, text: async () => gviz(38944, 'RAW') })
       .mockResolvedValueOnce({ ok: true, text: async () => gviz(38944, 'DERIVED') });
 
-    const r = await checkSheetCompleteness(URL_OK, '200', f as unknown as typeof fetch);
+    const r = await checkSheetCompleteness(URL_OK, 'Ads - Raw', f as unknown as typeof fetch);
     expect(r.state).toBe('complete');
     expect(f).toHaveBeenCalledTimes(2);
   });
@@ -143,7 +154,7 @@ describe('checkSheetCompleteness — never throws, never blocks a render', () =>
       .mockResolvedValueOnce({ ok: true, text: async () => gviz(39446, 'RAW') })
       .mockResolvedValueOnce({ ok: true, text: async () => gviz(39388, 'DERIVED') });
 
-    const r = await checkSheetCompleteness(URL_OK, '200', f as unknown as typeof fetch);
+    const r = await checkSheetCompleteness(URL_OK, 'Ads - Raw', f as unknown as typeof fetch);
     expect(r.state).toBe('truncated');
     expect(r.droppedRows).toBe(58);
   });
@@ -152,35 +163,37 @@ describe('checkSheetCompleteness — never throws, never blocks a render', () =>
     // @fable: "it must NOT block rendering. Incomplete data with an honest banner beats a
     // blank page." A detector that can throw is a detector that can white-screen the app.
     const f = vi.fn().mockRejectedValue(new Error('network down'));
-    await expect(checkSheetCompleteness(URL_OK, '200', f as unknown as typeof fetch)).resolves.toMatchObject({
+    await expect(checkSheetCompleteness(URL_OK, 'Ads - Raw', f as unknown as typeof fetch)).resolves.toMatchObject({
       state: 'unverifiable',
     });
   });
 
   it('a non-ok response is unverifiable, not zero rows', async () => {
     const f = vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => '' });
-    expect((await checkSheetCompleteness(URL_OK, '200', f as unknown as typeof fetch)).state).toBe('unverifiable');
+    expect((await checkSheetCompleteness(URL_OK, 'Ads - Raw', f as unknown as typeof fetch)).state).toBe('unverifiable');
   });
 
   it('🔑 REFUSES TO PROBE when the raw tab is unidentified — and does NOT call fetch', async () => {
     const f = vi.fn();
     const r = await checkSheetCompleteness(URL_OK, undefined, f as unknown as typeof fetch);
     expect(r.state).toBe('unverifiable');
-    expect(r.reason).toMatch(/not been identified/);
+    expect(r.reason).toMatch(/not been named/);
     expect(f).not.toHaveBeenCalled();   // no cost paid for a question we cannot answer
   });
 
-  it('🔴 REFUSES when raw and derived are the SAME gid — the guaranteed-blind case', async () => {
+  it('🔴 REFUSES on a BLANK raw tab name without spending a request', async () => {
     const f = vi.fn();
-    const r = await checkSheetCompleteness(URL_OK, '100', f as unknown as typeof fetch);
-    expect(r.state).toBe('unverifiable');
-    expect(r.reason).toMatch(/same tab/);
+    for (const bad of ['', '   ', undefined]) {
+      const r = await checkSheetCompleteness(URL_OK, bad, f as unknown as typeof fetch);
+      expect(r.state).toBe('unverifiable');
+      expect(r.reason).toMatch(/not been named/);
+    }
     expect(f).not.toHaveBeenCalled();
   });
 
   it('a non-Sheets URL is unverifiable without a request', async () => {
     const f = vi.fn();
-    expect((await checkSheetCompleteness('https://example.com/x', '2', f as unknown as typeof fetch)).state)
+    expect((await checkSheetCompleteness('https://example.com/x', 'Ads - Raw', f as unknown as typeof fetch)).state)
       .toBe('unverifiable');
     expect(f).not.toHaveBeenCalled();
   });

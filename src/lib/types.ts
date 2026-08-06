@@ -1,6 +1,17 @@
 export interface AppSettings {
   googleSheetUrl: string;
   googleSheetTab: string;
+  /**
+   * The RAW tab the derived ad-spend tab is generated from, BY NAME.
+   *
+   * Used only by the completeness detector: it compares this tab's row count to the derived
+   * tab's, and any divergence means the derived tab's array formula has run out of range.
+   * ⚠️ NAME, not gid, deliberately — @fable's live probe addressed both tabs by name, and a
+   * name is something a user can read off the sheet's tab bar. gid requires digging in a URL.
+   * The silent-fallback hazard is identical for both forms and is defeated by the sig proof,
+   * so the discoverable one wins.
+   */
+  adsRawTabName?: string;
   callCenterSheetUrl: string;
   callCenterSheetTab: string;
   airtableBaseId: string;

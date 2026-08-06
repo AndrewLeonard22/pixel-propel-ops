@@ -4,6 +4,7 @@ import { useData } from '@/hooks/useData';
 import { needsAttention, SOURCE_KEYS, type SourceStatus } from '@/lib/sourceStatus';
 import { settingsAreUnverified } from '@/lib/config';
 import { describeFreshness, freshnessWarning } from '@/lib/dataFreshness';
+import { completenessMessage } from '@/lib/sheetCompleteness';
 
 /**
  * Says, per source, what is wrong and what the numbers on screen are worth.
@@ -54,7 +55,7 @@ function stateLine(s: SourceStatus): { icon: typeof AlertTriangle; tone: string;
 }
 
 export default function SourceStatusBanner() {
-  const { sources, refresh, settingsLoaded, loading, settingsOrigin, settingsDetail, adSpend } = useData();
+  const { sources, refresh, settingsLoaded, loading, settingsOrigin, settingsDetail, adSpend, completeness } = useData();
 
   // Before the settings have loaded, "not connected" is not known to be true. Saying it
   // early is the same defect as printing a zero for a source that failed.
@@ -118,12 +119,28 @@ export default function SourceStatusBanner() {
    */
   const staleFeed = freshnessWarning(describeFreshness(adSpend, new Date().toISOString().slice(0, 10)));
 
-  if (problems.length === 0 && !staleFeed) return null;
+  /**
+   * 🔴 THE CLIFF. A truncating sheet is not a failed source either — the fetch is 200 and
+   * the rows that DO arrive are real. Only a row-count comparison can see it, and only this
+   * banner can say so. 'unverifiable' is reported too: not knowing is a state, and silently
+   * treating it as health is the fail-open this detector exists to refuse.
+   */
+  const incomplete = completenessMessage(completeness);
+
+  if (problems.length === 0 && !staleFeed && !incomplete) return null;
 
   const anyRetryable = problems.some(s => s.state === 'failed' || s.state === 'stale' || s.state === 'incomplete');
 
   return (
     <div className="border border-border rounded-xl bg-card px-4 py-3 space-y-2" role="status" aria-live="polite">
+      {incomplete && (
+        <div className="flex items-start gap-2.5 text-sm">
+          <AlertTriangle
+            className={`w-4 h-4 mt-0.5 shrink-0 ${completeness.state === 'truncated' ? 'text-destructive' : 'text-muted-foreground'}`}
+          />
+          <p className="flex-1 text-foreground/90">{incomplete}</p>
+        </div>
+      )}
       {staleFeed && (
         <div className="flex items-start gap-2.5 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
