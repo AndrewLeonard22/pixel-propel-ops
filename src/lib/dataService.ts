@@ -1771,6 +1771,28 @@ export function buildAccountSummaries(
       apptsKnown,
       callsKnown,
       campaigns,
+      /**
+       * 🔴 THE PARTS DO NOT ALWAYS SUM TO THE WHOLE, AND THE PANEL MUST SAY SO.
+       * @andrew's Archadeck screenshot: spend and leads reconcile between the campaign rows
+       * and the account header, appointments do NOT — campaigns sum to 6, the header says 7.
+       *
+       * An appointment attaches to an ACCOUNT by client name, but to a CAMPAIGN only via
+       * campaign id / ad-set id / ad-set name / ad id / ad name / campaign name. A row
+       * carrying a client and none of those six is real, is counted at account level, and is
+       * structurally invisible to every per-campaign reduce.
+       *
+       * ⭐ THIS IS ⑥ ONE LEVEL DEEPER. ⑥ was "TOTAL APPTS reduces over accounts, so an
+       * appointment with no account cannot appear". Fixing the parent said nothing about the
+       * child — and the same shape recurs at ad-set and ad level.
+       *
+       * ⛔ DO NOT CLOSE THE GAP BY REASSIGNING THE ROW. The 7 is right and the 6 is
+       * incomplete; forcing them to agree would make the arithmetic tidy and the attribution
+       * FALSE. The number stays. The gap gets NAMED, the way the dashboard names its 43.
+       */
+      unattributedAppointments: Math.max(
+        0,
+        totalAppts - campaigns.reduce((s, c) => s + c.appointments, 0),
+      ),
       appointmentList: data.appts,
     });
   }

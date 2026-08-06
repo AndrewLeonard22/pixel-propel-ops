@@ -130,6 +130,13 @@ export interface AccountSummary {
   dialToApptPercent: number;
   avgCallDuration: number;
   campaigns: CampaignSummary[];
+  /**
+   * Account appointments attached to NO campaign. The campaign rows sum to
+   * `appointments - unattributedAppointments`, never to `appointments`, whenever this is
+   * non-zero — so the panel must name it rather than let the reader assume a subtraction
+   * error. See the docblock at its assignment in dataService.ts.
+   */
+  unattributedAppointments: number;
   appointmentList: AppointmentRow[];
   pausedDays?: number;
   /**
