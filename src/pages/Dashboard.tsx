@@ -328,7 +328,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                 </div>
                 {/* Lead to Appt conversion */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(account.leadPercent)}</span>
+                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown === false || account.spendKnown === false ? false : undefined, account.leads) ? formatPercent(account.leadPercent) : UNKNOWN}</span>
                   <span className="text-[11px] text-muted-foreground">converted to appointments</span>
                 </div>
                 {/* Appointments */}
@@ -404,7 +404,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-xs font-mono-tabular font-semibold">{formatCurrency(c.spend)}</span></span>
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-xs font-mono-tabular font-semibold">{c.leads}</span></span>
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-xs font-mono-tabular font-semibold"><CPLBadge value={c.cpl} leads={c.leads} known={account.spendKnown} /></span></span>
-                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-xs font-mono-tabular font-semibold">{c.appointments}</span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-xs font-mono-tabular font-semibold">{appt(() => String(c.appointments))}</span></span>
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-xs font-mono-tabular font-semibold"><CostPerApptBadge value={c.costPerAppt} appointments={c.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                       </div>
                     </div>
@@ -430,7 +430,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[11px] font-mono-tabular font-semibold">{formatCurrency(as.spend)}</span></span>
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.leads}</span></span>
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} leads={as.leads} known={account.spendKnown} /></span></span>
-                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.appointments}</span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{appt(() => String(as.appointments))}</span></span>
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} appointments={as.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                                 </div>
                               </div>
@@ -446,7 +446,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[10px] font-mono-tabular font-semibold">{formatCurrency(ad.spend)}</span></span>
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[10px] font-mono-tabular font-semibold">{ad.leads}</span></span>
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[10px] font-mono-tabular font-semibold"><CPLBadge value={ad.cpl} leads={ad.leads} known={account.spendKnown} /></span></span>
-                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[10px] font-mono-tabular font-semibold">{ad.appointments}</span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[10px] font-mono-tabular font-semibold">{appt(() => String(ad.appointments))}</span></span>
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[10px] font-mono-tabular font-semibold"><CostPerApptBadge value={ad.costPerAppt} appointments={ad.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                                       </div>
                                     </div>

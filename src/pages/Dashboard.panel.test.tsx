@@ -24,11 +24,20 @@ import { makeAdSpendRow, makeAppointmentRow, makeCallRow, makeSettings } from "@
 const SETTINGS = makeSettings();
 
 function buildAccount(known?: Parameters<typeof buildAccountSummaries>[4]) {
+  // ⚠️ THE FIXTURE MUST MATCH THE REAL FAILURE, OR THE TEST CANNOT SEE THE BUG.
+  // A dead source does not deliver rows AND a false flag — it delivers `[]`, and the
+  // flag records why. My first version passed a populated appointment list alongside
+  // `appts: false`, so `revenue` rendered $900.00 and the "$0.00 must not appear"
+  // assertion never fired: sabotage arm N1 ungated the Revenue card — @raccoon's exact
+  // defect — and ZERO tests failed. The unrealistic combination made the test blind to
+  // the only thing it existed to catch.
+  const apptsDead = known?.appts === false;
+  const callsDead = known?.calls === false;
   const { accounts } = buildAccountSummaries(
     [makeAdSpendRow({ accountName: "Acme", spent: 500, leads: 20 })],
-    [makeAppointmentRow({ client: "Acme", showStatus: "Showed", closedRevenue: 900 })],
+    apptsDead ? [] : [makeAppointmentRow({ client: "Acme", showStatus: "Showed", closedRevenue: 900 })],
     SETTINGS,
-    [makeCallRow({ ghlLocationName: "Acme" })],
+    callsDead ? [] : [makeCallRow({ ghlLocationName: "Acme" })],
     known,
   );
   return accounts[0];
@@ -40,7 +49,7 @@ function mount(known?: Parameters<typeof buildAccountSummaries>[4]) {
       account={buildAccount(known)}
       settings={SETTINGS}
       onClose={() => {}}
-      onToggleExclude={() => {}}
+      onToggleExclude={async () => {}}
     />,
   );
 }
@@ -99,7 +108,7 @@ describe("AccountDetailPanel — the expanded view must not fabricate what the r
         account={accounts[0]}
         settings={SETTINGS}
         onClose={() => {}}
-        onToggleExclude={() => {}}
+        onToggleExclude={async () => {}}
       />,
     );
 
