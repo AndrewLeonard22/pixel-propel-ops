@@ -217,6 +217,7 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
   const showRate = account.appointmentList.length > 0 ? (showedCount / account.appointmentList.length) * 100 : 0;
   const closeRate = account.appointmentList.length > 0 ? (account.closed / account.appointmentList.length) * 100 : 0;
 
+  const [showQuiet, setShowQuiet] = useState(false);
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
   const toggleCampaign = (id: string) => setExpandedCampaigns(prev => {
     const next = new Set(prev);
@@ -248,6 +249,25 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
   const leadsValue = account.leads;
 
   // Recent appointments sorted by dateAdded desc
+  /* Spend-descending, quiet ones separated. Both derived here so the render stays a map. */
+  const sortedCampaigns = [...account.campaigns].sort((a, b) => b.spend - a.spend);
+  const isQuiet = (c: CampaignSummary) => c.leads === 0 && c.appointments === 0;
+  const quietCampaigns = sortedCampaigns.filter(isQuiet);
+  const quietSpend = quietCampaigns.reduce((t, c) => t + c.spend, 0);
+  const visibleCampaigns = showQuiet ? sortedCampaigns : sortedCampaigns.filter(c => !isQuiet(c));
+
+  /* ⚠️ COLUMN EMPTINESS IS COMPUTED OVER THE WHOLE APPOINTMENT LIST, NOT THE 30 RENDERED
+     ROWS. "empty on every appointment" read off a 30-row slice would be a claim about a
+     population the reader cannot see — the denominator trap, in a sentence. */
+  const allAppts = account.appointmentList;
+  const emptyCols = ([
+    ['Show Status', (a: AppointmentRow) => a.showStatus],
+    ['Lead Valid', (a: AppointmentRow) => a.leadValid],
+    ['Revenue', (a: AppointmentRow) => (a.closedRevenue ? String(a.closedRevenue) : '')],
+  ] as const).filter(([, get]) => allAppts.length > 0 && allAppts.every(a => !String(get(a) ?? '').trim()))
+    .map(([label]) => label);
+  const hidden = new Set(emptyCols);
+
   const recentAppts = [...account.appointmentList]
     .sort((a, b) => {
       const da = parseDateSafe(a.dateAdded || a.appointmentDate);
@@ -318,54 +338,86 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
             {account.leads === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">No lead data</p>
             ) : (
-              <div className="flex flex-col gap-1">
-                {/* Leads */}
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[90px] text-xs text-muted-foreground text-right">Leads</span>
-                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-[#1a6eff]/25" style={{ width: '100%' }} />
+              /* ⭐ THE BAR MEASURES THE CONVERSION, NOT THE MAGNITUDE — and that is a
+                 correctness fix, not a restyle.
+                 ────────────────────────────────────────────────────────────────────────
+                 WAS: every width was a share of LEADS. On Backyard Paradiso that is
+                 7,186 -> 323 -> 208 -> 19, a 378:1 range, so stages 2-4 computed to
+                 4.5% / 2.9% / 0.26% and were then floored at 3% to stay visible. Three
+                 different quantities rendered as the same dot. A PROPORTIONAL BAR
+                 PHYSICALLY CANNOT SHOW THAT RANGE, and it degraded worst on the biggest
+                 account — the one Andrew opens most.
+                 ⛔ A LOG SCALE WOULD FIT, AND IT LIES: it makes a 378:1 drop look like a
+                 gentle slope. Rejected on those grounds, not aesthetic ones.
+                 ⇒ NOW: each bar is that stage's share of THE STAGE ABOVE IT. Every bar is
+                 readable because a conversion rate is 0-100% by construction, and the bar
+                 now depicts the number printed beside it instead of a magnitude it cannot
+                 render. Magnitude still lives in the count column, exact and unscaled.
+                 ⚠️ THE AXIS CHANGED, SO THE AXIS IS NAMED ON SCREEN (caption below). A bar
+                 whose meaning silently changed is worse than the bar we replaced.
+                 ⭐ AND THE HIERARCHY IS INVERTED, which is the actual ask: the rate is what
+                 he is reading, so it is the largest thing on the row; the stage label is
+                 the smallest. It used to be the other way round. */
+              <div className="flex flex-col">
+                <p className="text-[11px] text-muted-foreground mb-2">
+                  Each bar is that stage&rsquo;s share of the stage above it. Counts are exact.
+                </p>
+                {([
+                  {
+                    key: 'leads', label: 'Leads', tint: 'bg-[#1a6eff]/25',
+                    count: formatNumber(account.leads),
+                    // The first stage has nothing above it — no rate exists, and inventing
+                    // "100%" would read as a measured conversion. It gets a dash.
+                    rate: null as string | null, frac: 1, of: null as string | null,
+                  },
+                  {
+                    key: 'appts', label: 'Appointments', tint: 'bg-[#1a6eff]/45',
+                    count: appt(() => formatNumber(account.appointments)),
+                    rate: metricIsMeaningful(account.apptsKnown === false || account.spendKnown === false ? false : undefined, account.leads)
+                      ? formatPercent(account.leadPercent) : UNKNOWN,
+                    frac: account.leads > 0 ? account.appointments / account.leads : 0,
+                    of: 'of leads',
+                  },
+                  {
+                    key: 'showed', label: 'Showed', tint: 'bg-[#1a6eff]/70',
+                    count: appt(() => formatNumber(showedCount)),
+                    rate: metricIsMeaningful(account.apptsKnown, account.appointments)
+                      ? formatPercent((showedCount / account.appointments) * 100) : UNKNOWN,
+                    frac: account.appointments > 0 ? showedCount / account.appointments : 0,
+                    of: 'of appointments',
+                  },
+                  {
+                    key: 'closed', label: 'Closed', tint: 'bg-[#1a6eff]',
+                    count: appt(() => formatNumber(account.closed)),
+                    rate: metricIsMeaningful(account.apptsKnown, showedCount)
+                      ? formatPercent((account.closed / showedCount) * 100) : UNKNOWN,
+                    frac: showedCount > 0 ? account.closed / showedCount : 0,
+                    of: 'of showed',
+                  },
+                ]).map(row => (
+                  <div key={row.key} className="flex items-center gap-2.5 py-[3px]">
+                    <span className="w-[84px] text-[11px] text-muted-foreground text-right shrink-0">{row.label}</span>
+                    <div className="flex-1 h-5 rounded bg-muted/30 overflow-hidden">
+                      {/* No visibility floor. A 0% conversion must render as an EMPTY bar —
+                          the old `Math.max(..., 3)` drew a sliver for a stage that converted
+                          nothing, which is the same class of lie as a fabricated zero. */}
+                      <div
+                        data-funnel-bar={row.key}
+                        className={`h-full rounded ${row.tint}`}
+                        style={{ width: `${Math.min(100, Math.max(0, row.frac * 100))}%` }}
+                      />
+                    </div>
+                    {/* The FIRST stage has no stage above it, so no conversion exists to
+                        report. That is NOT the same fact as UNKNOWN (we looked and could not
+                        tell) — it is undefined by construction, so it renders blank rather
+                        than borrowing the unknown sentinel and implying a failed read. */}
+                    <span className="w-[52px] text-sm font-semibold font-mono-tabular text-foreground text-right shrink-0">
+                      {row.rate ?? ''}
+                    </span>
+                    <span className="w-[42px] text-[10px] text-muted-foreground shrink-0 leading-tight">{row.of ?? ''}</span>
+                    <span className="w-[60px] text-sm font-mono-tabular text-muted-foreground text-right shrink-0">{row.count}</span>
                   </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.leads)}</span>
-                </div>
-                {/* Lead to Appt conversion */}
-                <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown === false || account.spendKnown === false ? false : undefined, account.leads) ? formatPercent(account.leadPercent) : UNKNOWN}</span>
-                  <span className="text-[11px] text-muted-foreground">converted to appointments</span>
-                </div>
-                {/* Appointments */}
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[90px] text-xs text-muted-foreground text-right">Appointments</span>
-                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-[#1a6eff]/45" style={{ width: `${Math.max(account.leads > 0 ? (account.appointments / account.leads) * 100 : 0, account.appointments > 0 ? 3 : 0)}%` }} />
-                  </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.appointments))}</span>
-                </div>
-                {/* Show rate */}
-                <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown, account.appointments) ? formatPercent((showedCount / account.appointments) * 100) : UNKNOWN}</span>
-                  <span className="text-[11px] text-muted-foreground">showed up</span>
-                </div>
-                {/* Showed */}
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[90px] text-xs text-muted-foreground text-right">Showed</span>
-                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-[#1a6eff]/70" style={{ width: `${Math.max(account.leads > 0 ? (showedCount / account.leads) * 100 : 0, showedCount > 0 ? 3 : 0)}%` }} />
-                  </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(showedCount))}</span>
-                </div>
-                {/* Close rate */}
-                <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown, showedCount) ? formatPercent((account.closed / showedCount) * 100) : UNKNOWN}</span>
-                  <span className="text-[11px] text-muted-foreground">closed won</span>
-                </div>
-                {/* Closed */}
-                <div className="flex items-center gap-2.5">
-                  <span className="w-[90px] text-xs text-muted-foreground text-right">Closed</span>
-                  <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
-                    <div className="h-full rounded-md bg-[#1a6eff]" style={{ width: `${Math.max(account.leads > 0 ? (account.closed / account.leads) * 100 : 0, account.closed > 0 ? 3 : 0)}%` }} />
-                  </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.closed))}</span>
-                </div>
+                ))}
               </div>
             )}
           </div>
@@ -388,8 +440,25 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                 {account.unattributedAppointments === 1 ? 'is' : 'are'} not attributed to any campaign.
               </p>
             )}
+            {/* ⭐ SORTED BY SPEND, DESCENDING. 42 unordered cards is a wall, and the order
+                that matters to a media buyer is where the money went. Ties keep their
+                original relative order (Array.prototype.sort is stable), so equal-spend
+                campaigns do not shuffle between renders. */}
+            {/* ⛔ THE QUIET ONES ARE FOLDED, NEVER DROPPED — and the fold STATES ITS COUNT.
+                A campaign with no leads and no appointments is still real; hiding it
+                silently is the class we spent the night removing. It collapses behind a
+                line that says how many and what they have in common, and it opens. */}
+            {quietCampaigns.length > 0 && (
+              <button
+                onClick={() => setShowQuiet(v => !v)}
+                className="text-xs text-muted-foreground underline mb-2 block"
+              >
+                {showQuiet ? 'Hide' : 'Show'} {quietCampaigns.length} campaign{quietCampaigns.length === 1 ? '' : 's'} with no leads and no appointments
+                {' '}({formatCurrency(quietSpend)} spend)
+              </button>
+            )}
             <div className="space-y-2">
-              {account.campaigns.map(c => {
+              {visibleCampaigns.map(c => {
                 const isExcluded = (settings.excludedCampaigns || []).includes(c.campaignId);
                 const cPerf = isExcluded ? null : getPerfByProgram(program, c.cpl, c.costPerAppt, c.appointments);
                 const isExpanded = expandedCampaigns.has(c.campaignId);
@@ -482,7 +551,25 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
 
           {/* Section 4 — Recent Appointments */}
           <div>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Appointments ({account.appointmentList.length})</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-1">Appointments ({account.appointmentList.length})</h3>
+            {/* 🔴 THE TABLE WAS ALREADY TRUNCATED AND NOTHING SAID SO. The heading counts the
+                whole list while the body renders `.slice(0, 30)` — on Backyard Paradiso that
+                is 30 rows under a heading reading 323. A bound that cannot report reaching
+                itself is a bound that lies, so it reports itself now. */}
+            {account.appointmentList.length > recentAppts.length && (
+              <p className="text-[11px] text-muted-foreground mb-2">
+                Showing the {recentAppts.length} most recent of {account.appointmentList.length}.
+              </p>
+            )}
+            {/* ⛔ AN ALL-EMPTY COLUMN IS INFORMATION — nobody is filling that field in — so it
+                is NAMED when it collapses. Hiding it silently is the exact class we spent the
+                night removing; the column goes, the fact does not. */}
+            {emptyCols.length > 0 && (
+              <p className="text-[11px] text-muted-foreground mb-2">
+                {emptyCols.join(', ')} {emptyCols.length === 1 ? 'is' : 'are'} empty on all{' '}
+                {account.appointmentList.length} appointments — column{emptyCols.length === 1 ? '' : 's'} hidden.
+              </p>
+            )}
             {recentAppts.length === 0 ? (
               <p className="text-sm text-muted-foreground">No appointments found.</p>
             ) : (
@@ -492,9 +579,9 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                     <tr className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide border-b border-border" style={{ height: '32px' }}>
                       <th className="text-left px-2 align-middle">Setter</th>
                       <th className="text-left px-2 align-middle">Date</th>
-                      <th className="text-left px-2 align-middle">Show Status</th>
-                      <th className="text-left px-2 align-middle">Lead Valid</th>
-                      <th className="text-right pr-2 align-middle">Revenue</th>
+                      {!hidden.has('Show Status') && <th className="text-left px-2 align-middle">Show Status</th>}
+                      {!hidden.has('Lead Valid') && <th className="text-left px-2 align-middle">Lead Valid</th>}
+                      {!hidden.has('Revenue') && <th className="text-right pr-2 align-middle">Revenue</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -502,9 +589,9 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
                       <tr key={i} className="border-b border-border/50 hover:bg-muted/30">
                         <td className="px-2 py-1.5 text-foreground">{appt.setter || '—'}</td>
                         <td className="px-2 py-1.5 text-muted-foreground font-mono-tabular">{formatDate(appt.dateAdded || appt.appointmentDate)}</td>
-                        <td className="px-2 py-1.5 text-muted-foreground">{appt.showStatus || '—'}</td>
-                        <td className="px-2 py-1.5 text-muted-foreground">{appt.leadValid || '—'}</td>
-                        <td className="pr-2 py-1.5 text-right font-mono-tabular">{formatCurrency(appt.closedRevenue || 0)}</td>
+                        {!hidden.has('Show Status') && <td className="px-2 py-1.5 text-muted-foreground">{appt.showStatus || '—'}</td>}
+                        {!hidden.has('Lead Valid') && <td className="px-2 py-1.5 text-muted-foreground">{appt.leadValid || '—'}</td>}
+                        {!hidden.has('Revenue') && <td className="pr-2 py-1.5 text-right font-mono-tabular">{formatCurrency(appt.closedRevenue || 0)}</td>}
                       </tr>
                     ))}
                   </tbody>
