@@ -274,8 +274,44 @@ export async function loadAccountMappingsAsync(): Promise<any[]> {
   return loadAccountMappingsFromLocal();
 }
 
+/**
+ * Would writing `next` erase a populated mapping list outright?
+ *
+ * ⚠️ THIS ROW NEEDS ITS OWN GUARD, AND THE REASON IS NOT OBVIOUS: Settings.tsx:105 calls
+ * saveSettings and saveAccountMappings inside a single `Promise.all`. A rejecting sibling
+ * DOES NOT CANCEL the other call — measured, not assumed — so saveSettings refusing a
+ * clobber leaves this write running to completion against a different row.
+ *
+ * ⭐ WHY THERE IS NO THRESHOLD HERE, unlike isClobber: emptying this list is not reachable
+ * by intent. Census of every setAccountMappings call site at fa43996 — Settings.tsx:34
+ * (localStorage init), :42 (DB load, itself gated on `length > 0`), :60 (an effect whose
+ * own comment says "only ADD new accounts — never overwrite"), :189 (edits ONE field of
+ * ONE mapping). None can produce an empty array from a populated one. So a populated→empty
+ * transition has no legitimate producer, and refusing it costs no real edit.
+ *
+ * The transition that DOES produce it: `accountMappings` initialises from localStorage,
+ * which on a cold browser is empty, while the DB holds the curated list. If `form` changes
+ * before :42 lands, the debounced autosave fires performSave(form, []) and this row is
+ * replaced with nothing.
+ */
+export function wouldEraseAllMappings(current: unknown, next: unknown): boolean {
+  const had = Array.isArray(current) && current.length > 0;
+  const willHave = Array.isArray(next) && next.length > 0;
+  return had && !willHave;
+}
+
 /** Save account mappings to both DB and localStorage */
 export async function saveAccountMappings(mappings: any[]): Promise<void> {
+  const current = await fetchSetting<any[]>('account_mappings');
+  if (wouldEraseAllMappings(current, mappings)) {
+    throw new Error(
+      `Refusing to save: this would erase all ${(current as any[]).length} account mappings. ` +
+        'This usually means the page saved before it finished loading. Reload and try again.',
+    );
+  }
+
+  // Local is written only AFTER the refusal check — writing it first would destroy the
+  // cached copy that is the fallback for the very failure this guard exists to survive.
   saveAccountMappingsToLocal(mappings);
   await upsertSetting('account_mappings', mappings);
 }

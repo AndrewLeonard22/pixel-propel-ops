@@ -43,6 +43,7 @@ import type { AppSettings } from "./types";
  */
 const db = vi.hoisted(() => ({
   current: null as AppSettings | null,
+  mappings: null as unknown[] | null,
   upserts: [] as Array<{ key: string; value: unknown }>,
 }));
 
@@ -51,11 +52,13 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: () => ({
       select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({
-            data: db.current ? { value: db.current } : null,
-            error: null,
-          }),
+        // Key-aware on purpose: app_settings and account_mappings are DIFFERENT rows, and a
+        // mock that served one blob for both would hide exactly the cross-row bug below.
+        eq: (_col: string, key: string) => ({
+          maybeSingle: async () => {
+            const value = key === "account_mappings" ? db.mappings : db.current;
+            return { data: value ? { value } : null, error: null };
+          },
         }),
       }),
       upsert: async (row: { key: string; value: unknown }) => {
@@ -66,7 +69,14 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
-const { detectClobber, isClobber, saveSettings, DEFAULT_SETTINGS } = await import("./config");
+const {
+  detectClobber,
+  isClobber,
+  saveSettings,
+  saveAccountMappings,
+  wouldEraseAllMappings,
+  DEFAULT_SETTINGS,
+} = await import("./config");
 
 /** The row as it stood before the incident: every protected field carrying real content. */
 const POPULATED = makeSettings({
@@ -87,8 +97,17 @@ const POPULATED = makeSettings({
   ],
 });
 
+const MAPPINGS = Array.from({ length: 62 }, (_, i) => ({
+  sheetName: `Account ${i}`,
+  airtableName: `Account ${i}`,
+  program: "Done For You",
+  mediaBuyer: "M",
+  status: "Active",
+}));
+
 beforeEach(() => {
   db.current = null;
+  db.mappings = null;
   db.upserts = [];
   localStorage.clear();
 });
@@ -226,5 +245,84 @@ describe("saveSettings — the guard is WIRED IN, not merely defined", () => {
 
     expect(db.upserts).toHaveLength(1);
     expect((db.upserts[0].value as AppSettings).callCenterSheetUrl).toBe("");
+  });
+});
+
+/**
+ * THE SECOND ROW — and the reason it is not covered by the first guard.
+ *
+ * Settings.tsx:105 runs saveSettings and saveAccountMappings in ONE Promise.all. A
+ * rejecting sibling does not cancel the other call, so saveSettings refusing a clobber
+ * leaves this write running against a DIFFERENT row. Measured, not assumed:
+ *     Promise.all([reject(), sideEffect()])  ⇒ side effect: WRITTEN
+ */
+describe("saveAccountMappings — the row the first guard cannot reach", () => {
+  it("REFUSES to replace a populated mapping list with an empty one", async () => {
+    db.mappings = MAPPINGS;
+
+    await expect(saveAccountMappings([])).rejects.toThrow(/erase all 62 account mappings/);
+
+    expect(db.upserts).toEqual([]);
+  });
+
+  it("REFUSES before writing localStorage — the cached copy is the fallback for this failure", async () => {
+    db.mappings = MAPPINGS;
+    localStorage.setItem("accountMappings", JSON.stringify(MAPPINGS));
+
+    await expect(saveAccountMappings([])).rejects.toThrow();
+
+    expect(JSON.parse(localStorage.getItem("accountMappings") ?? "[]")).toHaveLength(62);
+  });
+
+  it("THE CROSS-ROW HOLE IT CLOSES: the cold-boot autosave writes BOTH rows", async () => {
+    // performSave(DEFAULT_SETTINGS, []) — form stale AND mappings not yet loaded.
+    db.current = POPULATED;
+    db.mappings = MAPPINGS;
+
+    const results = await Promise.allSettled([
+      saveSettings({ ...DEFAULT_SETTINGS }),
+      saveAccountMappings([]),
+    ]);
+
+    // BOTH must refuse. Before this guard the second one resolved and took 62 rows with it.
+    expect(results[0].status).toBe("rejected");
+    expect(results[1].status).toBe("rejected");
+    expect(db.upserts).toEqual([]);
+  });
+
+  it("ANTI-VACUITY CONTROL: an ordinary mapping edit still reaches the database", async () => {
+    db.mappings = MAPPINGS;
+    const edited = [...MAPPINGS.slice(1), { ...MAPPINGS[0], mediaBuyer: "NEW" }];
+
+    await saveAccountMappings(edited);
+
+    expect(db.upserts).toHaveLength(1);
+    expect(db.upserts[0].key).toBe("account_mappings");
+    expect(db.upserts[0].value).toHaveLength(62);
+  });
+
+  it("ANTI-VACUITY CONTROL: a first-time save on an empty row still reaches the database", async () => {
+    db.mappings = null;
+
+    await saveAccountMappings(MAPPINGS);
+
+    expect(db.upserts).toHaveLength(1);
+  });
+
+  it("an empty-over-empty save is allowed — nothing is destroyed", async () => {
+    db.mappings = [];
+
+    await saveAccountMappings([]);
+
+    expect(db.upserts).toHaveLength(1);
+  });
+
+  it("wouldEraseAllMappings: only populated→empty is true", () => {
+    expect(wouldEraseAllMappings(MAPPINGS, [])).toBe(true);
+    expect(wouldEraseAllMappings(MAPPINGS, null)).toBe(true); // a non-array is not a list
+    expect(wouldEraseAllMappings(MAPPINGS, MAPPINGS)).toBe(false);
+    expect(wouldEraseAllMappings([], [])).toBe(false);
+    expect(wouldEraseAllMappings(null, [])).toBe(false);
+    expect(wouldEraseAllMappings(null, MAPPINGS)).toBe(false);
   });
 });
