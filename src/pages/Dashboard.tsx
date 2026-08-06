@@ -136,7 +136,7 @@ function getPerfByProgram(program: string, cpl: number, costPerAppt: number, app
   return 'poor';
 }
 
-function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: (account: AccountSummary) => void }) {
+export function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: (account: AccountSummary) => void }) {
   const mappings = loadAccountMappings();
   const { program, status } = getAccountMapping(account.accountName, mappings);
   // A coloured performance border is a verdict. Two of its three inputs come from sources
