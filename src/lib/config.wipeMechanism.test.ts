@@ -45,6 +45,10 @@ import type { AppSettings } from './types';
 const upserts: { key: string; value: Record<string, unknown> }[] = [];
 
 vi.mock('@/integrations/supabase/client', () => ({
+  // ⚠️ REQUIRED SINCE fetchSettingChecked ASKS BEFORE IT CALLS. A mock that omits this
+  // reads as an unconfigured BUILD, so the mocked `maybeSingle` below is never reached and
+  // every arm silently tests the no-database path instead of the wipe mechanism.
+  isSupabaseConfigured: true,
   supabase: {
     from: () => ({
       upsert: (row: { key: string; value: Record<string, unknown> }) => {

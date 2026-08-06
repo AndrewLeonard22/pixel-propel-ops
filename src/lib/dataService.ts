@@ -201,6 +201,48 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
     { body: { baseId: airtableBaseId, tableName: airtableTableName } },
   );
 
+  // ⛔ OWNER-ORDERED DIRECT FALLBACK, 2026-08-05. The proxy is the intended path and stays
+  // FIRST — this runs only when the proxy cannot answer AND a token is configured, which is
+  // exactly the state we shipped Andrew into: relocation done, deployment not.
+  //
+  // ⚠️ IT IS A FALLBACK, NOT A REPLACEMENT. The moment airtable-proxy is deployed, the block
+  // above succeeds and this code never executes — no flag to flip, no second rollback. Delete
+  // `airtableToken` from ALLOWED_CONFIG_KEYS to retire it entirely.
+  //
+  // ⚠️ AND IT DOES NOT SOFTEN THE FAILURE CONTRACT. If the direct call fails it THROWS, same
+  // as the proxy path. A dead Airtable must never render as "zero appointments" — that is the
+  // whole point of this project and it survives the rollback intact.
+  if (invokeError && settings.airtableToken) {
+    const records: { fields: Record<string, unknown> }[] = [];
+    let offset: string | undefined;
+    // Airtable pages at 100; the proxy did this server-side, so the loop returns here with it.
+    do {
+      const url = new URL(
+        `https://api.airtable.com/v0/${encodeURIComponent(airtableBaseId)}/${encodeURIComponent(airtableTableName)}`,
+      );
+      url.searchParams.set('pageSize', '100');
+      if (offset) url.searchParams.set('offset', offset);
+
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${settings.airtableToken}` },
+      });
+      if (!res.ok) {
+        throw new Error(
+          `Airtable direct fetch failed: ${res.status} ${res.statusText}. ` +
+            'The airtable-proxy Edge Function is also unavailable.',
+        );
+      }
+      const body = await res.json();
+      if (!Array.isArray(body?.records)) {
+        throw new Error('Airtable direct fetch returned an unusable response');
+      }
+      records.push(...body.records);
+      offset = body.offset;
+    } while (offset);
+
+    return mapAirtableRecords(records, columnMappings);
+  }
+
   if (invokeError) {
     // A non-2xx carries the proxy's own {status, message}; surface THAT, not the generic
     // "Edge Function returned a non-2xx status code", which names nothing a user can act on.
@@ -238,11 +280,31 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
     );
   }
 
+  return mapAirtableRecords(
+    (payload as { records: { fields: Record<string, unknown> }[] }).records,
+    columnMappings,
+    Array.isArray(payload.fields) ? payload.fields : [],
+  );
+}
+
+/**
+ * Shared record mapper for BOTH Airtable paths — the proxy and the direct fallback.
+ *
+ * ⭐ IT IS SHARED ON PURPOSE. Two copies of this mapping would let the two paths disagree
+ * about what an appointment IS, and the fallback only runs when the proxy is broken — i.e.
+ * exactly when nobody is watching. One mapper means the numbers cannot depend on which
+ * route fetched them.
+ */
+export function mapAirtableRecords(
+  records: { fields: Record<string, unknown> }[],
+  columnMappings: Record<string, string>,
+  knownFields: string[] = [],
+): { records: AppointmentRow[]; fields: string[] } {
   const allRecords: AppointmentRow[] = [];
-  let fields: string[] = Array.isArray(payload.fields) ? payload.fields : [];
+  let fields: string[] = knownFields;
 
   {
-    const data = payload as { records: { fields: Record<string, unknown> }[] };
+    const data = { records };
 
     if (data.records.length > 0 && fields.length === 0) {
       fields = Object.keys(data.records[0].fields);

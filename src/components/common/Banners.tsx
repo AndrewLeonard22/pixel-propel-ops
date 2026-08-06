@@ -1,5 +1,6 @@
 import { AlertTriangle, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { settingsAreUnverified, type SettingsOrigin } from '@/lib/config';
 
 export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
@@ -15,7 +16,49 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
   );
 }
 
-export function ConfigBanner() {
+/**
+ * ⛔ THIS BANNER MAKES A CLAIM ABOUT WHOSE FAULT IT IS, AND IT USED TO GET IT WRONG.
+ *
+ * "Configure your data sources" is only true when the database ANSWERED and held no
+ * settings. When the read never happened — no build URL, or the request failed — we do not
+ * know what the user has configured, and sending them to Settings sends them to fix
+ * something that may not be broken. On 2026-08-05 that is exactly what shipped: the build
+ * had no VITE_SUPABASE_URL, every read died against `unconfigured.invalid`, and this banner
+ * blamed @andrew for twenty minutes.
+ *
+ * ⇒ `origin` is REQUIRED rather than optional. An optional prop would have let all six call
+ *   sites keep the old lie by default and go green, which is the same defect with a nicer
+ *   type signature.
+ */
+export function ConfigBanner({ origin, detail }: { origin: SettingsOrigin; detail?: string | null }) {
+  if (settingsAreUnverified(origin)) {
+    const isBuild = origin === 'local-not-configured';
+    return (
+      <div
+        role="alert"
+        className="border border-destructive/30 bg-destructive/5 rounded-xl p-6 flex flex-col items-center gap-3 text-center"
+      >
+        <AlertTriangle className="w-8 h-8 text-destructive" />
+        <h3 className="font-semibold text-foreground">
+          {isBuild
+            ? 'This app has no database connection'
+            : 'Could not reach the database'}
+        </h3>
+        <p className="text-sm text-muted-foreground max-w-md">
+          {isBuild
+            ? 'This build was deployed without its database URL, so it never asked for your settings. Nothing on this screen reflects your account, and your saved configuration has not been lost or changed.'
+            : 'Your settings could not be read, so this screen cannot show your data. Your saved configuration has not been lost or changed.'}
+        </p>
+        {/* NAMED, NOT GUESSED — and never invented when there is no underlying message. */}
+        {detail && <p className="text-xs text-muted-foreground/80 font-mono max-w-md break-words">{detail}</p>}
+        <p className="text-xs text-muted-foreground max-w-md">
+          This is a problem with the deployment, not with your setup. Going to Settings will
+          not fix it.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="border border-warning/30 bg-warning/5 rounded-xl p-6 flex flex-col items-center gap-3 text-center">
       <Settings className="w-8 h-8 text-warning" />

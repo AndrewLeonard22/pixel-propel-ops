@@ -64,7 +64,7 @@ function MetricBar({
 }
 
 export default function Targets() {
-  const { accounts, adSpend, appointments, callData, settings, configured, honestNumbers, sources } = useData();
+  const { accounts, adSpend, appointments, callData, settings, configured, honestNumbers, sources, settingsOrigin, settingsDetail} = useData();
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
 
   const dateRange = useMemo(() => {
@@ -157,7 +157,7 @@ export default function Targets() {
   // Gated at the PAGE rather than at each formatter: with Windsor dead there is no
   // subset of these numbers that remains knowable, so suppressing them individually
   // would leave a page of em dashes pretending to still be a report.
-  if (!configured) return <ConfigBanner />;
+  if (!configured) return <ConfigBanner origin={settingsOrigin} detail={settingsDetail} />;
   if (!hasUsableData(sources.windsor.state)) {
     return (
       <div className="space-y-4">

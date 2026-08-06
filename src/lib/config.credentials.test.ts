@@ -82,13 +82,21 @@ describe('sanitizeSettings — only DECLARED config can be persisted', () => {
 
         // ① THE INVERSION: an undeclared key is refused, whether or not anyone
         //    remembered to name it. `metaAccessToken` kills every blocklist.
-        for (const key of ['airtableToken', 'anthropicApiKey', 'metaAccessToken']) {
+        // ⛔ airtableToken is DECLARED as an owner-ordered exception (2026-08-05) and is
+        //    therefore expected to SURVIVE. The inversion is unchanged and still proven by
+        //    anthropicApiKey and by metaAccessToken — a credential the guard never named,
+        //    which is the case that kills every blocklist design.
+        for (const key of ['anthropicApiKey', 'metaAccessToken']) {
           expect(key in cleaned, `undeclared key ${key} must not survive`).toBe(false);
         }
+        expect(
+          cleaned.airtableToken,
+          'airtableToken is a declared exception and must survive until airtable-proxy ships',
+        ).toBeDefined();
 
         // ② present-but-EMPTY is still a key, still written, still refused by the DB.
         const emptied = impl({ ...withCredentials(), airtableToken: '', metaAccessToken: '' });
-        for (const key of ['airtableToken', 'metaAccessToken']) {
+        for (const key of ['metaAccessToken']) {
           expect(key in emptied, `${key} must not survive even when empty`).toBe(false);
         }
 
@@ -175,10 +183,36 @@ describe('the app_settings lockdown migration', () => {
     return [...block.split('];')[0].matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);
   })();
 
-  it('the retired credential keys are NOT on the allowlist — they can never be STORED', () => {
+  // ⛔ OWNER-ORDERED EXCEPTION, 2026-08-05 — declared here rather than deleted, so the guard
+  // still covers everything else and the exception is VISIBLE in the suite instead of being
+  // a quietly weakened assertion. Andrew: «JUST PUT THE ACCESS TOKEN BACK IN PIXEL».
+  // We relocated airtableToken server-side without deploying airtable-proxy, so appointments
+  // went dark. The token is re-admitted to restore the product; the exposure is REAL and the
+  // token in use must be treated as compromised.
+  // ⇒ WHEN airtable-proxy IS DEPLOYED: delete 'airtableToken' from ALLOWED_CONFIG_KEYS and
+  //   delete it from OWNER_ORDERED_EXCEPTIONS below. This test then re-tightens by itself.
+  const OWNER_ORDERED_EXCEPTIONS = ['airtableToken'];
+
+  it('the retired credential keys are NOT on the allowlist — except declared owner exceptions', () => {
     expect(retiredKeys).toEqual(expect.arrayContaining(['airtableToken', 'anthropicApiKey']));
     for (const key of retiredKeys) {
+      if (OWNER_ORDERED_EXCEPTIONS.includes(key)) continue;
       expect(ALLOWED_CONFIG_KEYS as readonly string[], `${key} must never be storable`).not.toContain(key);
+    }
+  });
+
+  it('the exception list is MINIMAL — anthropicApiKey is still refused, and every exception is real', () => {
+    // A blanket exception would make the test above vacuous. Two guards against that:
+    expect(OWNER_ORDERED_EXCEPTIONS, 'anthropicApiKey was never ordered back').not.toContain(
+      'anthropicApiKey',
+    );
+    expect(ALLOWED_CONFIG_KEYS as readonly string[]).not.toContain('anthropicApiKey');
+    // And an exception that is no longer on the allowlist is stale — remove it from this list.
+    for (const key of OWNER_ORDERED_EXCEPTIONS) {
+      expect(
+        ALLOWED_CONFIG_KEYS as readonly string[],
+        `${key} is listed as an exception but is not actually allowed — the list has rotted`,
+      ).toContain(key);
     }
   });
 

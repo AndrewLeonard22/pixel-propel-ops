@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { settingsAreUnverified } from '@/lib/config';
 import { useData } from '@/hooks/useData';
 import { X, PhoneCall } from 'lucide-react';
 import type { CallRow, AppointmentRow } from '@/lib/types';
@@ -546,7 +547,7 @@ export function SetterDetailPanel({
 }
 
 export default function CallCenter() {
-  const { callData, appointments, settings, loading, sources } = useData();
+  const { callData, appointments, settings, loading, sources, settingsOrigin } = useData();
   const callSource = sources.callCenter;
   // Whether the numbers on this page came from a real read of the sheet.
   const callsOk = hasUsableData(callSource.state);
@@ -700,7 +701,9 @@ export default function CallCenter() {
               returns [] for a 403, a 404 and a network error alike, so a FAILURE currently
               arrives here as an empty success. Patch proposed to @anvil; when that fetcher
               throws, this branch becomes exact with no change here. */}
-          {callSource.state === 'not-configured'
+          {/* Same gate as SourceStatusBanner: in an unverified origin we never read the
+              settings, so naming what is "missing" from them invents an instruction. */}
+          {callSource.state === 'not-configured' && !settingsAreUnverified(settingsOrigin)
             ? `Add your call centre sheet in Settings to see setter performance. Missing: ${callSource.missingSettings.join(', ')}.`
             : callsOk
               ? 'The sheet loaded and contained no call rows. If you expected calls, check that the sheet URL points at the tab holding them — the tab name field in Settings is not currently used to select it.'

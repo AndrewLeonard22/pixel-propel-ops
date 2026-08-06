@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { settingsAreUnverified } from '@/lib/config';
 import { useData } from '@/hooks/useData';
 import { hasUsableData } from '@/lib/sourceStatus';
 import { ConfigBanner } from '@/components/common/Banners';
@@ -15,7 +16,7 @@ import { computeSetterPayouts, formatPayoutExport } from '@/lib/payout';
 type PayPeriod = 'first' | 'second';
 
 export default function Agents() {
-  const { accounts, settings, configured, sources } = useData();
+  const { accounts, settings, configured, sources, settingsOrigin, settingsDetail} = useData();
   // 🔴 Payouts are derived ENTIRELY from Airtable appointments. If that source did not
   // answer, an empty setter list is UNKNOWN, not zero — and "No valid appointments
   // found" would be the same lie BIRD-008 caught on the dashboard, on this page.
@@ -89,7 +90,7 @@ export default function Agents() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (!configured) return <ConfigBanner />;
+  if (!configured) return <ConfigBanner origin={settingsOrigin} detail={settingsDetail} />;
 
   return (
     <div className="space-y-6">
@@ -159,7 +160,12 @@ export default function Agents() {
             <p className="font-semibold text-destructive">
               {downSources.map(src => (
                 <span key={src.key} className="block">
-                  {src.label} — {src.state === 'not-configured'
+                  {/* ⚠️ `missingSettings` is unknowable when the settings themselves were
+                      never read — see SourceStatusBanner. @bird counted 19 "Missing:"
+                      claims on the live broken deploy, none naming the real cause.
+                      @raccoon owns this block; this gates his sentence, it does not
+                      replace it. */}
+                  {src.label} — {src.state === 'not-configured' && !settingsAreUnverified(settingsOrigin)
                     ? `not connected. Missing: ${src.missingSettings.join(', ')}.`
                     : `could not load${src.error ? `: ${src.error}` : ''}.`}
                 </span>
