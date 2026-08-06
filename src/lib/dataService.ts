@@ -1,3 +1,4 @@
+import { supabase } from '@/integrations/supabase/client';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, AdSummary, TeamMember, PerformanceLevel, CallRow } from './types';
 import { convertSheetUrlToCsv, isSourceConfigured } from './config';
 
@@ -175,37 +176,57 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
   const { airtableBaseId, airtableTableName, columnMappings } = settings;
 
   if (!airtableBaseId) throw new Error('Airtable not configured');
-  // @apprentice order ②: the token is a server-side secret now and the browser cannot
-  // hold one. Until the proxy exists this path fails LOUDLY rather than returning [] and
-  // reading as "zero appointments" — a dead source must never render as a real zero.
-  // Safe to throw because fetchAllSources() isolates each source; see the note there.
-  throw new Error('Airtable requires the server-side proxy, which is not deployed yet');
-  
+
+  // ROUTED THROUGH @apprentice's EDGE FUNCTION. The browser holds no credential and never
+  // sees one — the proxy reads AIRTABLE_TOKEN from its own environment. That is precisely
+  // why this patch is credential-free: there is nothing here to leak.
+  //
+  // ⚠️ THE FAILURE CONTRACT IS THE POINT, AND IT IS ENFORCED AT BOTH ENDS. The proxy never
+  // returns 200 on failure (proxy.contract.test.ts), and this function must not undo that
+  // by turning an error into an empty list. `records: []` under status 'ok' means Airtable
+  // genuinely returned nothing; ANY other outcome throws, so a dead source can never render
+  // as "zero appointments". Safe to throw because fetchAllSources() isolates each source.
+  //
+  // The proxy paginates server-side and returns the complete set, so the client offset loop
+  // is gone rather than left unreachable below a throw.
+  const { data: payload, error: invokeError } = await supabase.functions.invoke(
+    'airtable-proxy',
+    { body: { baseId: airtableBaseId, tableName: airtableTableName } },
+  );
+
+  if (invokeError) {
+    // A non-2xx carries the proxy's own {status, message}; surface THAT, not the generic
+    // "Edge Function returned a non-2xx status code", which names nothing a user can act on.
+    let detail = invokeError.message;
+    const ctx = (invokeError as { context?: Response }).context;
+    if (ctx && typeof ctx.json === 'function') {
+      try {
+        const body = await ctx.json();
+        if (body?.message) detail = String(body.message);
+      } catch {
+        // keep the generic message rather than inventing one
+      }
+    }
+    throw new Error(`Airtable proxy: ${detail}`);
+  }
+
+  if (!payload || payload.status !== 'ok' || !Array.isArray(payload.records)) {
+    throw new Error(
+      `Airtable proxy returned an unusable response${payload?.message ? `: ${payload.message}` : ''}`,
+    );
+  }
+
   const allRecords: AppointmentRow[] = [];
-  let offset: string | undefined;
-  let fields: string[] = [];
-  
-  do {
-    const url = new URL(`https://api.airtable.com/v0/${airtableBaseId}/${encodeURIComponent(airtableTableName)}`);
-    url.searchParams.set('pageSize', '100');
-    url.searchParams.set('cellFormat', 'string');
-    url.searchParams.set('timeZone', 'America/New_York');
-    url.searchParams.set('userLocale', 'en-us');
-    if (offset) url.searchParams.set('offset', offset);
-    
-    const response = await fetch(url.toString(), {
-      // Authorization is set by the proxy; the browser never sees the token.
-    });
-    
-    if (!response.ok) throw new Error(`Airtable error: ${response.status}`);
-    
-    const data = await response.json();
-    
-    if (data.records && data.records.length > 0 && fields.length === 0) {
+  let fields: string[] = Array.isArray(payload.fields) ? payload.fields : [];
+
+  {
+    const data = payload as { records: { fields: Record<string, unknown> }[] };
+
+    if (data.records.length > 0 && fields.length === 0) {
       fields = Object.keys(data.records[0].fields);
     }
-    
-    for (const rec of data.records || []) {
+
+    for (const rec of data.records) {
       const f = rec.fields;
       const getField = (key: string) => {
         const mapped = columnMappings[key] || key;
@@ -238,10 +259,8 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
         clientBillingModel: String(getField('Client Billing Model')),
       });
     }
-    
-    offset = data.offset;
-  } while (offset);
-  
+  }
+
   return { records: allRecords, fields };
 }
 
