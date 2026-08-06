@@ -353,3 +353,61 @@ describe('Settings autosave — an async LOAD must not adopt an in-flight edit',
     expect(performed.saves).toHaveLength(0);
   });
 });
+
+/**
+ * 🔒 @raccoon's MISSING ARM — THE GUARD IS PLUGGED IN.
+ *
+ * He applied @fable's wire-sabotage rule to his OWN guards and found four of six failing:
+ *
+ *   cut checkSettingsWrite's verdict to {safe:true}  ->  391 passed, NOTHING NOTICED
+ *
+ * ⇒ He could disconnect the guard that refuses the write which DESTROYED PRODUCTION at
+ *   22:18:48Z, and the whole suite stayed green.
+ *
+ * ⭐ AND HIS DIAGNOSIS OF WHY POINTS AT THIS FILE: "@anvil's Settings.autosave arms test the
+ * BASELINE and the ORIGIN — they never construct a write that would BLANK config, so
+ * cutting the verdict changes nothing they observe." My arms exercised every path EXCEPT
+ * the one the guard exists for. The predicate has 19 arms and 4 poisons; nothing connected
+ * it to the page.
+ *
+ * ⚠️ AND BUILDING IT FOUND A SECOND DEFECT, MINE: the refusal path only wrote to
+ * console.error. The guard refused correctly and the user saw NOTHING — the same defect I
+ * fixed on the THROW path an hour ago and did not carry across to the REFUSE path two lines
+ * away in the same function.
+ */
+describe('Settings autosave — the WRITE GUARD is actually wired to the page', () => {
+  it('🔴 a write that would BLANK populated config is REFUSED — no save attempted', async () => {
+    mount('database');
+
+    // DB_SETTINGS has a populated googleSheetUrl. Emptying it is exactly the shape the
+    // guard exists for: a populated field going blank, which is what the 22:18 wipe did.
+    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: '' } });
+    await letAutosaveFire();
+
+    expect(performed.saves).toHaveLength(0);
+  });
+
+  it('🔴 and the REFUSAL IS VISIBLE — a guard nobody can see is a save that quietly worked', async () => {
+    mount('database');
+    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: '' } });
+    await letAutosaveFire();
+
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toMatch(/would be blanked/);
+    expect(alert.textContent).toMatch(/googleSheetUrl/);
+    expect(alert.textContent).toMatch(/NOT saved/);
+  });
+
+  it('🔑 ANTI-VACUITY CONTROL: a NON-blanking edit still saves', async () => {
+    // Without this the arm above passes if the autosave were simply broken, which is the
+    // mirror defect and one this file has already had once tonight.
+    mount('database');
+    fireEvent.change(screen.getAllByRole('textbox')[0], {
+      target: { value: 'https://docs.google.com/spreadsheets/d/STILL-POPULATED/edit' },
+    });
+    await letAutosaveFire();
+
+    expect(performed.saves).toHaveLength(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});

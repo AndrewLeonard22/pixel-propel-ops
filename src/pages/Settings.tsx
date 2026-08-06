@@ -271,7 +271,16 @@ useEffect(() => {
       // gate protects this caller; the guard protects against the next one too.
       const verdict = checkSettingsWrite(form, settings);
       if (!verdict.safe) {
+        /**
+         * 🔴 THE REFUSAL WAS INVISIBLE. Found while building the arm @raccoon specified:
+         * this path only wrote to console.error, so the guard that refuses the write which
+         * destroyed production at 22:18:48Z did its job and the user saw NOTHING — the same
+         * defect I fixed on the THROW path an hour ago and did not carry across to the
+         * REFUSE path two lines away. A guard whose refusal reaches nobody is indis-
+         * tinguishable, from the user's seat, from a save that quietly worked.
+         */
         console.error('[settings] autosave REFUSED —', verdict.reason);
+        setSaveError(`${verdict.reason} Your change was NOT saved.`);
         return;
       }
       /**
