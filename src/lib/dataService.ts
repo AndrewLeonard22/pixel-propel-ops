@@ -487,6 +487,107 @@ export function metricIsMeaningful(known: boolean | undefined, denominator: numb
   return denominator > 0;
 }
 
+/**
+ * IS THE CAMPAIGN EXCLUSION LIST ACTUALLY FILTERING ANYTHING?
+ *
+ * @andrew accepted the data loss — the 32 excluded campaigns are gone and are not coming
+ * back. That makes this detector the mission rather than a nicety: the software must not
+ * lie about the CONSEQUENCES of a loss he agreed to.
+ *
+ * WHAT BREAKS, MECHANICALLY: `excludedCampaignIds` is built from settings.excludedCampaigns.
+ * When it is empty the filter at the performanceSpend computation excludes NOTHING, so
+ * performanceSpend === totalSpend, and `cpl = performanceSpend / performanceLeads` is then
+ * computed across campaigns that were deliberately excluded — typically the ones burning
+ * spend for no leads, which is WHY they were excluded. ⇒ EVERY cost-per-lead and
+ * cost-per-appointment on the dashboard is inflated, and nothing on screen says so.
+ *
+ * ⚠️ WHY THREE STATES AND NOT A BOOLEAN. "performanceSpend === totalSpend" is the symptom
+ * @fable named, and taken alone it is AMBIGUOUS — it is equally true when:
+ *     ① nothing is configured                     ← the data loss. Numbers are unfiltered.
+ *     ② a list IS configured but matches no row   ← stale ids; also silently unfiltered,
+ *                                                   and a DIFFERENT thing to tell someone
+ *     ③ the excluded campaigns spent nothing      ← perfectly healthy, MUST NOT WARN
+ * A detector that cannot tell ① from ③ would cry wolf on a correctly-configured account,
+ * and the fastest way to get a warning ignored is to show it when nothing is wrong.
+ */
+export type ExclusionState = 'none-configured' | 'configured-but-inert' | 'active';
+
+export interface ExclusionReport {
+  state: ExclusionState;
+  /** How many ids the settings carry. 0 is the post-wipe state. */
+  configuredCount: number;
+  /** How many of those ids actually matched a spend row. */
+  matchedCount: number;
+  /** Spend that IS being counted toward CPL but would have been excluded. */
+  unfilteredSpend: number;
+  /** Named, not counted — a tally cannot be judged, and these go on screen. */
+  affectedAccounts: string[];
+}
+
+export function detectExclusionState(
+  adSpend: AdSpendRow[],
+  settings?: AppSettings,
+): ExclusionReport {
+  const configured = (settings?.excludedCampaigns || []).map(c => String(c).trim()).filter(Boolean);
+  const configuredIds = new Set(configured);
+
+  const matched = new Set<string>();
+  let unfilteredSpend = 0;
+  const affected = new Set<string>();
+  for (const r of adSpend) {
+    const id = (r.campaignId || '').trim();
+    if (id && configuredIds.has(id)) {
+      matched.add(id);
+      unfilteredSpend += r.spent;
+      if (r.accountName) affected.add(r.accountName);
+    }
+  }
+
+  // ③ first: a configured list that matched rows is working, whatever the spend totals say.
+  if (configured.length > 0 && matched.size > 0) {
+    return {
+      state: 'active',
+      configuredCount: configured.length,
+      matchedCount: matched.size,
+      unfilteredSpend: 0, // it IS being filtered — nothing is leaking into CPL
+      affectedAccounts: [],
+    };
+  }
+
+  // ② configured but nothing matched: the ids are stale, and the numbers are unfiltered
+  // exactly as if the list were empty — but the cause, and so the message, is different.
+  if (configured.length > 0) {
+    return {
+      state: 'configured-but-inert',
+      configuredCount: configured.length,
+      matchedCount: 0,
+      unfilteredSpend: 0,
+      affectedAccounts: [],
+    };
+  }
+
+  // ① nothing configured. Only report accounts that actually HAVE spend — an account with
+  // no spend has no inflated CPL, and naming it would be noise.
+  const withSpend = new Set<string>();
+  let total = 0;
+  for (const r of adSpend) {
+    if (r.spent > 0 && r.accountName) withSpend.add(r.accountName);
+    total += r.spent;
+  }
+  return {
+    state: 'none-configured',
+    configuredCount: 0,
+    matchedCount: 0,
+    unfilteredSpend: total,
+    affectedAccounts: Array.from(withSpend).sort(),
+  };
+}
+
+/** Do these numbers need a caveat on screen? Only ① and ② — never a healthy config. */
+export function exclusionsAreLying(r: ExclusionReport): boolean {
+  return r.state !== 'active';
+}
+
 export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],

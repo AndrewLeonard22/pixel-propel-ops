@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CallRow } from '@/lib/types';
 import { loadSettings, loadSettingsAsync, isConfigured } from '@/lib/config';
-import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries } from '@/lib/dataService';
+import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries, detectExclusionState, type ExclusionReport } from '@/lib/dataService';
 import {
   refreshSources,
   initialStatuses,
@@ -36,6 +36,18 @@ interface DataContextType {
    * looked, and on a cold browser it is usually wrong.
    */
   settingsLoaded: boolean;
+  /**
+   * Is the campaign exclusion list actually filtering anything?
+   *
+   * @andrew accepted the loss of the 32 excluded campaigns, so performanceSpend ===
+   * totalSpend is now PERMANENT and every cost-per-lead is computed across campaigns
+   * that were excluded FOR burning spend without leads. The numbers are inflated and
+   * silent. This is what makes that visible; @dash renders it.
+   *
+   * DERIVED, not stored — it is a pure function of the feed and the settings, so it
+   * cannot drift out of sync with the numbers it describes.
+   */
+  exclusions: ExclusionReport;
   /** Per-source state. THIS is the honest one; the flat fields above are kept for existing callers. */
   sources: Record<SourceKey, SourceStatus>;
   refresh: (overrideSettings?: AppSettings) => Promise<void>;
@@ -55,6 +67,11 @@ const defaultDataContext: DataContextType = {
   lastUpdated: null,
   configured: false,
   settingsLoaded: false,
+  // Derived from the SAME settings the rest of this default uses, rather than hand-written
+  // as 'active'. A hand-written default would say "exclusions are working" before anything
+  // has loaded — a definite claim made before we have looked, which is the defect
+  // `settingsLoaded` exists to prevent one line above.
+  exclusions: detectExclusionState([], loadSettings()),
   sources: initialStatuses(loadSettings()),
   refresh: async () => {},
 };
@@ -192,6 +209,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const failed = SOURCE_KEYS.map(k => sources[k]).filter(s => s.error && needsAttention(s));
   const error = failed.length > 0 ? failed.map(s => `${s.label}: ${s.error}`).join(' · ') : null;
 
+  // Derived from the CURRENT feed and the CURRENT settings on every render, so it can
+  // never describe a state the numbers have already moved past.
+  const exclusions = detectExclusionState(data.adSpend, settings);
+
   return (
     <DataContext.Provider value={{
       settings,
@@ -207,6 +228,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       lastUpdated,
       configured,
       settingsLoaded,
+      exclusions,
       sources,
       refresh,
     }}>
