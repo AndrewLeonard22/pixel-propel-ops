@@ -77,6 +77,16 @@ log(tscB === 0, 'tsc -b --noEmit', `exit=${tscB}`);
 const tscApp = exit('npx', ['tsc', '-p', 'tsconfig.app.json', '--noEmit']);
 log(tscApp === 0, 'tsc -p tsconfig.app.json', `exit=${tscApp}`);
 
+// ⚡ THE BUILD IS A GATE AND WAS MISSING — @raccoon measured that this file mentioned
+// "build" ZERO times while Lovable rebuilds main with `vite build`. TYPECHECK IS NOT A
+// BUNDLE: tsc never resolves a path alias the way rollup does, never tree-shakes, and
+// never fails on an unresolvable runtime import. A branch can be 275/275 with every gate
+// green and still not produce a site. A gate ladder that omits the step production runs
+// is a green that means less than it appears — which is the defect this whole file exists
+// to prevent, sitting inside the file.
+const build = exit('npx', ['vite', 'build', '--logLevel', 'error']);
+log(build === 0, 'vite build', `exit=${build}`);
+
 // vitest: the COUNT is the population control. "no tests" exits 0 and reads as a pass.
 let suite = '';
 try {
@@ -100,6 +110,19 @@ try {
   log(cApp !== 0, 'tsc -p app rejects a planted type error', `exit=${cApp}`);
 
   // Documented, not run as a gate: proof the bare form is vacuous on this repo.
+  // A control the TYPECHECKS CANNOT PROVIDE: an unresolvable runtime import is invisible
+  // to tsc (it type-errors only if typed) but must break the bundle. This proves the build
+  // gate is measuring resolution, not just re-running what tsc already did.
+  const importPoisonFile = 'src/main.tsx';
+  const importOriginal = readFileSync(importPoisonFile, 'utf8');
+  try {
+    writeFileSync(importPoisonFile, `import '@/__gate_control_missing_module__';\n` + importOriginal);
+    const cBuild = exit('npx', ['vite', 'build', '--logLevel', 'error']);
+    log(cBuild !== 0, 'vite build rejects an unresolvable import', `exit=${cBuild}`);
+  } finally {
+    writeFileSync(importPoisonFile, importOriginal);
+  }
+
   const cBare = exit('npx', ['tsc', '--noEmit']);
   console.log(
     `  ${cBare === 0 ? 'ℹ️ ' : '❓'} bare \`tsc --noEmit\` exit=${cBare}` +
