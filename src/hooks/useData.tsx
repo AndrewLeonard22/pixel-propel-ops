@@ -233,17 +233,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Composed on every render from the same live data, so the banner cannot describe a
   // state the numbers have already left.
   //
-  // ⚠️ POPULATION DIFFERS FROM Agents.tsx AND THE COUNT CAN DISAGREE ON SCREEN.
+  // ⚠️ POPULATION DIFFERS FROM Agents.tsx ON TWO AXES, SO THE COUNT CANNOT BE SHOWN.
   //    here          ALL appointments — a global statement about the configuration
-  //    Agents.tsx:44 valid leads WITHIN THE SELECTED PAY PERIOD
-  // So `fabricatedRateCount` here can exceed the number of flagged rows on that page, and
-  // both are true of their own population. `allRatesFabricated` is NOT affected — with no
-  // rates configured at all it is true of every population, which is why it is the signal
-  // that carries the wipe.
+  //    Agents.tsx:48 leadValid === 'valid'          ← @raccoon named this one; I missed it
+  //    Agents.tsx:50 within the SELECTED PAY PERIOD
+  // The second axis is the worse one: the banner could name a setter with no valid
+  // appointments in ANY period — someone who would never appear on the page the banner
+  // describes, in any configuration. The period axis at least resolves when you change
+  // the period.
   //
-  // Reconciling them means lifting the pay-period filter out of Agents.tsx into this hook.
-  // That is a bigger change than this window allows, so it is LOGGED, not built — and the
-  // banner copy must say "across all data" rather than imply the current period.
+  // RESOLVED IN THE MESSAGE, NOT IN A QUALIFIER. I proposed the copy say "across all
+  // data"; @raccoon's repair is better and it is what shipped — honestNumbers emits NO
+  // COUNT and points at the Agents page instead. A label would have explained the
+  // contradiction rather than removing it, leaving a reader with an authoritative-looking
+  // number the page disagrees with. That is the banner-vs-row disagreement this branch
+  // spent the night removing.
+  //
+  // `allRatesFabricated` is unaffected: with no rate configured it is true of every
+  // NON-EMPTY population, so it cannot contradict the page — and with appointments absent
+  // it is false, so it stays silent while Airtable is down instead of crying wolf.
+  //
+  // The count is still passed because the composer needs `> 0` to decide whether to speak
+  // at all; it simply never reaches the copy.
   const payoutForWarnings = computeSetterPayouts(data.appointments, settings);
   const honestNumbers = buildHonestNumbersReport({
     settings,
