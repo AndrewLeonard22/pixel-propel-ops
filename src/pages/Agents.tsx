@@ -20,6 +20,21 @@ export default function Agents() {
   // answer, an empty setter list is UNKNOWN, not zero — and "No valid appointments
   // found" would be the same lie BIRD-008 caught on the dashboard, on this page.
   const apptsOk = hasUsableData(sources.airtable.state);
+  // 🔴 BIRD-051. `eligibleAppointments` reaches appointments THROUGH `accounts`
+  // (`accounts.flatMap(a => a.appointmentList)`), and accounts are WINDSOR-derived.
+  // So Windsor dying empties the payout list while Airtable is perfectly healthy —
+  // and guarding on `apptsOk` alone made this page assert "this is a REAL ZERO"
+  // while holding a valid in-period appointment for a named setter.
+  //
+  // This is my own rule broken in my own fix: A GUARD MUST NAME EVERY SOURCE THE
+  // DERIVATION TRAVERSES, NOT THE SOURCE THE VALUE BELONGS TO. Appointments belong
+  // to Airtable; the derivation traverses Windsor.
+  const spendOk = hasUsableData(sources.windsor.state);
+  const payoutDataOk = apptsOk && spendOk;
+  const downSources = [
+    !apptsOk ? sources.airtable : null,
+    !spendOk ? sources.windsor : null,
+  ].filter(Boolean) as (typeof sources.airtable)[];
   const [payPeriod, setPayPeriod] = useState<PayPeriod>('first');
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
   const [copied, setCopied] = useState(false);
@@ -137,14 +152,18 @@ export default function Agents() {
       )}
 
       {/* Setter cards */}
-      {!apptsOk ? (
+      {!payoutDataOk ? (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-4">
           <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
           <div className="text-sm">
             <p className="font-semibold text-destructive">
-              {sources.airtable.label} — {sources.airtable.state === 'not-configured'
-                ? `not connected. Missing: ${sources.airtable.missingSettings.join(', ')}.`
-                : `could not load${sources.airtable.error ? `: ${sources.airtable.error}` : ''}.`}
+              {downSources.map(src => (
+                <span key={src.key} className="block">
+                  {src.label} — {src.state === 'not-configured'
+                    ? `not connected. Missing: ${src.missingSettings.join(', ')}.`
+                    : `could not load${src.error ? `: ${src.error}` : ''}.`}
+                </span>
+              ))}
             </p>
             <p className="text-destructive/90 mt-0.5">
               Payouts are calculated from appointments, so none can be shown. This is

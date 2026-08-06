@@ -37,13 +37,13 @@ function sourceStatus(over: Partial<SourceStatus>): SourceStatus {
   } as SourceStatus;
 }
 
-function mountWith(airtable: Partial<SourceStatus>) {
+function mountWith(airtable: Partial<SourceStatus>, windsor: Partial<SourceStatus> = {}) {
   useDataMock.mockReturnValue({
     accounts: [],
     settings: makeSettings(),
     configured: true,
     sources: {
-      windsor: sourceStatus({ label: "Ad spend (Windsor)" }),
+      windsor: sourceStatus({ label: "Ad spend (Windsor)", ...windsor }),
       airtable: sourceStatus(airtable),
       callCenter: sourceStatus({ label: "Calls (call-centre sheet)" }),
     } as Record<SourceKey, SourceStatus>,
@@ -94,5 +94,19 @@ describe("Agents — a dead payout source must not read as 'nobody is owed anyth
     expect(dead).not.toBe(healthy);
     expect(dead).toMatch(/unknown, not zero/i);
     expect(healthy).toMatch(/real zero/i);
+  });
+
+  it("🔴 BIRD-051: WINDSOR DEAD with a HEALTHY Airtable must NOT claim a real zero", () => {
+    // The payout list reaches appointments THROUGH Windsor-derived accounts, so a dead
+    // Windsor empties it while Airtable is fine. Asserting "real zero" there tells the
+    // reader a trustworthy nobody-is-owed, which is the opposite of the truth.
+    mountWith({ state: "valid" }, { state: "failed", error: "Failed to fetch" });
+    expect(screen.queryByText(/real zero/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/unknown, not zero/i)).toBeVisible();
+  });
+
+  it("names the source that is ACTUALLY down, not always Airtable", () => {
+    mountWith({ state: "valid" }, { state: "failed", error: "Failed to fetch" });
+    expect(screen.getByText(/Ad spend/i)).toBeVisible();
   });
 });
