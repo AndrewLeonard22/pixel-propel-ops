@@ -145,10 +145,22 @@ appointments column.
 |---|---|
 | `—` with *"Appointments (Airtable) — could not load"* | the client called the proxy and it failed — read the message, it names which state |
 | `—` with *"not connected. Missing: Airtable base ID."* | config, not deployment — fill in the base ID |
-| `—` and **no message changed at all** after step 2 | ⬅ **the secret did not take, or the token is not valid.** Re-run the step-2 `curl`: it will say `not_configured` or `auth_failed` and name which. **Do not go looking for missing client wiring** — confirm with `grep -n "'airtable-proxy'" src/lib/dataService.ts` rather than a line number, which rots the moment that file is edited. |
+| `— Airtable proxy: the airtable-proxy Edge Function is not deployed.` | step 1 has not happened. **The sentence says so — "This is not a token problem."** |
+| `— Airtable proxy: AIRTABLE_TOKEN is not set on this deployment.` | deployed ✅, **the secret did not take.** Redo step 2. |
+| `— Airtable proxy: Airtable rejected our credentials.` | the secret **TOOK** ✅ and the token itself is wrong/rotated/revoked. **This is a different problem from the line above and the app already tells them apart** — do not redo step 2, get a valid token. |
+| `— Airtable proxy: Could not reach Airtable` / `returned HTTP <n>` | ours is fine, the vendor is not. |
+| `— not connected. Missing: Airtable base ID.` | config, not deployment. |
 | real appointment numbers | done — the feature works, not just the function |
 
-⚠️ **That third row was inverted in the first version of this file, and the inversion was
+✅ **THESE SENTENCES ARE @bird's, DRIVEN THROUGH THE CLIENT — NOT MINE, NOT INFERRED.** Six arms
+at `f586fb1`, each staged from this function's own `fail()` call sites, and the strings above are
+verbatim from the screen. ⇒ **The deploy diagnoses itself; nobody needs a terminal to read it.**
+⭐ And the split @bird added is the one my table got wrong: *"no message changed"* and *"rejected
+our credentials"* are **different rungs** — the first means the secret never landed, the second
+means it landed and the token is bad. **I had folded them into one row and would have sent someone
+to redo a step that had already worked.**
+
+⚠️ **The old third row was inverted in the first version of this file, and the inversion was
 the expensive direction:** it told you a persisting `—` meant the wiring was absent and
 "nothing you do in the Supabase dashboard will fix this" — which would have made you
 *abandon a secret that was already correct.* The runbook was written to stop you re-setting
