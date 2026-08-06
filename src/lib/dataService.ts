@@ -740,6 +740,61 @@ export function isAirtableRecordId(value: unknown): boolean {
   return typeof value === 'string' && /^rec[A-Za-z0-9]{14}$/.test(value);
 }
 
+/**
+ * 🔴 D1 — «CLOSED DEALS» COUNTED LOSSES AS WINS. Measured on @andrew's live Airtable by
+ * @fable: 679 records, `Closed Lost` **107** · `Closed Won` **46**. The old predicate was
+ * `leadStatus.toLowerCase().includes('closed') || closedRevenue > 0`, and
+ * `'Closed Lost'.includes('closed')` is TRUE — so the app reported **153** closed deals of
+ * which **107 were deals he LOST**. Backyard Paradiso's 96 was about one third real.
+ *
+ * ⭐ THE SHAPE: A SUBSTRING TEST STANDING IN FOR A CATEGORY TEST. It cannot distinguish an
+ * outcome from its OPPOSITE, because both outcomes share a word. The two states are not
+ * merely different, they are contradictory — and the test scores them identically.
+ *
+ * ⚠️ WHY THIS IS NOT `=== 'closed won'`. That is the naive repair and it is brittle in two
+ * directions: a spelling variant (`Closed-Won`, double space, trailing blank) silently drops
+ * a real win, and it says nothing about values nobody has enumerated. **12 of the 679 records
+ * carry a Lead Status @fable's census did not list.** What IS known about those 12, by
+ * deduction rather than assumption: the app's total is exactly 153 = 107 + 46, so **none of
+ * them contains the substring `closed`** — otherwise the total would exceed 153.
+ *
+ * 🔑 AND THE TRAP INSIDE THE INSTRUCTION TO "KEEP THE `|| closedRevenue > 0` ARM": kept
+ * NAIVELY, it reintroduces the defect through the back door — a `Closed Lost` row carrying a
+ * non-zero Closed Revenue would be counted as a win again, by a different route. The revenue
+ * arm must therefore be **subordinate to an explicit LOST test**, which is why `isClosedLost`
+ * exists and is not merely the negation of won.
+ *
+ * ⇒ SO THE CLASSIFICATION IS THREE-VALUED, not two. `won` · `lost` · `unknown`. An
+ * unrecognised status is NOT silently a loss: it is `unknown`, and `unknown` + revenue counts
+ * as a win, while `lost` + revenue does not.
+ */
+const normalizeStatus = (raw: unknown): string =>
+  String(raw ?? '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+
+/** `Closed Won` and its spelling variants — never `Closed Lost`. */
+export function isClosedWonStatus(leadStatus: unknown): boolean {
+  const s = normalizeStatus(leadStatus);
+  return s === 'closed won' || s === 'won' || s === 'closed and won';
+}
+
+/** `Closed Lost` and variants. Explicit, so a lost deal can never be counted by any route. */
+export function isClosedLostStatus(leadStatus: unknown): boolean {
+  const s = normalizeStatus(leadStatus);
+  return s === 'closed lost' || s === 'lost' || s === 'closed and lost';
+}
+
+/**
+ * THE ONE PREDICATE ALL FOUR CALL SITES USE. Previously the expression was written out four
+ * times, so a repair could fix three and leave the fourth reporting a different number for
+ * the same data — the defect class that put four separate line numbers in the D1 report.
+ */
+export function isClosedWon(appt: { leadStatus?: string; closedRevenue?: number }): boolean {
+  if (isClosedWonStatus(appt.leadStatus)) return true;
+  // Revenue is evidence of a win ONLY where the status has not already said "lost".
+  if (isClosedLostStatus(appt.leadStatus)) return false;
+  return (appt.closedRevenue ?? 0) > 0;
+}
+
 export function accountKey(raw: string | undefined | null): string {
   return String(raw ?? '').trim().toLowerCase();
 }
@@ -1336,7 +1391,7 @@ export function buildAccountSummaries(
       const cSpend = cData.spendRows.reduce((s, r) => s + r.spent, 0);
       const cLeads = cData.spendRows.reduce((s, r) => s + r.leads, 0);
       const cAppts = cData.appts.length;
-      const cClosed = cData.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+      const cClosed = cData.appts.filter(a => isClosedWon(a)).length;
       const cRevenue = cData.appts.reduce((s, a) => s + a.closedRevenue, 0);
       const cQualified = cData.appts.filter(a => a.leadValid?.toLowerCase() === 'valid').length;
       const cCpl = cLeads > 0 ? cSpend / cLeads : 0;
@@ -1392,7 +1447,7 @@ export function buildAccountSummaries(
         const asSpend = asData.spendRows.reduce((s, r) => s + r.spent, 0);
         const asLeads = asData.spendRows.reduce((s, r) => s + r.leads, 0);
         const asAppts = asData.appts.length;
-        const asClosed = asData.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+        const asClosed = asData.appts.filter(a => isClosedWon(a)).length;
         const asRevenue = asData.appts.reduce((s, a) => s + a.closedRevenue, 0);
         const asCpl = asLeads > 0 ? asSpend / asLeads : 0;
         const asLeadPct = asLeads > 0 ? (asAppts / asLeads) * 100 : 0;
@@ -1432,7 +1487,7 @@ export function buildAccountSummaries(
           const adSpend = adData.spendRows.reduce((s, r) => s + r.spent, 0);
           const adLeads = adData.spendRows.reduce((s, r) => s + r.leads, 0);
           const adAppts = adData.appts.length;
-          const adClosed = adData.appts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+          const adClosed = adData.appts.filter(a => isClosedWon(a)).length;
           const adRevenue = adData.appts.reduce((s, a) => s + a.closedRevenue, 0);
           ads.push({
             adName: adData.spendRows[0]?.adName || adKey,
@@ -1496,7 +1551,7 @@ export function buildAccountSummaries(
     const performanceAppts = data.appts.filter(a => !excludedApptSet.has(a));
 
     const totalAppts = performanceAppts.length;
-    const closed = performanceAppts.filter(a => a.leadStatus?.toLowerCase().includes('closed') || a.closedRevenue > 0).length;
+    const closed = performanceAppts.filter(a => isClosedWon(a)).length;
     const revenue = performanceAppts.reduce((s, a) => s + a.closedRevenue, 0);
     const billed = performanceAppts.reduce((s, a) => s + a.amountCharged, 0);
     const qualified = performanceAppts.filter(a => a.leadValid?.toLowerCase() === 'valid').length;
