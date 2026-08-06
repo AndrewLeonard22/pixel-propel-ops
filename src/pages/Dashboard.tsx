@@ -181,7 +181,7 @@ export function AccountRow({ account, onSelect }: { account: AccountSummary; onS
 
 
 
-function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
+export function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
   account: AccountSummary;
   settings: AppSettings;
   onClose: () => void;
@@ -190,12 +190,27 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
   const mappings = loadAccountMappings();
   const { program } = getAccountMapping(account.accountName, mappings);
 
+  // ⚠️ THE PANEL WAS UNGATED WHILE THE ROW ABOVE IT WAS NOT. @raccoon measured it: in the
+  // SAME four-card grid, Cost/Appt refused correctly while the Revenue card beside it
+  // fabricated $0.00 from the same dead source — 1 of 12 appointment-sourced expressions
+  // mentioned apptsKnown. @bird's arms read the ROW and the TILES, both correctly gated;
+  // the panel only renders on a CLICK and no arm clicked. Row, tile, panel — the fix had
+  // landed on the two surfaces that were driven, which is the same layer-blindness the
+  // W1/W2/W3 sabotage measured, arriving on a fourth surface.
+  //
+  // One helper rather than seven inline ternaries, so these cannot drift apart again.
+  const apptsUnknown = account.apptsKnown === false;
+  const appt = (render: () => string) => (apptsUnknown ? UNKNOWN : render());
+
   const showedCount = account.appointmentList.filter(a => {
     const s = (a.showStatus || '').toLowerCase();
     return s === 'showed' || s === 'show';
   }).length;
 
   const dialsPerLead = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '0';
+  // ⚠️ DEAD: showRate and closeRate are each referenced exactly once — here. Nothing
+  // renders them, so they are not a display defect; naming them beats deleting code
+  // at verdict time, when a removal cannot be driven.
   const showRate = account.appointmentList.length > 0 ? (showedCount / account.appointmentList.length) * 100 : 0;
   const closeRate = account.appointmentList.length > 0 ? (account.closed / account.appointmentList.length) * 100 : 0;
 
@@ -214,7 +229,12 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
   });
 
   // Dial activity stats (separate from funnel)
-  const dialBookingRate = account.totalDials > 0 ? ((account.appointments / account.totalDials) * 100).toFixed(1) : '—';
+  // MIXES TWO SOURCES: appointments (Airtable) over dials (call-centre). Either one
+  // unknown makes the rate unknowable, and the old form only checked the denominator.
+  const dialBookingRate =
+    account.callsKnown !== false && metricIsMeaningful(account.apptsKnown, account.totalDials)
+      ? ((account.appointments / account.totalDials) * 100).toFixed(1)
+      : null;
   const dialsPerLeadFunnel = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '—';
 
   // Build funnel stages (no Dials — it's a parallel activity, not a funnel stage)
@@ -272,7 +292,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
             </div>
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Revenue</p>
-              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatCurrency(account.revenue)}</p>
+              <p className="text-lg font-bold font-mono-tabular text-foreground">{appt(() => formatCurrency(account.revenue))}</p>
             </div>
           </div>
 
@@ -284,9 +304,9 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                 <span className="text-xs font-semibold text-foreground">Dial activity</span>
               </div>
               <div className="flex gap-4 text-sm font-mono-tabular">
-                <span><span className="font-semibold text-foreground">{formatNumber(account.totalDials)}</span> <span className="text-[11px] text-muted-foreground font-sans">dials</span></span>
+                <span><span className="font-semibold text-foreground">{account.callsKnown === false ? UNKNOWN : formatNumber(account.totalDials)}</span> <span className="text-[11px] text-muted-foreground font-sans">dials</span></span>
                 <span><span className="font-semibold text-foreground">{dialsPerLeadFunnel}</span> <span className="text-[11px] text-muted-foreground font-sans">per lead</span></span>
-                <span><span className="font-semibold text-foreground">{dialBookingRate}%</span> <span className="text-[11px] text-muted-foreground font-sans">booking rate</span></span>
+                <span><span className="font-semibold text-foreground">{dialBookingRate === null ? UNKNOWN : `${dialBookingRate}%`}</span> <span className="text-[11px] text-muted-foreground font-sans">booking rate</span></span>
               </div>
             </div>
           )}
@@ -317,11 +337,11 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-amber-400" style={{ width: `${Math.max(account.leads > 0 ? (account.appointments / account.leads) * 100 : 0, account.appointments > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.appointments)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.appointments))}</span>
                 </div>
                 {/* Show rate */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(account.appointments > 0 ? (showedCount / account.appointments) * 100 : 0)}</span>
+                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown, account.appointments) ? formatPercent((showedCount / account.appointments) * 100) : UNKNOWN}</span>
                   <span className="text-[11px] text-muted-foreground">showed up</span>
                 </div>
                 {/* Showed */}
@@ -330,11 +350,11 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-emerald-400" style={{ width: `${Math.max(account.leads > 0 ? (showedCount / account.leads) * 100 : 0, showedCount > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(showedCount)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(showedCount))}</span>
                 </div>
                 {/* Close rate */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(showedCount > 0 ? (account.closed / showedCount) * 100 : 0)}</span>
+                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown, showedCount) ? formatPercent((account.closed / showedCount) * 100) : UNKNOWN}</span>
                   <span className="text-[11px] text-muted-foreground">closed won</span>
                 </div>
                 {/* Closed */}
@@ -343,7 +363,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-emerald-600" style={{ width: `${Math.max(account.leads > 0 ? (account.closed / account.leads) * 100 : 0, account.closed > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.closed)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.closed))}</span>
                 </div>
               </div>
             )}
