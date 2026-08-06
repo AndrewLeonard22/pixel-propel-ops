@@ -12,6 +12,15 @@ export interface AppSettings {
    * so the discoverable one wins.
    */
   adsRawTabName?: string;
+  /**
+   * Which Lead Status values count as a WON deal. @andrew: "yeah make it mappable".
+   *
+   * ⚠️ ABSENT (undefined) and EMPTY ([]) BOTH MEAN "use the built-in fallback" — they are NOT
+   * "nothing counts". An empty array reaching the classifier as a literal answer would take
+   * every closed-deal count to zero, which is the failure mode a settings field must never
+   * have. See isClosedWonStatus.
+   */
+  closedWonStatuses?: string[];
   callCenterSheetUrl: string;
   callCenterSheetTab: string;
   airtableBaseId: string;

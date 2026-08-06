@@ -162,12 +162,29 @@ export default function SourceStatusBanner() {
    * correct, and potentially most of the appointment data, so it CANNOT be silent. Without
    * this line the appointment counts would simply be lower and nothing would say why.
    */
+  /**
+   * ⭐ THIS COPY WAS AN INSTRUCTION AND IS NOW A FACT — @andrew called the old version «bs»
+   * and he was right: it told him to add a Lookup field in Airtable to work around OUR
+   * limitation. The resolver (0386232) does that work in code, and @bird drove it live:
+   * the count went 43 → 1 while the TOTAL APPTS tile held at 679 (678 + 1), so nothing was
+   * dropped — 42 appointments simply reached the accounts they always belonged to.
+   *
+   * ⚠️ AND I DID NOT REWRITE THIS UNTIL THE DRIVE ANSWERED. Rewriting it when the resolver
+   * shipped would have described what I HOPED happened; the copy now describes what @bird
+   * MEASURED. Copy that runs ahead of its own evidence is how the previous version came to
+   * name a text field that does not exist.
+   *
+   * ⛔ NO REMEDY IS OFFERED, DELIBERATELY. The remaining rows are appointments with NO
+   * CLIENT RECORDED — @bird's partition found exactly one, which is the correct floor, not
+   * a residue. There is nothing for @andrew to configure: the data simply does not say who
+   * the appointment is for, and telling him to go fix that is the same homework in a new
+   * sentence.
+   */
   const unresolved = unresolvedClients > 0
-    ? `${unresolvedClients.toLocaleString()} appointment${unresolvedClients > 1 ? 's are' : ' is'} not matched to an account: ` +
-      `Airtable's "Client Name" is a LINKED RECORD, so it returns a record id rather than the client's name. ` +
-      `They are counted in the totals but cannot be credited to an account. ` +
-      `TO FIX: in Airtable, add a Lookup field on the Appointments table that pulls Name from the linked Client record, ` +
-      `then point "Client Name" at it in Settings → column mappings.`
+    ? `${unresolvedClients.toLocaleString()} appointment${unresolvedClients > 1 ? 's have' : ' has'} no client recorded in Airtable, ` +
+      `so ${unresolvedClients > 1 ? 'they cannot be' : 'it cannot be'} credited to an account. ` +
+      `${unresolvedClients > 1 ? 'They are' : 'It is'} still counted in the appointment totals — ` +
+      `this is an attribution gap, not a missing booking.`
     : null;
 
   if (problems.length === 0 && !staleFeed && !incomplete && !rejected && !unresolved) return null;
