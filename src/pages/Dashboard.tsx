@@ -95,7 +95,7 @@ const UNKNOWN = '—';
  * glyph then carried two unrelated meanings on one row, so a reader could not tell a dead
  * feed from a zero. The value is no longer consulted for knownness anywhere.
  */
-function RatioBadge({ known, denominator, color, children }: {
+export function RatioBadge({ known, denominator, color, children }: {
   known: boolean | undefined;
   denominator: number;
   color: string;
@@ -107,17 +107,17 @@ function RatioBadge({ known, denominator, color, children }: {
   return <span className={`font-mono-tabular font-semibold ${color}`}>{children}</span>;
 }
 
-function CPLBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
+export function CPLBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
   const color = value < 35 ? 'text-success' : value <= 55 ? 'text-warning' : 'text-destructive';
   return <RatioBadge known={known} denominator={leads} color={color}>{formatCurrency(value)}</RatioBadge>;
 }
 
-function CostPerApptBadge({ value, appointments, known }: { value: number; appointments: number; known?: boolean }) {
+export function CostPerApptBadge({ value, appointments, known }: { value: number; appointments: number; known?: boolean }) {
   const color = value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
   return <RatioBadge known={known} denominator={appointments} color={color}>{formatCurrency(value)}</RatioBadge>;
 }
 
-function LeadToApptBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
+export function LeadToApptBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
   // A true 0% now renders as 0% — it is a real result, not an absence.
   const color = value >= 10 ? 'text-success' : value >= 5 ? 'text-warning' : 'text-destructive';
   return <RatioBadge known={known} denominator={leads} color={color}>{formatPercent(value)}</RatioBadge>;
