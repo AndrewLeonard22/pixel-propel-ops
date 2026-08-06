@@ -850,7 +850,10 @@ export default function Dashboard() {
   // only honest render is an em dash.
   const spendOk = hasUsableData(sources.windsor.state);
   const apptsOk = hasUsableData(sources.airtable.state);
-  const callsOk = hasUsableData(sources.callCenter.state);
+  // No `callsOk` here on purpose: the dials tile was the only thing on this page gated on
+  // it, and it was removed 2026-08-05. The call-centre source is still SURFACED to the user
+  // — SourceStatusBanner enumerates SOURCE_KEYS itself, and the completeness read consults
+  // it — so its health is not hidden by the tile going away.
 
   // "Not configured" is a claim about the user's setup. Until the settings have come back
   // from the database we have not looked, and on a cold browser (new device, cleared
