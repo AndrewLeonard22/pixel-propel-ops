@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
-import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync } from '@/lib/config';
+import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync, settingsAreUnverified } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData } from '@/lib/dataService';
 import type { AppSettings, AccountMapping } from '@/lib/types';
 import { checkSettingsWrite } from '@/lib/settingsWriteGuard';
@@ -19,7 +19,7 @@ const REQUIRED_MAPPINGS = [
 ];
 
 export default function SettingsPage() {
-  const { settings, setSettings, adSpend, accounts, callData, appointments, refresh } = useData();
+  const { settings, setSettings, adSpend, accounts, callData, appointments, refresh, settingsOrigin, settingsLoaded } = useData();
   const [form, setForm] = useState<AppSettings>(settings);
   // 🔴 THE 22:18:48Z WIPE. `form` used to be seeded ONCE from `settings` and NEVER
   // re-synced when loadSettingsAsync resolved, so on a cold browser it held
@@ -28,15 +28,47 @@ export default function SettingsPage() {
   //   ① hydrate `form` from the loaded config on the FIRST identity change of
   //      `settings` (loadSettingsAsync always calls setSettings with a new object)
   //   ② hold the autosave until that has happened.
-  const initialSettingsRef = useRef(settings);
   const [hydrated, setHydrated] = useState(false);
+  /**
+   * 🔴 THE BASELINE. Content of the form that is KNOWN to match what is stored. The autosave
+   * fires only when `form` DIFFERS from this, which is the whole fix for @bird's P0.
+   */
+  const baselineRef = useRef<string | null>(null);
+
+  /**
+   * 🔴 @bird ISOLATED THIS ON THE DEPLOYED BUILD, ONE VARIABLE, SAME BUNDLE:
+   *
+   *     in-app CLICK to /settings  ->  0 writes
+   *     DIRECT URL  to /settings   ->  52 writes, no edit, no click, no Save
+   *
+   * ⭐ AND THE SPA REWRITE ARMED IT. Before that landed, `/settings` returned a hard 404,
+   * so a refresh, a bookmark or a shared link could not load the page at all. A correct fix
+   * made an unreachable defect reachable, and nothing in its diff predicted that.
+   *
+   * THE OLD MECHANISM, exactly:
+   *   full load  -> form seeded from localStorage; initialSettingsRef holds that object
+   *              -> loadSettings resolves -> setSettings(NEW identity)
+   *              -> this effect fired, setForm(settings), setHydrated(true)
+   *              -> the autosave effect saw `form` and `hydrated` BOTH change and wrote.
+   *   ⇒ HYDRATION ITSELF COUNTED AS A USER EDIT.
+   *
+   * AND THE MIRROR DEFECT NOBODY HAD NAMED: on the in-app path there is no remount, so
+   * `settings` never changed identity, `hydrated` stayed FALSE FOREVER, and the autosave
+   * was PERMANENTLY DEAD. @bird's 0 writes was safe AND non-functional — the same line
+   * caused both, in opposite directions.
+   *
+   * ⚠️ NOW GATED ON THE LOAD HAVING RESOLVED rather than on an object identity changing,
+   * because identity change is a property of HOW the page was reached, not of what is known.
+   */
   useEffect(() => {
-    if (hydrated) return;
-    if (settings !== initialSettingsRef.current) {
-      setForm(settings);
-      setHydrated(true);
-    }
-  }, [settings, hydrated]);
+    if (hydrated || !settingsLoaded) return;
+    setForm(settings);
+    setAccountMappings(current => {
+      baselineRef.current = JSON.stringify({ form: settings, mappings: current });
+      return current;
+    });
+    setHydrated(true);
+  }, [settings, settingsLoaded, hydrated]);
   const [showToken, setShowToken] = useState(false);
   const [sheetStatus, setSheetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [sheetPreview, setSheetPreview] = useState<Record<string, string>[]>([]);
@@ -139,6 +171,24 @@ useEffect(() => {
     // the async mappings load fires setAccountMappings, which used to reach performSave
     // with `form` still holding DEFAULT_SETTINGS.
     if (!hydrated) return;
+
+    // ⛔ ②a NEVER WRITE FROM AN UNVERIFIED COPY. @raccoon's blocker: on a warm browser the
+    // local settings can be STALE-BUT-POPULATED — 1 excluded campaign where the DB has 4 —
+    // and his guard measured safe:true on that shape because it refuses POPULATED -> EMPTY,
+    // not POPULATED -> FEWER. If we never read the database we cannot know which we hold,
+    // so the only safe write is none.
+    if (settingsAreUnverified(settingsOrigin)) {
+      console.error('[settings] autosave REFUSED — settings were never read from the database');
+      return;
+    }
+
+    // ⛔ ②b HYDRATION IS NOT AN EDIT. @bird's P0: `form` changing because we just loaded it
+    // is indistinguishable, to a dependency array, from the user typing. Comparing CONTENT
+    // to the baseline is what separates them — a full page load now writes nothing, and a
+    // real edit still saves on the in-app path where the autosave used to be dead.
+    const current = JSON.stringify({ form, mappings: accountMappings });
+    if (baselineRef.current === current) return;
+
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       // ② NET: even hydrated, refuse a write that would blank populated config. The
@@ -148,10 +198,11 @@ useEffect(() => {
         console.error('[settings] autosave REFUSED —', verdict.reason);
         return;
       }
+      baselineRef.current = current;
       performSave(form, accountMappings);
     }, 800);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [form, accountMappings, performSave, hydrated, settings]);
+  }, [form, accountMappings, performSave, hydrated, settings, settingsOrigin]);
 
   const updateForm = (patch: Partial<AppSettings>) => {
     setForm(prev => ({ ...prev, ...patch }));
