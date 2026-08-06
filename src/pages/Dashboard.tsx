@@ -817,15 +817,29 @@ export default function Dashboard() {
         <KPISkeleton />
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* ⚠️ EVERY GUARD HERE NAMES `spendOk`, INCLUDING THE TILES WHOSE VALUE IS NOT
+              WINDSOR DATA. @bird drove it and @raccoon censused it: all nine totals reduce
+              over `activeAccounts`, and activeAccounts is WINDSOR-DERIVED — no sheet rows,
+              no accounts. So Windsor dying yields an EMPTY ARRAY, every reduce(…, 0)
+              returns a hard 0, and any guard that does not name Windsor renders it.
+              Measured: Windsor dead ⇒ TOTAL DIALS 0 with 3,102 dials alive, and TOTAL
+              APPTS 0 while Airtable was HEALTHY AND HOLDING THE APPOINTMENT.
+
+              ⭐ THE RULE, and it is sharper than "and the flags": A GUARD MUST NAME EVERY
+              SOURCE THE DERIVATION TRAVERSES, NOT THE SOURCE THE VALUE SEMANTICALLY
+              BELONGS TO. `dials` IS call-centre data — which is why `callsOk` alone looked
+              right — but it is summed over a Windsor-derived list, so the derivation
+              traverses Windsor. Spend/leads/cpl were only ever safe by coincidence: their
+              guard happened to name the same source their value came from. */}
           <KPICard label="Total Spend" value={spendOk ? formatCurrency(totals.spend) : '—'} />
           <KPICard label="Total Leads" value={spendOk ? formatNumber(totals.leads) : '—'} />
           <KPICard label="Avg CPL" value={spendOk && totals.cpl > 0 ? formatCurrency(totals.cpl) : '—'} />
-          <KPICard label="Total Dials" value={callsOk ? formatNumber(totals.dials) : '—'} />
-          <KPICard label="Total Appts" value={apptsOk ? formatNumber(totals.appts) : '—'} />
+          <KPICard label="Total Dials" value={spendOk && callsOk ? formatNumber(totals.dials) : '—'} />
+          <KPICard label="Total Appts" value={spendOk && apptsOk ? formatNumber(totals.appts) : '—'} />
           <KPICard label="Lead → Appt %" value={spendOk && apptsOk && totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} />
           <KPICard label="Avg Cost/Appt" value={spendOk && apptsOk && totals.costPerAppt > 0 ? formatCurrency(totals.costPerAppt) : '—'} />
-          <KPICard label="Closed Deals" value={apptsOk ? formatNumber(totals.closed) : '—'} />
-          <KPICard label="Total Revenue" value={apptsOk ? formatCurrency(totals.revenue) : '—'} />
+          <KPICard label="Closed Deals" value={spendOk && apptsOk ? formatNumber(totals.closed) : '—'} />
+          <KPICard label="Total Revenue" value={spendOk && apptsOk ? formatCurrency(totals.revenue) : '—'} />
         </div>
       )}
 
