@@ -58,10 +58,27 @@ const COL = {
   appts: 5, leadPct: 6, costPerAppt: 7, closed: 8, revenue: 9,
 } as const;
 
+/**
+ * ⚠️ TARGET BY PROPERTY, NEVER BY POSITION — @bird's law, and this file breaks it.
+ *
+ * COL resolves cells by INDEX, so inserting or reordering a column in AccountRow shifts
+ * every assertion below silently: they would keep passing while checking the wrong cell.
+ * He found this exact class inside his own sweep — pressing controls by index silently
+ * covered 12 of 55 on /calendar AND STILL REPORTED THE SECTOR SWEPT — and the only reason
+ * he caught it is that he printed `pressed` beside `controls_found`.
+ *
+ * Positional lookup was a deliberate trade here: matching by TEXT was ambiguous, because
+ * spend and cost-per-appointment can both read $500.00. So the guard is the count: if the
+ * row stops having exactly COL_COUNT cells, this fails LOUDLY rather than sliding by one.
+ * That does not make position safe — a REORDER with the same count still slips through —
+ * it makes the cheap half of the failure impossible.
+ */
+const COL_COUNT = 10;
+
 function cells(): string[] {
-  return Array.from(screen.getByRole("row").querySelectorAll("td")).map(
-    td => (td.textContent ?? "").trim(),
-  );
+  const tds = Array.from(screen.getByRole("row").querySelectorAll("td"));
+  expect(tds).toHaveLength(COL_COUNT);
+  return tds.map(td => (td.textContent ?? "").trim());
 }
 
 describe("AccountRow — the flags are WIRED INTO THE CELLS, not merely stamped", () => {
