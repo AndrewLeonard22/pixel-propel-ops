@@ -144,8 +144,28 @@ try {
   writeFileSync(POISON_FILE, original);
 }
 
-const restored = readFileSync(POISON_FILE).equals(original);
-log(restored, 'poison removed, file byte-identical', `${original.length} octets`);
+// ⚡ VERIFIED AGAINST GIT, NOT AGAINST THIS RUN'S OWN READ — @raccoon's finding.
+//
+// This previously compared the file to the `original` variable read at the top of the
+// same run. That proves "I put back what I found". It CANNOT prove "the file is correct",
+// because nothing can change the file between the write and the compare — a discriminator
+// that can barely vary, in the file whose docblock warns about exactly that. He killed a
+// run between write and restore, left a poison in src/main.tsx, and this line printed ✅
+// on a dirty tree. Reproduced here before patching.
+//
+// Worse, the SECOND poison site (src/main.tsx, the import control) had no assertion at
+// all — a reader counted five controls and read restoration coverage as total, when it
+// was one of two sites and that one was near-vacuous.
+//
+// ⚠️ AND THE HAZARD WAS ONLY EVER COVERED BY ORDERING: gates run before controls, so a
+// leftover poison trips `vite build` first. That is real (it is how his experiment
+// surfaced) but it is a property of the ORDER of this file, documented nowhere. Move the
+// controls above the gates and the coverage vanishes silently. git is the reference that
+// does not depend on where the lines sit.
+const gitClean = (f) => exit('git', ['diff', '--quiet', '--', f]) === 0;
+for (const f of [POISON_FILE, 'src/main.tsx']) {
+  log(gitClean(f), `${f} matches git`, 'no poison left behind');
+}
 
 if (failed === 0) {
   console.log('\nALL GATES GREEN, ALL CONTROLS RED');
