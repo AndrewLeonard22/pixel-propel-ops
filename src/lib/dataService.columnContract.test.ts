@@ -73,8 +73,39 @@ describe('checkColumnContract — the two tiers', () => {
     expect(checkColumnContract([alt2], WINDSOR_COLUMNS, 'x').missingLabels).toEqual([]);
   });
 
-  it('an EMPTY sheet is exempt — no rows, no fabricated numbers', () => {
-    expect(checkColumnContract([], WINDSOR_COLUMNS, 'x')).toEqual({ missingLabels: [] });
+  it('🔴 an EMPTY sheet is UNVERIFIED, not a clean bill of health — @raccoon', () => {
+    // It used to return a clean verdict on the FIRST LINE, so a wrong tab that happens to be
+    // EMPTY passed the guard built to catch a wrong tab. The POPULATION control, which fakes
+    // a PASS rather than a suspicious zero. Still not a throw: a genuinely empty tab is
+    // legitimate and must not blank the app.
+    const r = checkColumnContract([], WINDSOR_COLUMNS, 'x');
+    expect(r.schemaUnverified).toBe(true);
+    expect(r.missingLabels).toEqual([]);
+  });
+
+  it('a NON-empty sheet is not marked unverified — the control for the arm above', () => {
+    expect(checkColumnContract([FULL], WINDSOR_COLUMNS, 'x').schemaUnverified).toBeFalsy();
+  });
+
+  it('🔴 PRESENCE IS NOT VALIDITY: a critical column that is PRESENT and ALL BLANK throws', () => {
+    // My own law, one layer down. Every column present, every value empty, parseNumber('')
+    // returns 0, and every spend total becomes zero — the exact outcome this prevents.
+    const blank = { 'Account Name': 'A', Spent: '', Leads: '', Date: '' };
+    expect(() => checkColumnContract([blank], WINDSOR_COLUMNS, 'x')).toThrow(/ENTIRELY BLANK/);
+  });
+
+  it('🔑 ONE blank cell among several rows is NORMAL and must not throw', () => {
+    // "at least one row has a value", not "every row". The mirror defect would be refusing
+    // a real sheet because a single cell is empty.
+    const rows = [{ ...FULL, Spent: '' }, FULL];
+    expect(() => checkColumnContract(rows, WINDSOR_COLUMNS, 'x')).not.toThrow();
+  });
+
+  it('⭐ CASE-FOLDED: a lowercase header satisfies the contract', () => {
+    // And the MAPPER folds case by the same rule — see the pick() docblock. Relaxing only
+    // the guard would have turned a loud failure into a silent zero.
+    const lower = Object.fromEntries(Object.entries(FULL).map(([k, v]) => [k.toLowerCase(), v]));
+    expect(() => checkColumnContract([lower], WINDSOR_COLUMNS, 'x')).not.toThrow();
   });
 });
 
@@ -102,8 +133,18 @@ describe('the contract agrees with the MAPPER, in both directions', () => {
     src.indexOf('export async function fetchGoogleSheetData'),
     src.indexOf('export async function fetchCallCenterData'),
   );
-  /** Every `r['X']` the ad-spend mapper actually reads. */
-  const readByMapper = new Set(Array.from(mapper.matchAll(/r\['([^']+)'\]/g), m => m[1]));
+  /**
+   * Every column the ad-spend mapper actually reads, from its `pick(r, 'A', 'B')` calls.
+   *
+   * ⭐ THIS EXTRACTOR CHANGED WHEN THE MAPPER DID, AND THE LOCK CAUGHT IT — including the
+   * NON-VACUITY arm, which failed with "expected 0 to be greater than 10". Without that arm
+   * the set would have been EMPTY, `unguarded` would have been `[]`, and the direction would
+   * have passed VACUOUSLY over nothing. That is the whole reason it is there.
+   */
+  const readByMapper = new Set(
+    Array.from(mapper.matchAll(/pick\(r,\s*([^)]+)\)/g))
+      .flatMap(m => Array.from(m[1].matchAll(/'([^']+)'/g), q => q[1])),
+  );
   const inContract = new Set(WINDSOR_COLUMNS.flatMap((c: ColumnSpec) => c.accept));
 
   it('NON-VACUITY: the mapper source was found and really reads columns', () => {
