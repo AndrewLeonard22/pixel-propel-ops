@@ -172,6 +172,34 @@ BEGIN
         'That is the shape of a stale-copy overwrite, not an edit.', NEW.key, old_n
         USING ERRCODE = 'check_violation';
     END IF;
+
+    -- (e2) BULK-DELETION GUARD — ARRAYS ONLY, AND THE «ONLY» IS LOad-BEARING.
+    --
+    -- @raccoon's bound on (e): it catches TOTAL collapse, so 62 -> 1 passes. The
+    -- realistic clobber is not a wipe to empty — it is a stale browser copy holding
+    -- an OLDER, still-populated list, which reverts silently.
+    --
+    -- ⭐ WHY ±1 IS SAFE HERE AND NOT A GUESS: every UI writer moves these lists by
+    -- exactly ONE. Dashboard.tsx handleToggleExclude(campaignId) does
+    --   current.includes(id) ? current.filter(x => x !== id) : [...current, id]
+    -- and Settings.tsx removes a setter with a single-name filter. There is NO
+    -- bulk-remove control anywhere in src/. So a drop of 2+ in ONE write is not a
+    -- user action — it is the signature of an overwrite.
+    --
+    -- ⛔ ARRAYS ONLY, because (a0) STRIPS up to two keys from the app_settings
+    -- OBJECT. Applying a magnitude rule to objects would compare a 17-key OLD
+    -- against a 15-key NEW and reject EVERY SAVE FROM THE DEPLOYED FRONTEND —
+    -- the exact ordering defect this file already shipped once. Objects keep the
+    -- total-collapse rule above; only arrays get the magnitude rule.
+    IF jsonb_typeof(OLD.value) = 'array' AND jsonb_typeof(NEW.value) = 'array'
+       AND old_n > 0 AND new_n < old_n - 1 THEN
+      RAISE EXCEPTION
+        'refusing to remove % entries from row "%" in one write (% -> %): every control '
+        'in this app changes these lists one at a time, so a bulk removal is the shape of '
+        'a stale-copy overwrite. Remove them individually if intended.',
+        old_n - new_n, NEW.key, old_n, new_n
+        USING ERRCODE = 'check_violation';
+    END IF;
   END IF;
 
   -- ══ THE app_settings ROW SPECIFICALLY ═════════════════════════════════════

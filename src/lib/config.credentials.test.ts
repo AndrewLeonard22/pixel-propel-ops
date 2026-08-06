@@ -269,6 +269,42 @@ describe('the app_settings lockdown migration', () => {
     expect(body).toMatch(/old_n > 0 AND new_n = 0/);
   });
 
+  it('🎯 the bulk-deletion guard catches a PARTIAL revert, not only a wipe to empty', () => {
+    const body = sql.replace(/^\s*--.*$/gm, '');
+    // @raccoon's bound on the collapse guard: 62 -> 1 passed it. The realistic
+    // clobber is a stale copy holding an OLDER populated list, not an empty one.
+    expect(body, 'a magnitude rule must exist, not only old>0 && new=0').toMatch(
+      /new_n < old_n - 1/,
+    );
+    expect(sql).toContain('refusing to remove');
+  });
+
+  it('⛔ the magnitude rule is ARRAYS-ONLY — on objects it would reject every save', () => {
+    const body = sql.replace(/^\s*--.*$/gm, '');
+    const magnitude = body.indexOf('new_n < old_n - 1');
+    expect(magnitude).toBeGreaterThan(0);
+    // the guarded line must be conditioned on BOTH sides being arrays
+    const clause = body.slice(Math.max(0, magnitude - 220), magnitude + 40);
+    expect(
+      /jsonb_typeof\(OLD\.value\) = 'array'/.test(clause) &&
+        /jsonb_typeof\(NEW\.value\) = 'array'/.test(clause),
+      'the magnitude rule MUST be array-only: (a0) strips up to two keys from the ' +
+        'app_settings OBJECT, so an object magnitude rule would compare a 17-key OLD ' +
+        'against a 15-key NEW and reject every save from the deployed frontend',
+    ).toBe(true);
+  });
+
+  it('CONTROL: the strip and the magnitude rule cannot collide — arithmetic, stated', () => {
+    // The deployed frontend sends ALLOWED + the 2 retired keys. (a0) strips them.
+    const sent = [...ALLOWED_CONFIG_KEYS, ...retiredKeys].length;
+    const afterStrip = sent - retiredKeys.length;
+    expect(afterStrip).toBe(sent - 2);
+    // If the magnitude rule applied to objects, this write would be refused:
+    expect(afterStrip < sent - 1, 'a 2-key strip DOES trip an object magnitude rule').toBe(true);
+    // ⇒ which is exactly why the rule is array-only. This assertion documents the
+    //   collision that the array-only scoping avoids, so nobody "generalises" it later.
+  });
+
   it('rejects credential-shaped VALUES anywhere in the object, which covers nesting', () => {
     expect(sql).toContain('credential-shaped value');
     expect(sql).toContain('NEW.value::text'); // whole object, nested included
