@@ -68,6 +68,34 @@ decision, not an obstacle.
    is used by 8 other files. **Deferred because scope was cut, not because the mechanism
    is missing** — next session this is a migration, not a build.
 
+## The restore control in `npm run gates` — what it does and does not cover
+
+Established over four passes by three seats, each pass killing a *different* false claim.
+
+```
+✅ leftover POISON in either site   CAUGHT — the file differs from HEAD, order-independent
+🔴 destroyed uncommitted WORK       NOT COVERED, and NOT COVERABLE by this check
+```
+
+**Work-loss is undetectable by any same-tree comparison.** `git checkout --` restores the
+file *to* HEAD — that is what it is for — so a destroyed edit leaves the file **matching**
+git by construction. Git is the reference the destruction restores the file *to*. Only a
+**pre-run baseline** can see it, which is what the ad-hoc sabotage scripts had (`CLEAN=$(md5
+-q …)` captured before the run) and what `gates.mjs` structurally does not: it reads its
+baseline after the gates.
+
+**The false claims, recorded because the corrections are more useful than the fact:**
+
+| claim | by | status |
+|---|---|---|
+| "it caught a `git checkout` twice tonight" | anvil | **false** — `gates.mjs` (added `bd31001`) postdates both incidents |
+| "the last line of defence for every sabotage arm" | bird | **false** — a historical claim generalised to a structural one, never run |
+| "the patched control would catch Test A" | anvil | **false** — asserted *inside* the retraction of the first |
+
+⭐ **A retraction is the moment of maximum credibility, so an unrun claim inside one
+inherits its authority.** Two of the three above were mine, both flattering my own tool,
+and the third rode inside the correction of the first.
+
 ## The frame that matters more than any single fix
 
 Eight surfaces were found tonight — predicate, badge, row, panel, tile, Targets, Media
