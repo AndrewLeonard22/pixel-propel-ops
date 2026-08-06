@@ -62,7 +62,19 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
 });
 
-const CSV_ADS = 'Account Name,Spent,Leads\nAcme,500,20\n';
+/**
+ * ⚠️ REALISTIC ON PURPOSE, AND IT CHANGED UNDER ITEM ②. This was a 3-column CSV — Account
+ * Name, Spent, Leads — which no real Windsor export looks like. The column contract added
+ * in ② treats `Date` as CRITICAL (without it every dateISO is empty, latestSourceDate
+ * returns null, and the freshness detector goes permanently 'unknown' — a silently disabled
+ * detector, which is the ② class itself), so the thin fixture started failing.
+ *
+ * ⭐ THE FIX IS THE FIXTURE, NOT THE GUARD. A test fixture thinner than production is how a
+ * real requirement looks like an over-strict check. Earlier tonight the mirror of this cost
+ * me a live defect: a fixture returning [] hid a no-edit write I had just created.
+ */
+const CSV_ADS = 'Account Name,Spent,Leads,Date,Month,Campaign,Campaign Id,Adset Name,Adset Id,Ad Name,Ad Id\n' +
+  'Acme,500,20,8/4/2026,August,C,1,AS,2,Ad,3\n';
 const CSV_CALLS = 'Timestamp,ghl_location_name,Agent Name,Call Duration,call_dispostion\n8/4/2026,Acme,Bob,60,answered\n';
 /** The ads tab returned when the call-centre tab was requested — @fable's byte-identical case. */
 const CSV_WRONG_TAB = CSV_ADS;
