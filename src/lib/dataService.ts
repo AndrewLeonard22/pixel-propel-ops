@@ -200,6 +200,30 @@ export interface ColumnSpec {
   critical: boolean;
 }
 
+/**
+ * ② THE CALL-CENTRE CONTRACT. Same two tiers, same reasoning, DIFFERENT critical set —
+ * because what makes a column critical is what its absence does to a NUMBER, and that is a
+ * property of this feed, not a template copied across.
+ *
+ *   ghl_location_name  absent ⇒ every row keys to '' ⇒ the dial map skips it ⇒ 0 DIALS
+ *                      from a source in state 'valid'. This is the exact silent zero
+ *                      @apprentice's wrong-tab finding was about.
+ *   Call Duration      absent ⇒ parseNumber('') ⇒ 0 ⇒ total talk time reads zero
+ *   Timestamp          absent ⇒ parseDateSafe fails ⇒ EVERY call is dropped by any date
+ *                      filter, so the calls silently vanish from a filtered view
+ *   Agent Name /       absent ⇒ a missing LABEL. Nothing numeric moves.
+ *   call_dispostion
+ */
+export const CALL_CENTRE_COLUMNS: ColumnSpec[] = [
+  { accept: ['ghl_location_name'], critical: true },
+  { accept: ['Call Duration'], critical: true },
+  { accept: ['Timestamp'], critical: true },
+  { accept: ['Agent Name'], critical: false },
+  // The misspelling is the REAL header in @andrew's sheet; the corrected spelling is the
+  // alternate. Ordering matters only for which name the error message prints.
+  { accept: ['call_dispostion', 'call_disposition'], critical: false },
+];
+
 export const WINDSOR_COLUMNS: ColumnSpec[] = [
   { accept: ['Account Name'], critical: true },              // absent ⇒ ONE fake account
   { accept: ['Spent', 'Spend'], critical: true },            // absent ⇒ every total £0
@@ -357,17 +381,24 @@ export async function fetchCallCenterData(settings: AppSettings): Promise<CallRo
 
   const text = await response.text();
   const rows = parseCsv(text);
-  // Without `ghl_location_name` every call keys to '' and the dial map skips it — the
-  // source reports SUCCESS with N rows and the app shows 0 DIALS.
-  assertSheetSchema(rows, ['ghl_location_name'], 'Call centre sheet');
+  // ② FULL CONTRACT, replacing the one-column check. That check caught a wrong TAB and was
+  // blind to DRIFT, to a PRESENT-BUT-BLANK column, and to case — all three of @raccoon's
+  // holes, which were in this fetcher too and not only in the spend one.
+  const callDrift = checkColumnContract(rows, CALL_CENTRE_COLUMNS, 'Call centre sheet');
+  if (callDrift.missingLabels.length > 0) {
+    console.warn(`Call centre sheet: missing label columns ${callDrift.missingLabels.join(', ')}`);
+  }
 
-  return rows.map(r => ({
-    timestamp: r['Timestamp'] || '',
-    ghlLocationName: r['ghl_location_name'] || '',
-    agentName: r['Agent Name'] || '',
-    callDuration: parseNumber(r['Call Duration']),
-    callDisposition: r['call_dispostion'] || r['call_disposition'] || '',
-  }));
+  return rows.map(row => {
+    const r = foldKeys(row);
+    return {
+      timestamp: pick(r, 'Timestamp'),
+      ghlLocationName: pick(r, 'ghl_location_name'),
+      agentName: pick(r, 'Agent Name'),
+      callDuration: parseNumber(pick(r, 'Call Duration')),
+      callDisposition: pick(r, 'call_dispostion', 'call_disposition'),
+    };
+  });
 }
 
 export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[] }> {
