@@ -1,0 +1,99 @@
+#!/usr/bin/env node
+/**
+ * THE GATES, WITH THEIR OWN CONTROLS. `npm run gates`
+ *
+ * WHY THIS IS A SCRIPT AND NOT A PARAGRAPH IN A README:
+ *   Six probes broke on this branch in one night. Six were caught. NONE was caught by
+ *   diligence — every one was caught by a control whose answer was predictable in advance,
+ *   or by a contradiction with something already known. Three seats hit the SAME trap
+ *   within one hour, and at least two of us had read a warning naming it minutes before.
+ *
+ *   ⭐ READING A WARNING DOES NOT INSTALL IT. If a trap has bitten twice, the fix is a
+ *   MECHANISM, not another sentence. This is the mechanism.
+ *
+ * THE FOUR WAYS A CHECK LIES, each earned on this branch:
+ *   PATTERN      the pattern would not match even where the thing exists      → fakes a ZERO
+ *   READ         the read failed; grep -c over nothing returns 0              → fakes a ZERO
+ *   INVOCATION   the command never received the args you think it did         → fakes a ZERO
+ *   POPULATION   everything works and there was NOTHING TO MEASURE            → fakes a PASS
+ *
+ *   The first three produce a suspicious number. POPULATION produces a CLEAN GREEN, which
+ *   is why it survived longest every time. Concretely, on this repo:
+ *     - `tsc --noEmit` (bare) compiles ZERO files and exits 0 over a real type error,
+ *       because the root tsconfig is `files: []` + project references. It was published
+ *       as passing-gate evidence.
+ *     - a `}` where `});` belonged orphaned two tests; vitest reported "no tests" and
+ *       exited 0.
+ *     - a numeric `$0.00` sweep passed clean while the defect sat beside it in PROSE.
+ *
+ * SO EVERY GATE HERE CARRIES A POSITIVE CONTROL: a planted fault it MUST reject. If a
+ * control ever passes, the gate is not measuring anything and this script fails loudly
+ * rather than reporting green.
+ */
+import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+
+const POISON_FILE = 'src/lib/dataService.ts';
+const POISON = '\nconst __GATE_CONTROL_POISON: number = "not a number";\n';
+
+let failed = 0;
+const log = (ok, name, detail) => {
+  console.log(`  ${ok ? '✅' : '🔴'} ${name}${detail ? `  ${detail}` : ''}`);
+  if (!ok) failed++;
+};
+
+/** Run a command; return its exit code without throwing. */
+function exit(cmd, args) {
+  try {
+    execFileSync(cmd, args, { stdio: 'pipe' });
+    return 0;
+  } catch (e) {
+    return typeof e.status === 'number' ? e.status : 1;
+  }
+}
+
+console.log('\nGATES');
+const tscB = exit('npx', ['tsc', '-b', '--noEmit']);
+log(tscB === 0, 'tsc -b --noEmit', `exit=${tscB}`);
+const tscApp = exit('npx', ['tsc', '-p', 'tsconfig.app.json', '--noEmit']);
+log(tscApp === 0, 'tsc -p tsconfig.app.json', `exit=${tscApp}`);
+
+// vitest: the COUNT is the population control. "no tests" exits 0 and reads as a pass.
+let suite = '';
+try {
+  suite = execFileSync('npx', ['vitest', 'run'], { encoding: 'utf8', stdio: 'pipe' });
+} catch (e) {
+  suite = `${e.stdout ?? ''}${e.stderr ?? ''}`;
+}
+const m = suite.match(/Tests\s+(\d+)\s+passed/);
+const passed = m ? Number(m[1]) : 0;
+log(/\d+ failed/.test(suite) === false && passed > 0, 'vitest', `${passed} passed`);
+
+console.log('\nCONTROLS — each gate must REJECT a planted fault, or it measures nothing');
+const original = readFileSync(POISON_FILE, 'utf8');
+try {
+  writeFileSync(POISON_FILE, original + POISON);
+
+  const cB = exit('npx', ['tsc', '-b', '--noEmit']);
+  log(cB !== 0, 'tsc -b rejects a planted type error', `exit=${cB}`);
+
+  const cApp = exit('npx', ['tsc', '-p', 'tsconfig.app.json', '--noEmit']);
+  log(cApp !== 0, 'tsc -p app rejects a planted type error', `exit=${cApp}`);
+
+  // Documented, not run as a gate: proof the bare form is vacuous on this repo.
+  const cBare = exit('npx', ['tsc', '--noEmit']);
+  console.log(
+    `  ${cBare === 0 ? 'ℹ️ ' : '❓'} bare \`tsc --noEmit\` exit=${cBare}` +
+      (cBare === 0
+        ? '  ← VACUOUS by design (root tsconfig is files:[]). Never use it as a gate.'
+        : '  ← no longer vacuous; the root tsconfig changed, re-read this script.'),
+  );
+} finally {
+  writeFileSync(POISON_FILE, original);
+}
+
+const restored = readFileSync(POISON_FILE, 'utf8') === original;
+log(restored, 'poison removed, file byte-identical');
+
+console.log(failed === 0 ? '\nALL GATES GREEN, ALL CONTROLS RED\n' : `\n${failed} FAILED\n`);
+process.exit(failed === 0 ? 0 : 1);
