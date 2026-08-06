@@ -46,20 +46,44 @@ export interface FreshnessReport {
   latestDate: string | null;
   /** Whole days between latestDate and today. Null when unknown. */
   daysBehind: number | null;
+  /** Rows dated beyond the plausible ceiling and excluded from the max. Never hidden. */
+  futureRows: number;
 }
 
 /** Ad platforms report on a lag; two days is unremarkable, four is not. Stated, not hidden. */
 export const LAGGING_AFTER_DAYS = 2;
 export const STALE_AFTER_DAYS = 4;
 
-/** Newest `dateISO` in the feed. ISO strings sort lexicographically, so max is a compare. */
-export function latestSourceDate(rows: AdSpendRow[]): string | null {
+/** One day of slack: a sheet in a later timezone can legitimately carry tomorrow's date. */
+function ceilingFor(todayIso: string): string {
+  const t = Date.parse(`${todayIso}T00:00:00Z`);
+  return Number.isNaN(t) ? todayIso : new Date(t + 86400000).toISOString().slice(0, 10);
+}
+
+/**
+ * Newest `dateISO` in the feed, IGNORING implausible future dates. ISO strings sort
+ * lexicographically, so max is a compare.
+ *
+ * 🔴 THE CEILING IS NOT DEFENSIVE PADDING — @raccoon: "MAX is the aggregation most
+ * vulnerable to a single outlier, and this one had no ceiling." One row dated 2126 made
+ * `daysBetween` negative, so the feed read as fresher than today and the lagging/stale
+ * thresholds could NEVER trip. Not degraded — DISABLED, permanently, by one row.
+ *
+ * ⭐ AND IT IS REACHABLE WITHOUT MALICE: "8/4/2126" is a plausible typo that parses cleanly.
+ * ⇒ THE DETECTOR BUILT TO CATCH A SILENT FREEZE HAD A SILENT WAY TO BE SWITCHED OFF, with
+ *   the SAME symptom — everything looks fine.
+ *
+ * ⚠️ AND THE IGNORED ROWS ARE COUNTED, NOT SILENTLY DROPPED. Quietly discarding them would
+ * be the same defect one level down: an absence rendered as a fact.
+ */
+export function latestSourceDate(rows: AdSpendRow[], todayIso?: string): string | null {
   // ⛔ NOT DEFENSIVE PADDING — @fable's contract is "it must NOT block rendering", and a
   // freshness probe that THROWS on an unexpected shape white-screens the whole app to
   // report that data might be old. Caught by the SourceStatusBanner tests, whose mock had
   // no `adSpend`: a consumer this reaches through a hook cannot promise its own inputs.
   if (!Array.isArray(rows)) return null;
 
+  const ceiling = todayIso ? ceilingFor(todayIso) : null;
   let best: string | null = null;
   for (const r of rows) {
     if (!r) continue;
@@ -67,9 +91,23 @@ export function latestSourceDate(rows: AdSpendRow[]): string | null {
     // Only well-formed dates. normalizeSourceDate returns '' for anything it could not
     // parse, and treating '' as a date would make the feed look infinitely old.
     if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    // A source date in the FUTURE is not evidence of freshness, it is a bad row.
+    if (ceiling && d > ceiling) continue;
     if (best === null || d > best) best = d;
   }
   return best;
+}
+
+/** How many rows carry a date beyond the plausible ceiling. Reported, never hidden. */
+export function countFutureRows(rows: AdSpendRow[], todayIso: string): number {
+  if (!Array.isArray(rows)) return 0;
+  const ceiling = ceilingFor(todayIso);
+  let n = 0;
+  for (const r of rows) {
+    const d = r?.dateISO;
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d > ceiling) n++;
+  }
+  return n;
 }
 
 /** Whole days from `from` to `to`, both YYYY-MM-DD. UTC so a timezone cannot shift a day. */
@@ -81,19 +119,16 @@ export function daysBetween(from: string, to: string): number | null {
 }
 
 export function describeFreshness(rows: AdSpendRow[], todayIso: string): FreshnessReport {
-  const latestDate = latestSourceDate(rows);
-  if (!latestDate) return { state: 'unknown', latestDate: null, daysBehind: null };
+  const futureRows = countFutureRows(rows, todayIso);
+  const latestDate = latestSourceDate(rows, todayIso);
+  if (!latestDate) return { state: 'unknown', latestDate: null, daysBehind: null, futureRows };
 
   const daysBehind = daysBetween(latestDate, todayIso);
-  if (daysBehind === null) return { state: 'unknown', latestDate, daysBehind: null };
+  if (daysBehind === null) return { state: 'unknown', latestDate, daysBehind: null, futureRows };
 
-  // A future-dated row is not freshness, it is a data problem — and calling it "current"
-  // would let one bad row mask a frozen feed behind it.
-  if (daysBehind < 0) return { state: 'unknown', latestDate, daysBehind };
-
-  if (daysBehind >= STALE_AFTER_DAYS) return { state: 'stale', latestDate, daysBehind };
-  if (daysBehind >= LAGGING_AFTER_DAYS) return { state: 'lagging', latestDate, daysBehind };
-  return { state: 'current', latestDate, daysBehind };
+  if (daysBehind >= STALE_AFTER_DAYS) return { state: 'stale', latestDate, daysBehind, futureRows };
+  if (daysBehind >= LAGGING_AFTER_DAYS) return { state: 'lagging', latestDate, daysBehind, futureRows };
+  return { state: 'current', latestDate, daysBehind, futureRows };
 }
 
 /**
@@ -129,6 +164,14 @@ export function freshnessWarning(r: FreshnessReport): string | null {
   }
   if (r.state === 'unknown' && r.latestDate) {
     return `Ad spend rows carry a date this app cannot read (${r.latestDate}), so its age is unknown.`;
+  }
+  // Reported EVEN WHEN THE FEED IS HEALTHY: these rows were excluded from the freshness
+  // maths, and a silent exclusion is the same defect one level down.
+  if (r.futureRows > 0) {
+    return (
+      `${r.futureRows} ad spend row${r.futureRows > 1 ? 's are' : ' is'} dated in the future and ` +
+      `${r.futureRows > 1 ? 'were' : 'was'} ignored when checking data freshness. Check the sheet for a mistyped year.`
+    );
   }
   return null;
 }
