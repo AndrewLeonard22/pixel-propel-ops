@@ -159,6 +159,70 @@ describe('isEmptyValue semantics — zero and false are VALUES, not absence', ()
   });
 });
 
+describe('🔴 the gaps @apprentice found by diffing against his database guard', () => {
+  it('catches an emptied OBJECT — columnMappings 21 pairs -> {}', () => {
+    // NOTE: makeSettings() defaults columnMappings to {}, so it must be populated here
+    // or the test passes vacuously — there would be nothing to blank. Caught by the
+    // test failing, which is the only reason I know the fixture was wrong.
+    const stored = makeSettings({
+      columnMappings: Object.fromEntries(
+        Array.from({ length: 21 }, (_, i) => [`col${i}`, `Col ${i}`]),
+      ),
+    });
+    const v = checkSettingsWrite({ ...stored, columnMappings: {} }, stored);
+    expect(v.safe).toBe(false);
+    expect(v.blankedFields).toContain('columnMappings');
+  });
+
+  it('catches an emptied perfThresholds object', () => {
+    const stored = makeSettings();
+    const v = checkSettingsWrite(
+      { ...stored, perfThresholds: {} as AppSettings['perfThresholds'] },
+      stored,
+    );
+    expect(v.safe).toBe(false);
+    expect(v.blankedFields).toContain('perfThresholds');
+  });
+
+  it('🔑 protects an OFF-SCHEMA key — activeSetters, which the wipe DELETED outright', () => {
+    // activeSetters is not on the AppSettings interface, so a typed PROTECTED_FIELDS
+    // literally could not name it. Driving off the stored row's keys catches it anyway.
+    const stored = { ...makeSettings(), activeSetters: ['Alice', 'Bob'] } as unknown as AppSettings;
+    const candidate = makeSettings(); // no activeSetters key at all — exactly the wipe
+    const v = checkSettingsWrite(candidate, stored);
+    expect(v.safe).toBe(false);
+    expect(v.blankedFields).toContain('activeSetters');
+  });
+
+  it('every documented PROTECTED_FIELD is still caught', () => {
+    const stored = makeSettings({
+      googleSheetUrl: 'https://real',
+      callCenterSheetUrl: 'https://real2',
+      airtableBaseId: 'appX',
+      excludedCampaigns: ['a'],
+      setterBonusRates: [{ setterName: 'A', rate: 1 }],
+      inactiveSetters: ['B'],
+      accountAliases: [{ sheetName: 's', airtableName: 'a', program: 'p', mediaBuyer: '', status: 'Active' }] as AppSettings['accountAliases'],
+    });
+    for (const f of PROTECTED_FIELDS) {
+      const candidate = { ...stored, [f]: Array.isArray(stored[f]) ? [] : '' } as AppSettings;
+      const v = checkSettingsWrite(candidate, stored);
+      expect(v.safe, `${f} must be protected`).toBe(false);
+      expect(v.blankedFields).toContain(f);
+    }
+  });
+
+  it('a boolean going true -> false is NOT a blanking', () => {
+    const stored = makeSettings({ showPausedAccounts: true });
+    expect(checkSettingsWrite({ ...stored, showPausedAccounts: false }, stored).safe).toBe(true);
+  });
+
+  it('a number going 1 -> 0 is NOT a blanking', () => {
+    const stored = makeSettings({ pausedThresholdDays: 1 });
+    expect(checkSettingsWrite({ ...stored, pausedThresholdDays: 0 }, stored).safe).toBe(true);
+  });
+});
+
 describe('isHydrated — the autosave gate', () => {
   it('is false until BOTH the load completed and the form synced', () => {
     expect(isHydrated(false, null)).toBe(false);
