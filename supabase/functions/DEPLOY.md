@@ -29,7 +29,12 @@ step 3  does the APP actually show data?   ← tests the FEATURE   ⬅ DO NOT SK
 *A function answering `ok` to `curl` proves the code is live. It does not prove the
 product shows anything.*
 
-✅ **THE CLIENT WIRING IS IN.** `src/lib/dataService.ts:192` calls
+✅ **THE CLIENT WIRING IS IN** — verify it yourself, do not trust this line number:
+```
+grep -n "'airtable-proxy'" src/lib/dataService.ts     # expect exactly 1 hit
+npx vitest run src/lib/dataService.airtableProxy.test.ts   # 9 tests lock the call + its failure contract
+```
+`src/lib/dataService.ts` calls
 `supabase.functions.invoke('airtable-proxy', …)`. So **steps 1 and 2 are the whole job** —
 deploy the function, set the secret, and appointments should return.
 
@@ -130,7 +135,7 @@ appointments column.
 |---|---|
 | `—` with *"Appointments (Airtable) — could not load"* | the client called the proxy and it failed — read the message, it names which state |
 | `—` with *"not connected. Missing: Airtable base ID."* | config, not deployment — fill in the base ID |
-| `—` and **no message changed at all** after step 2 | ⬅ **the secret did not take, or the token is not valid.** Re-run the step-2 `curl`: it will say `not_configured` or `auth_failed` and name which. **Do not go looking for missing client wiring — it is present at `dataService.ts:192`.** |
+| `—` and **no message changed at all** after step 2 | ⬅ **the secret did not take, or the token is not valid.** Re-run the step-2 `curl`: it will say `not_configured` or `auth_failed` and name which. **Do not go looking for missing client wiring** — confirm with `grep -n "'airtable-proxy'" src/lib/dataService.ts` rather than a line number, which rots the moment that file is edited. |
 | real appointment numbers | done — the feature works, not just the function |
 
 ⚠️ **That third row was inverted in the first version of this file, and the inversion was
