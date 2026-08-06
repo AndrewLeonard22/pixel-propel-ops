@@ -7,6 +7,9 @@ const ACCOUNT_MAPPINGS_KEY = 'accountMappings';
 const DEFAULT_SETTINGS: AppSettings = {
   googleSheetUrl: '',
   googleSheetTab: 'Ads Data',
+  // @fable measured both tabs on @andrew's live sheet by these exact names:
+  // 'Ads Data' (derived) and 'Ads - Raw' (source), 38,997 rows each, differing sigs.
+  adsRawTabName: 'Ads - Raw',
   callCenterSheetUrl: '',
   callCenterSheetTab: 'RAW DATA',
   airtableBaseId: '',
@@ -559,6 +562,11 @@ export function isConfigured(settings: AppSettings): boolean {
  */
 export const ALLOWED_CONFIG_KEYS = [
   'googleSheetUrl', 'googleSheetTab',
+  // The RAW tab, for the truncation detector (@anvil, item ① — the ~2026-08-12 capacity
+  // cliff). It is a TAB NAME, not a credential: declared here because a key absent from
+  // this list is STRIPPED ON EVERY SAVE and would never persist — the detector would
+  // silently fall back to a hardcoded name and stop describing the sheet Andrew edits.
+  'adsRawTabName',
   'callCenterSheetUrl', 'callCenterSheetTab',
   'airtableBaseId', 'airtableTableName',
   // ⛔⛔ OWNER-ORDERED EXCEPTION, 2026-08-05. Andrew, verbatim: «JUST PUT THE ACCESS TOKEN
