@@ -70,6 +70,30 @@ describe("HonestNumbersBanner", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("🐦 TONIGHT'S LIVE STATE: exactly ONE message, and the rate arm's SILENCE IS CORRECT", () => {
+    // @raccoon measured this and it decides how a drive result is read. Airtable is down
+    // until a secret is set, so there are no appointments, so there are no named setters,
+    // so `allRatesFabricated` is FALSE — guarded on namedRows.length > 0 at payout.ts:151,
+    // deliberately, because `[].every()` is true and without the length check the banner
+    // would cry wolf on every dead-Airtable render.
+    //
+    // ⇒ Driving "does the banner warn about setter rates?" returns NO tonight, and that is
+    //   the detector correctly refusing to warn about setters when there are no setters.
+    //   Recording it as a fail buries a working arm; recording it as a pass certifies
+    //   something that never ran. This test is what tells the two apart.
+    const report = buildHonestNumbersReport({
+      settings: { excludedCampaigns: [] }, // the wipe
+      campaignIdsInData: ["c1", "c2"],
+      fabricatedRateCount: 0, // no appointments ⇒ no setters
+      allRatesFabricated: false, // ⇒ correctly false, not broken
+    });
+    render(<HonestNumbersBanner messages={report.messages} />);
+
+    expect(report.messages).toHaveLength(1);
+    expect(screen.getByText(/cost-per-lead/i)).toBeVisible();
+    expect(screen.queryByText(/\$5 default/i)).not.toBeInTheDocument();
+  });
+
   it("never shows a setter COUNT — a number here would contradict the Agents page", () => {
     // The banner's population differs from Agents.tsx on two axes (pay period AND
     // leadValid), so @raccoon made the copy numberless. This asserts the rendered output
