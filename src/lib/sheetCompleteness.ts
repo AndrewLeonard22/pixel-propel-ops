@@ -1,10 +1,18 @@
 /**
  * ① THE SHEET CLIFF DETECTOR.
  *
- * @fable measured the cliff: the derived "Ads Data" tab is produced by an array formula
- * bounded at `'Ads - Raw'!A2:A39389`. Both tabs hold 38,944 rows today — 444 of headroom —
- * and Windsor appends ~58 rows/day on its own. It FREEZES around 2026-08-13 with nobody
- * having acted, and the dashboard keeps rendering a confident, permanently stale number.
+ * ⚠️ THE PREMISE IS CONTESTED AND THIS DOCBLOCK USED TO STATE IT AS FACT.
+ *   MEASURED (not disputed): both tabs held ~38,997 rows with a headroom figure derived
+ *     from a stated bound, and the raw tab grows ~58 rows/day.
+ *   UNPROVEN: that the derived tab's array formula is bounded at `'Ads - Raw'!A2:A39389`.
+ *     @apprentice re-derived it from the formula @andrew actually pasted and found NO ROW
+ *     BOUND — so "it freezes around 2026-08-13" is a PREDICTION FROM AN UNVERIFIED RANGE,
+ *     not a date. I wrote it here as established and a fresh context would have inherited it.
+ *
+ * ⭐ AND THE DETECTOR DOES NOT DEPEND ON ANY OF IT. It compares two row counts: no constant,
+ * no calendar, no knowledge of the formula. That independence was the design goal and it is
+ * why the contested premise costs nothing here — but the SENTENCE was still wrong, and a
+ * wrong sentence in a docblock is the thing this branch spent the night removing.
  *
  * ⭐ RAISING THE RANGE IS NOT OURS — the bound lives inside @andrew's sheet and we have read
  * access only. THIS is the half that lasts: raising the range only moves the cliff, and a
