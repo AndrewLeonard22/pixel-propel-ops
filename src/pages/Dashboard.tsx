@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
-import { ConfigBanner, ErrorBanner } from '@/components/common/Banners';
+import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
@@ -625,7 +625,7 @@ function UnmatchedSection({
 }
 
 export default function Dashboard() {
-  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, settingsLoaded, sources, refresh, setSettings } = useData();
+  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, settingsLoaded, sources, refresh, setSettings, honestNumbers } = useData();
   const [assignedClients, setAssignedClients] = useState<Set<string>>(new Set());
   const [recentlyAssigned, setRecentlyAssigned] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -779,6 +779,10 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 w-full">
       <h1 className="text-xl font-bold">Dashboard</h1>
+
+      {/* Above every number it describes. The exclusion loss inflates every CPL and
+          cost-per-appointment on this page, and until this rendered, nothing said so. */}
+      <HonestNumbersBanner messages={honestNumbers.messages} />
 
       {/* WRAPPED, not onRetry={refresh}: React hands a bare handler reference its click
           event as the first argument, which refresh read as an override settings object —

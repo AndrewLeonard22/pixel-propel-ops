@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
-import { ConfigBanner } from '@/components/common/Banners';
+import { ConfigBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { formatCurrency, formatPercent, buildAccountSummaries } from '@/lib/dataService';
 import { loadAccountMappings, getAccountMapping } from '@/lib/config';
 import type { AccountMapping } from '@/lib/types';
@@ -63,7 +63,7 @@ function MetricBar({
 }
 
 export default function Targets() {
-  const { accounts, adSpend, appointments, callData, settings, configured } = useData();
+  const { accounts, adSpend, appointments, callData, settings, configured, honestNumbers } = useData();
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
 
   const dateRange = useMemo(() => {
@@ -154,6 +154,7 @@ export default function Targets() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-foreground">Targets</h1>
+          <HonestNumbersBanner messages={honestNumbers.messages} />
           <p className="text-sm text-muted-foreground mt-1">How you're performing against your benchmarks</p>
         </div>
         <select

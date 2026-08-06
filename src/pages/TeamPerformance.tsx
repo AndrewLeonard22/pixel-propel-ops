@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
-import { ConfigBanner, ErrorBanner } from '@/components/common/Banners';
+import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import { formatCurrency, formatNumber, formatPercent, buildAccountSummaries, buildTeamPerformance } from '@/lib/dataService';
@@ -14,7 +14,7 @@ import { parseSourceDate as parseDateSafe } from '@/lib/dates';
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
 
 export default function MediaBuying() {
-  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh } = useData();
+  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh, honestNumbers } = useData();
 
   const [datePreset, setDatePreset] = useState<DatePreset>('this_month');
   const [customFrom, setCustomFrom] = useState('');
@@ -91,6 +91,7 @@ export default function MediaBuying() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold">Media Buying</h1>
+          <HonestNumbersBanner messages={honestNumbers.messages} />
           <p className="text-sm text-muted-foreground mt-0.5">{dateLabel}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
-import { ConfigBanner, ErrorBanner } from '@/components/common/Banners';
+import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
@@ -11,7 +11,7 @@ import { Search } from 'lucide-react';
 type SortKey = 'campaignName' | 'accountName' | 'spend' | 'leads' | 'cpl' | 'appointments' | 'leadPercent' | 'costPerAppt' | 'closed' | 'revenue';
 
 export default function Campaigns() {
-  const { accounts, loading, error, configured, refresh } = useData();
+  const { accounts, loading, error, configured, refresh, honestNumbers } = useData();
   const [search, setSearch] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
   const [sortKey, setSortKey] = useState<SortKey>('spend');
@@ -52,6 +52,7 @@ export default function Campaigns() {
   return (
     <div className="space-y-6 max-w-[1400px]">
       <h1 className="text-xl font-bold">Campaigns</h1>
+      <HonestNumbersBanner messages={honestNumbers.messages} />
       {/* wrapped — a bare reference is called with the click event, which refresh read as override settings and silently refused */}
       {error && <ErrorBanner message={error} onRetry={() => refresh()} />}
 
