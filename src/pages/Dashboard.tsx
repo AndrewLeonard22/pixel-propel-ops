@@ -93,10 +93,29 @@ function getPerfByProgram(program: string, cpl: number, costPerAppt: number, app
   return 'poor';
 }
 
+/**
+ * The only honest render for a source that did not answer. A zero here is a CLAIM — that
+ * the account booked nothing, closed nothing, earned nothing — and a dead feed cannot
+ * support it. @bird measured the tiles printing this while the table beside them printed
+ * $0.00 from the same dead source.
+ *
+ * ⚠️ ALWAYS COMPARE `=== false`, NEVER `!flag`. The flags are OPTIONAL: Targets.tsx and
+ * TeamPerformance.tsx build summaries without source outcomes, so their rows carry
+ * `undefined`, which means KNOWN. `!undefined` is true and would blank two working pages —
+ * the mirror of the bug this fixes.
+ */
+const UNKNOWN = '—';
+
 function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: (account: AccountSummary) => void }) {
   const mappings = loadAccountMappings();
   const { program, status } = getAccountMapping(account.accountName, mappings);
-  const perf = (status === 'Paused' || status === 'Churned') ? null : getPerfByProgram(program, account.cpl, account.costPerAppt, account.appointments);
+  // A coloured performance border is a verdict. Two of its three inputs come from sources
+  // that may not have answered, so a dead feed would paint every account "poor" — a claim
+  // about the buyer's work, drawn from nothing.
+  const perfKnown = account.spendKnown !== false && account.apptsKnown !== false;
+  const perf = (status === 'Paused' || status === 'Churned' || !perfKnown)
+    ? null
+    : getPerfByProgram(program, account.cpl, account.costPerAppt, account.appointments);
 
   return (
     <tr
@@ -111,17 +130,19 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
           {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
         </div>
       </td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.spend)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.leads)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell"><CPLBadge value={account.cpl} /></td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.totalDials)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.spendKnown === false ? UNKNOWN : formatCurrency(account.spend)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.spendKnown === false ? UNKNOWN : formatNumber(account.leads)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.spendKnown === false ? UNKNOWN : <CPLBadge value={account.cpl} />}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.callsKnown === false ? UNKNOWN : formatNumber(account.totalDials)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.apptsKnown === false ? UNKNOWN : formatNumber(account.appointments)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">
-        <LeadToApptBadge value={account.leadPercent} />
+        {/* Two sources: leads come from Windsor, appointments from Airtable. Either one
+            dead makes the ratio unknowable, not zero. */}
+        {account.spendKnown === false || account.apptsKnown === false ? UNKNOWN : <LeadToApptBadge value={account.leadPercent} />}
       </td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} /></td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.closed)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatCurrency(account.revenue)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.spendKnown === false || account.apptsKnown === false ? UNKNOWN : <CostPerApptBadge value={account.costPerAppt} />}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.apptsKnown === false ? UNKNOWN : formatNumber(account.closed)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.apptsKnown === false ? UNKNOWN : formatCurrency(account.revenue)}</td>
     </tr>
   );
 }

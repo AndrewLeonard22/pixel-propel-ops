@@ -446,12 +446,32 @@ export function normalizeName(s: string): string {
     .trim();
 }
 
+/**
+ * Which sources actually answered on the fetch that produced these arrays.
+ *
+ * ⚠️ ABSENT MEANS KNOWN, DELIBERATELY. A caller that has no source outcomes to offer must
+ * keep the behaviour it has today — Targets.tsx:117 and TeamPerformance.tsx:89 both filter
+ * arrays they already hold and have no notion of a fetch at all. Defaulting to "unknown"
+ * would blank two pages that are working correctly, which is the mirror of the bug.
+ */
+export interface SourceKnown {
+  spend?: boolean;
+  appts?: boolean;
+  calls?: boolean;
+}
+
 export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],
   settings?: AppSettings,
   callData?: CallRow[],
+  known?: SourceKnown,
 ): { accounts: AccountSummary[], unmatchedAppointments: AppointmentRow[] } {
+  // `?? true` and not `|| true`: an explicit `false` must survive. `||` would turn every
+  // "this source is dead" back into "known", which is exactly the bug being fixed.
+  const spendKnown = known?.spend ?? true;
+  const apptsKnown = known?.appts ?? true;
+  const callsKnown = known?.calls ?? true;
   const accountMap = new Map<string, { spendRows: AdSpendRow[]; appts: AppointmentRow[]; originalName: string }>();
 
   // 1. Group ad spend by normalized account name
@@ -906,6 +926,9 @@ export function buildAccountSummaries(
       totalDials: matchedDials,
       dialToApptPercent: matchedDials > 0 ? (totalAppts / matchedDials) * 100 : 0,
       avgCallDuration: matchedDials > 0 ? matchedDuration / matchedDials : 0,
+      spendKnown,
+      apptsKnown,
+      callsKnown,
       campaigns,
       appointmentList: data.appts,
     });
