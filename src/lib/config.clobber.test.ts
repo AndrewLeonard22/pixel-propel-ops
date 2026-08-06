@@ -28,18 +28,26 @@ import type { AppSettings } from "./types";
  *   Supabase console. The durable fix is the DB trigger (order ②), which is NOT YET
  *   APPLIED; until it is, this is the only thing between a stale render and the row.
  *
- * SABOTAGE PROOF — 5 arms, each anchor asserted UNIQUE, each edit md5-verified to have
+ * SABOTAGE PROOF — 8 arms, each anchor asserted UNIQUE, each edit md5-verified to have
  * landed (an edit that silently misses reports GREEN and reads exactly like a pass), each
- * run unpiped so $? is vitest's. Restore returned the clean md5 and 14/14.
+ * run unpiped so $? is vitest's. Restore returned the clean md5 and 21/21.
  *
  *   S1  threshold >= 2 → >= 1        3 RED   refuses legitimate single-field edits
- *   S2  threshold >= 2 → >= 99       5 RED   guard defined, can never trip
+ *   S2  threshold >= 2 → >= 99       6 RED   guard defined, can never trip
  *   S3  list axis blinded            3 RED   only scalars register
- *   S4  guard never CALLED           3 RED   ← and all 8 pure tests stayed GREEN
+ *   S4  settings guard not CALLED    4 RED   ← every PURE assertion stayed GREEN
  *   S5  .trim() dropped              1 RED   "   " counts as configured
+ *   S6  mappings guard not CALLED    3 RED   the second row goes unprotected
+ *   S7  local written before check   1 RED   destroys the fallback copy
+ *   S8  non-array `next` allowed     1 RED   null stops counting as an erasure
  *
- * S4 is the load-bearing one. It is the shape of a guard that ships doing nothing, and the
- * eight pure assertions cannot see it — only the driven call site can.
+ * S4 and S6 are the load-bearing ones: they are the shape of a guard that ships doing
+ * nothing, and no pure assertion can see it — only the driven call site can.
+ *
+ * ⚠️ These counts were re-measured against THIS 21-test file. An earlier run scored S2 at
+ * 5 and S4 at 3 against the 14-test version; the cross-row test added later also depends
+ * on saveSettings refusing. A sabotage count is a property of the instrument that produced
+ * it, so it does not survive a change to the instrument.
  */
 const db = vi.hoisted(() => ({
   current: null as AppSettings | null,

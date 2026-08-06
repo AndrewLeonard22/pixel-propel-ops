@@ -302,10 +302,11 @@ export function wouldEraseAllMappings(current: unknown, next: unknown): boolean 
 
 /** Save account mappings to both DB and localStorage */
 export async function saveAccountMappings(mappings: any[]): Promise<void> {
-  const current = await fetchSetting<any[]>('account_mappings');
+  const current = await fetchSetting<unknown[]>('account_mappings');
   if (wouldEraseAllMappings(current, mappings)) {
+    const lostCount = Array.isArray(current) ? current.length : 0;
     throw new Error(
-      `Refusing to save: this would erase all ${(current as any[]).length} account mappings. ` +
+      `Refusing to save: this would erase all ${lostCount} account mappings. ` +
         'This usually means the page saved before it finished loading. Reload and try again.',
     );
   }
