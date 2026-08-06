@@ -6,8 +6,31 @@ import { makeAdSpendRow, makeAppointmentRow, makeSettings } from '@/test/factori
  * 🔴 THE DRILL-DOWN CONSERVATION SWEEP — @andrew: *"make sure it actually works and is right"*.
  *
  * @fable found one instance from a screenshot: Archadeck X SocialWorks, spend and leads
- * reconcile between campaigns and account, **appointments do not** — campaigns sum to 6, the
- * header and funnel say 7. One appointment is attached to the ACCOUNT and to no CAMPAIGN.
+ * reconcile between campaigns and account, **appointments do not**. One appointment is
+ * attached to the ACCOUNT and to no CAMPAIGN.
+ *
+ * ⚠️ THE MAGNITUDE MOVED AND THE DEFECT DID NOT. His screenshot read 6 vs 7; @bird drove it
+ * live afterwards and read **9 vs 10** — tonight's resolver deploy changed the grouping.
+ * **Anyone reasoning from 6/7 is on a superseded number.** The fixtures below are SYNTHETIC
+ * and their 6/7 is a constructed shape, not a claim about live Archadeck — they assert the
+ * INVARIANT (parts + unattributed == whole), which is what survives a magnitude change.
+ *
+ * 📏 SIZED FROM THE SOURCE by @bird: **36 of 679 appointments carry no Campaign ID (5.3%),
+ * across 13 of 22 accounts** — largest New Jersey l Backyard Paradiso at 11. So this is not
+ * one unlucky account.
+ * 🔻 AND MY OWN «SUBSET OF 36» WAS WRONG — corrected here, measured not reasoned.
+ * @bird first published 36 (rows missing Campaign ID), then retracted to **27** (rows missing
+ * ALL SIX fields) once he had the fallback chain. I told him the on-screen number would be a
+ * SUBSET of 36. It is not: it is a **SUPERSET of 27**, because a THIRD category exists that
+ * neither count includes —
+ *
+ *     DANGLING REFERENCES: a row carrying `adSetId: 'NOPE'` that matches no spend row.
+ *     Its fields are PRESENT, so it is in neither the 36 nor the 27 — and it matches no
+ *     campaign, so `unattributedAppointments` counts it. Locked by an arm below.
+ *
+ * ⇒ **EXPECT the on-screen total to be ≥ 27, and nobody has measured the dangling count.**
+ * A number above 27 is CORRECT, not a bug — flagged because the obvious reading of a
+ * mismatch is "the counter is broken".
  *
  * ⭐ THE CLASS IS ⑥ ONE LEVEL DEEPER. ⑥ was "TOTAL APPTS reduces over accounts, so an
  * appointment with no account is structurally invisible". Fixing the parent said nothing
@@ -217,5 +240,30 @@ describe('✅ THE GAP IS NOW NAMED — the count the panel renders', () => {
     );
     expect(accounts[0].unattributedAppointments).toBe(0);
     expect(accounts[0].unattributedAppointments).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('🔑 THE THIRD CATEGORY — a DANGLING reference is unattributed too', () => {
+  it('a row whose ids are PRESENT but match nothing still counts as unattributed', () => {
+    /**
+     * Neither @bird's 36 (missing Campaign ID) nor his corrected 27 (missing all six) counts
+     * this row: every field is populated. But every field points at nothing, so the six-step
+     * chain fails and the campaign reduce cannot see it — which is the property that matters.
+     * ⇒ This is why the on-screen total is a SUPERSET of 27 rather than a subset of 36.
+     */
+    const spend = [makeAdSpendRow({ accountName: 'Acme', campaignId: 'C1', adsetId: 'AS1', adsetName: 'S1', adId: 'AD1', adName: 'A1', spent: 100, leads: 10 })];
+    const appts = [
+      makeAppointmentRow({ client: 'Acme', campaignId: 'C1', adSetId: 'AS1', adSetName: 'S1', adId: 'AD1', adName: 'A1' }),
+      // all six empty — @bird's "true orphan"
+      makeAppointmentRow({ client: 'Acme', campaignId: '', adSetId: '', adSetName: '', adId: '', adName: '', campaignName: '' }),
+      // all six PRESENT but dangling — in neither of his counts
+      makeAppointmentRow({ client: 'Acme', campaignId: 'GHOST', adSetId: 'NOPE', adSetName: 'nope', adId: 'X', adName: 'x', campaignName: 'ghost' }),
+    ];
+    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS, []);
+    const acct = accounts[0];
+
+    expect(acct.appointments).toBe(3);
+    expect((acct.campaigns ?? []).reduce((s, c) => s + c.appointments, 0)).toBe(1);
+    expect(acct.unattributedAppointments).toBe(2);   // the orphan AND the dangling row
   });
 });
