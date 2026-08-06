@@ -561,12 +561,37 @@ export function mapAirtableRecords(
   {
     const data = { records };
 
+    /**
+     * 🔴 D2 — THE UNION, NOT THE FIRST RECORD. @fable queried the live base directly.
+     *
+     * AIRTABLE OMITS EMPTY FIELDS PER RECORD. `Closed Revenue ($)` is populated on 46 of
+     * 679 rows, so it is absent from record[0] and was therefore absent from this list —
+     * which is the list the Settings column-mapping dropdown is built from.
+     *
+     * ⇒ THE CONSEQUENCE WAS NOT COSMETIC. The saved mapping
+     *   'Closed Revenue' → 'Closed Revenue ($)' is CORRECT AND WORKING, and the select
+     *   showed "— Select —" because the option did not exist. @andrew was about to pick
+     *   something («this is where i should map it»); any choice would have overwritten a
+     *   working mapping with a blank and taken his revenue to $0.
+     *
+     * ⭐ SAMPLING ONE ROW TO LEARN A SCHEMA IS THE DEFECT. A sparse column is exactly the
+     * one a user needs to map, and exactly the one a single-row sample cannot see — the
+     * rarer the field, the more likely it is missing from the sample AND the more likely
+     * it matters. The union is O(records) once per refresh and cannot be wrong this way.
+     */
     if (data.records.length > 0 && fields.length === 0) {
-      fields = Object.keys(data.records[0].fields);
+      const seen = new Set<string>();
+      for (const rec of data.records) {
+        for (const k of Object.keys(rec?.fields ?? {})) seen.add(k);
+      }
+      fields = Array.from(seen);
     }
 
     for (const rec of data.records) {
-      const f = rec.fields;
+      // Degrade, never throw — the same contract the rest of this path follows. A record
+      // with no `fields` yields empty values and an unmatched appointment; it must not take
+      // the dashboard down. Caught by the union test, which constructed exactly that row.
+      const f = rec?.fields ?? {};
       const getField = (key: string) => {
         const mapped = columnMappings[key] || key;
         const val = f[mapped];

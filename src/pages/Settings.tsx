@@ -666,6 +666,19 @@ useEffect(() => {
                   className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
                 >
                   <option value="">— Select —</option>
+                  {/**
+                    * 🔴 D2, SECOND HALF: A SAVED VALUE MISSING FROM THE LIST MUST STILL BE
+                    * AN OPTION. Even with the union fix, any mapping whose column is absent
+                    * from the current fetch — a renamed field, a table the user re-pointed —
+                    * would render as "— Select —" and the first interaction would BLANK a
+                    * working mapping. The select must never present a correct saved value
+                    * as if nothing were chosen.
+                    */}
+                  {form.columnMappings?.[key] && !airtableFields.includes(form.columnMappings[key]) && (
+                    <option value={form.columnMappings[key]}>
+                      {form.columnMappings[key]} (saved — not in the current Airtable fetch)
+                    </option>
+                  )}
                   {airtableFields.map(f => (
                     <option key={f} value={f}>{f}</option>
                   ))}
