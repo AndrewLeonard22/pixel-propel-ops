@@ -15,7 +15,29 @@ no local toolchain — which is why the dashboard path below works.
 
 ---
 
-## The verification ladder — read this first
+## ⛔ FIRST: THIS LADDER TESTS THE FUNCTION, NOT THE FEATURE
+
+**Steps 1 and 2 can both report `ok` while the dashboard still shows no appointments,**
+and that is not a contradiction — it means the *client* is not calling the proxy yet.
+
+```
+step 1  is the function deployed?          ← tests the FUNCTION
+step 2  does it have its secret?           ← tests the FUNCTION
+step 3  does the APP actually use it?      ← tests the FEATURE   ⬅ DO NOT SKIP
+```
+
+At the time of writing, `fetchAirtableData` in `src/lib/dataService.ts` **throws
+unconditionally before it ever reaches the proxy** (verified absent from both
+`origin/stabilization` and `origin/anvil/stab`). Until that wiring lands, **setting the
+secret changes nothing a user can see.** If you do step 2 and the page stays dark, the
+deploy did not fail — step 3 is simply not done.
+
+*A function answering `ok` to `curl` proves the code is live. It does not prove anyone
+calls it.*
+
+---
+
+## The verification ladder — for steps 1 and 2
 
 Every failure state **names itself**, so you can check each step independently instead of
 trusting that it worked. This is the whole point: a deploy that cannot report its own
@@ -94,6 +116,24 @@ curl -s -X POST "$VITE_SUPABASE_URL/functions/v1/airtable-proxy" \
 
 ---
 
+## Step 3 — check the APP, not the function
+
+**Steps 1 and 2 passing is not the finish line.** Open the dashboard and look at the
+appointments column.
+
+| what the app shows | what it means |
+|---|---|
+| `—` with *"Appointments (Airtable) — could not load"* | the client called the proxy and it failed — read the message, it names which state |
+| `—` with *"not connected. Missing: Airtable base ID."* | config, not deployment — fill in the base ID |
+| `—` and **no message changed at all** after step 2 | ⬅ **the client is not calling the proxy.** `fetchAirtableData` still throws before reaching it. Nothing you do in the Supabase dashboard will fix this; it needs the code wiring. |
+| real appointment numbers | done — the feature works, not just the function |
+
+⚠️ **The third row is the one this document exists to stop you chasing.** Re-setting a
+secret that is already correct, over and over, because the page never changes, is the
+predictable failure of verifying a deployment at the wrong layer.
+
+---
+
 ## Rotation
 
 Both tokens were readable from the public `app_settings` row and **must be treated as
@@ -126,3 +166,9 @@ secret names above · the status ladder · that `records: []` is emitted only un
 **Not verified:** the exact click path in the Supabase dashboard. Written from the
 function's own contract, not from a screenshot of your console — if the UI disagrees with
 Path A, trust the UI and the CLI commands still apply.
+
+**Corrected after first publication:** the original version of this file had steps 1 and 2
+only, so its ladder would have reported complete success while the dashboard stayed dark —
+a runbook that verifies the deployment at the wrong layer, in a document whose whole claim
+was that every state names itself. Step 3 exists because a function answering `ok` to
+`curl` proves the code is live and proves nothing about whether the product uses it.
