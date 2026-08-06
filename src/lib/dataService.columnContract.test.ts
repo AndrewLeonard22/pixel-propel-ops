@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { checkColumnContract, WINDSOR_COLUMNS, type ColumnSpec } from './dataService';
+import { checkColumnContract, WINDSOR_COLUMNS, CALL_CENTRE_COLUMNS, type ColumnSpec } from './dataService';
 
 /**
  * ② SILENT TAB / COLUMN DRIFT.
@@ -173,5 +173,88 @@ describe('the contract agrees with the MAPPER, in both directions', () => {
     // quietly promoting a label column and taking the dashboard down over a missing name.
     const critical = WINDSOR_COLUMNS.filter(c => c.critical).map(c => c.accept[0]).sort();
     expect(critical).toEqual(['Account Name', 'Date', 'Leads', 'Spent']);
+  });
+});
+
+/**
+ * 🔒 THE CALL-CENTRE CONTRACT — and its own drift lock, because ONE LOCK DOES NOT COVER TWO
+ * MAPPERS. Wiring this contract left the suite at 408/408 unchanged, which is the wire
+ * defect announcing itself: a contract nothing tests is a contract that is not there.
+ *
+ * ⚠️ THE CRITICAL SET IS DIFFERENT FROM WINDSOR'S, DELIBERATELY. What makes a column
+ * critical is what its ABSENCE does to a NUMBER, and that is a property of this feed rather
+ * than a template copied across. Copying Windsor's four here would have marked `Agent Name`
+ * critical and killed the dashboard over a missing label.
+ */
+describe('the CALL-CENTRE contract', () => {
+  const FULL_CALLS: Record<string, string> = {
+    Timestamp: '8/4/2026', ghl_location_name: 'Acme', 'Agent Name': 'Bob',
+    'Call Duration': '60', call_dispostion: 'answered',
+  };
+
+  it('🔴 ANTI-VACUITY CONTROL: a complete call sheet passes with no drift', () => {
+    expect(checkColumnContract([FULL_CALLS], CALL_CENTRE_COLUMNS, 'x'))
+      .toEqual({ missingLabels: [] });
+  });
+
+  it('🔴 a missing ghl_location_name THROWS — it is the 0-DIALS silent zero', () => {
+    const { ghl_location_name: _g, ...noLoc } = FULL_CALLS;
+    expect(() => checkColumnContract([noLoc], CALL_CENTRE_COLUMNS, 'Call centre sheet'))
+      .toThrow(/"ghl_location_name"/);
+  });
+
+  it('🔴 a PRESENT-BUT-BLANK location column also throws — presence is not validity', () => {
+    expect(() => checkColumnContract([{ ...FULL_CALLS, ghl_location_name: '' }], CALL_CENTRE_COLUMNS, 'x'))
+      .toThrow(/ENTIRELY BLANK/);
+  });
+
+  it('a missing Agent Name is a LABEL — reported, never thrown', () => {
+    const { 'Agent Name': _a, ...noAgent } = FULL_CALLS;
+    expect(checkColumnContract([noAgent], CALL_CENTRE_COLUMNS, 'x').missingLabels).toEqual(['Agent Name']);
+  });
+
+  it('⭐ the MISSPELLED call_dispostion is the real header; the correct spelling is the alternate', () => {
+    const fixed = { ...FULL_CALLS } as Record<string, string>;
+    delete fixed.call_dispostion; fixed.call_disposition = 'answered';
+    expect(checkColumnContract([fixed], CALL_CENTRE_COLUMNS, 'x').missingLabels).toEqual([]);
+  });
+
+  it('an empty call sheet is UNVERIFIED, not clean', () => {
+    expect(checkColumnContract([], CALL_CENTRE_COLUMNS, 'x').schemaUnverified).toBe(true);
+  });
+});
+
+describe('the CALL-CENTRE contract agrees with ITS mapper, both directions', () => {
+  const src = readFileSync(resolve(process.cwd(), 'src/lib/dataService.ts'), 'utf8');
+  const mapper = src.slice(
+    src.indexOf('export async function fetchCallCenterData'),
+    src.indexOf('export async function fetchAirtableData'),
+  );
+  const readByMapper = new Set(
+    Array.from(mapper.matchAll(/pick\(r,\s*([^)]+)\)/g))
+      .flatMap(m => Array.from(m[1].matchAll(/'([^']+)'/g), q => q[1])),
+  );
+  const inContract = new Set(CALL_CENTRE_COLUMNS.flatMap((c: ColumnSpec) => c.accept));
+
+  it('NON-VACUITY: the call-centre mapper source was found and reads columns', () => {
+    expect(mapper).toContain('ghlLocationName');
+    expect(readByMapper.size).toBeGreaterThan(4);
+  });
+
+  it('🔴 every column the CALL mapper reads is in the CALL contract', () => {
+    expect([...readByMapper].filter(h => !inContract.has(h))).toEqual([]);
+  });
+
+  it('🔴 every column in the CALL contract is read by the CALL mapper', () => {
+    expect([...inContract].filter(h => !readByMapper.has(h))).toEqual([]);
+  });
+
+  it('🔑 the two contracts have DIFFERENT critical sets — not a copied template', () => {
+    // Copying Windsor's criticals here would have marked `Agent Name` critical and killed
+    // the dashboard over a missing label. The tiers are per-feed by construction.
+    const w = WINDSOR_COLUMNS.filter(c => c.critical).map(c => c.accept[0]).sort();
+    const c = CALL_CENTRE_COLUMNS.filter(x => x.critical).map(x => x.accept[0]).sort();
+    expect(c).toEqual(['Call Duration', 'Timestamp', 'ghl_location_name']);
+    expect(c).not.toEqual(w);
   });
 });
