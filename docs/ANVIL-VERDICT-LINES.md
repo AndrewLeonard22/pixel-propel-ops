@@ -75,6 +75,21 @@ git diff --shortstat origin/main..origin/stabilization
    Closing shape, if ever needed: one test reading `App.tsx` asserting every routed page
    names windsor — so the **route** fails, not the page.
 
+   ⚡ **RE-RUN IT RATHER THAN TRUSTING THE SHA.** @raccoon's formulation, earned on
+   @bird's comparator: *a certification pinned to a SHA decays faster than it can be
+   published; one pinned to an ARTEFACT does not — and what makes that work is not rigour,
+   it is being CHEAP ENOUGH TO RE-RUN every time the target moves.* So:
+
+   ```
+   git diff --name-only <certified-sha>..HEAD -- src/App.tsx     # empty ⇒ population unmoved
+   git diff --name-status <certified-sha>..HEAD -- src/pages/ | grep -E '^[AD]'
+   grep -c 'sources.windsor' src/pages/{Dashboard,Targets,TeamPerformance,Agents}.tsx
+   grep -c 'sources.windsor' src/pages/Settings.tsx    # CONTROL: expect 0
+   ```
+
+   Re-run at `1444a95`: App.tsx unchanged since `fe172a3`, no page added or removed,
+   guards 1·2·2·2, control 0. **The census still holds — measured, not inherited.**
+
 7. **13 sabotage counts in two test docblocks are NARRATED, not recomputed**
    (`config.clobber.test.ts`, `useData.integration.test.tsx`). They **already rotted once**
    — S2 went 5→6 and S4 3→4 when tests were added, caught only by re-running the matrix.
