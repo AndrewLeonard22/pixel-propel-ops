@@ -373,6 +373,21 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
           {/* Section 3 — Campaign Breakdown */}
           <div>
             <h3 className="text-sm font-semibold text-foreground mb-3">Campaigns ({account.campaigns.length})</h3>
+            {/* 🔴 NAME THE GAP RATHER THAN LET THE READER FIND IT.
+                @andrew's Archadeck panel: campaign spend and leads reconcile to the account
+                header, appointments do not — the rows sum to 6 and the header says 7. The
+                missing appointment is REAL and attached to the account; it simply carries no
+                campaign evidence, so no per-campaign reduce can see it.
+                The 7 is right and the 6 is incomplete — so the panel says which, in the one
+                place a reader is about to add the rows up. Same treatment the dashboard now
+                gives its 43 unmatched appointments. */}
+            {account.unattributedAppointments > 0 && (
+              <p className="text-xs text-muted-foreground mb-2">
+                These rows account for {account.appointments - account.unattributedAppointments} of{' '}
+                {account.appointments} appointments — {account.unattributedAppointments}{' '}
+                {account.unattributedAppointments === 1 ? 'is' : 'are'} not attributed to any campaign.
+              </p>
+            )}
             <div className="space-y-2">
               {account.campaigns.map(c => {
                 const isExcluded = (settings.excludedCampaigns || []).includes(c.campaignId);
