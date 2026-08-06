@@ -741,7 +741,19 @@ export function mapAirtableRecords(
         if (resolved) return resolved;
 
         if (isAirtableRecordId(first)) {
-          unresolvedLinks++;
+          /**
+           * ⛔ THE REFUSAL APPLIES TO EVERY FIELD — @fable: Client PPA Rate, Active? and
+           * Client Billing Model are multipleLookupValues, and lookups return ARRAYS, so
+           * the same val[0] shape reaches them. An id must never render as a value in ANY
+           * column.
+           *
+           * 🔴 BUT IT IS NO LONGER COUNTED HERE. This counter drives a banner that says
+           * "N appointments are not matched to an ACCOUNT" — a claim about ATTRIBUTION —
+           * and incrementing it for a refusal in `Client Billing Model` made that sentence
+           * FALSE. Measured: client resolved to "Acme Corp", billing model held an id, and
+           * the banner reported 1 unmatched appointment for a row that WAS matched.
+           * ⇒ A true count on the WRONG POPULATION, rendered as a specific claim.
+           */
           /**
            * 🔴 A READABLE SENTINEL, NOT ''. Returning an empty string was my over-correction
            * and it EMPTIED THE APPOINTMENTS PAGE: a blank client is falsy, so every consumer
@@ -758,6 +770,9 @@ export function mapAirtableRecords(
       };
       
       const clientName = String(getField('Client Name'));
+      // The counter the banner reports: appointments whose CLIENT could not be resolved.
+      // Not "fields that refused an id" — those are two different populations.
+      if (clientName === UNRESOLVED_CLIENT) unresolvedLinks++;
 
       allRecords.push({
         campaignName: String(getField('Campaign Name')),
