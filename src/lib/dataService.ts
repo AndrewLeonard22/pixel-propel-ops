@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, AdSummary, TeamMember, PerformanceLevel, CallRow } from './types';
 import { convertSheetUrlToCsv, isSourceConfigured } from './config';
+import { resolveRecordId, resolveLinkedClientNames } from './airtableLinks';
 
 // Parse CSV text into rows
 function parseCsv(text: string): Record<string, string>[] {
@@ -441,6 +442,21 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
   // ⚠️ AND IT DOES NOT SOFTEN THE FAILURE CONTRACT. If the direct call fails it THROWS, same
   // as the proxy path. A dead Airtable must never render as "zero appointments" — that is the
   // whole point of this project and it survives the rollback intact.
+  /**
+   * ③ ONE RESOLUTION PER REFRESH, NOT PER ROW — fetched before either path maps, so the
+   * proxy route and the direct fallback resolve identically. Two lookups would let the
+   * routes disagree about a client's NAME, and the fallback only runs when the proxy is
+   * broken, i.e. exactly when nobody is watching.
+   *
+   * ⛔ NEVER THROWS. resolveLinkedClientNames returns an empty map on any failure — a bad
+   * PAT scope, a 404, a non-link field, a missing row — and an empty map is precisely
+   * today's behaviour. The resolver cannot take the dashboard down to improve a label.
+   */
+  const linkField = columnMappings['Client Name'] || 'Client Name';
+  const { names: linkNames } = await resolveLinkedClientNames(
+    airtableBaseId, airtableTableName, linkField, settings.airtableToken,
+  );
+
   if (invokeError && settings.airtableToken) {
     const records: { fields: Record<string, unknown> }[] = [];
     let offset: string | undefined;
@@ -469,7 +485,7 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
       offset = body.offset;
     } while (offset);
 
-    return mapAirtableRecords(records, columnMappings);
+    return mapAirtableRecords(records, columnMappings, [], linkNames);
   }
 
   if (invokeError) {
@@ -513,6 +529,7 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
     (payload as { records: { fields: Record<string, unknown> }[] }).records,
     columnMappings,
     Array.isArray(payload.fields) ? payload.fields : [],
+    linkNames,
   );
 }
 
@@ -528,6 +545,13 @@ export function mapAirtableRecords(
   records: { fields: Record<string, unknown> }[],
   columnMappings: Record<string, string>,
   knownFields: string[] = [],
+  /**
+   * recordId → linked row's name, fetched ONCE per refresh by resolveLinkedClientNames.
+   * Absent or empty ⇒ EXACTLY today's behaviour: the id is refused, the field reads
+   * UNRESOLVED_CLIENT, the appointment is counted as unmatched. Resolution is layered ON
+   * TOP of a refusal that already works; it never replaces it.
+   */
+  linkNames: Map<string, string> = new Map(),
 ): { records: AppointmentRow[]; fields: string[]; unresolvedLinks: number } {
   const allRecords: AppointmentRow[] = [];
   let fields: string[] = knownFields;
@@ -554,6 +578,15 @@ export function mapAirtableRecords(
          * An unresolved appointment is honest; one attributed on the strength of a record
          * id is a wrong number wearing a name.
          */
+        /**
+         * ⭐ RESOLVE BEFORE REFUSING. @andrew called the old banner «bs» and he was right:
+         * it told him to add a Lookup field in Airtable to work around our limitation. If
+         * we hold the linked row's name, this is a NAME, not an id, and nothing needs
+         * saying at all.
+         */
+        const resolved = resolveRecordId(first, linkNames);
+        if (resolved) return resolved;
+
         if (isAirtableRecordId(first)) {
           unresolvedLinks++;
           /**
