@@ -5,6 +5,7 @@ import { needsAttention, SOURCE_KEYS, type SourceStatus } from '@/lib/sourceStat
 import { settingsAreUnverified } from '@/lib/config';
 import { describeFreshness, freshnessWarning } from '@/lib/dataFreshness';
 import { completenessMessage } from '@/lib/sheetCompleteness';
+import { rejectionMessage } from '@/lib/refreshValidation';
 
 /**
  * Says, per source, what is wrong and what the numbers on screen are worth.
@@ -55,7 +56,7 @@ function stateLine(s: SourceStatus): { icon: typeof AlertTriangle; tone: string;
 }
 
 export default function SourceStatusBanner() {
-  const { sources, refresh, settingsLoaded, loading, settingsOrigin, settingsDetail, adSpend, completeness } = useData();
+  const { sources, refresh, settingsLoaded, loading, settingsOrigin, settingsDetail, adSpend, completeness, refreshVerdict } = useData();
 
   // Before the settings have loaded, "not connected" is not known to be true. Saying it
   // early is the same defect as printing a zero for a source that failed.
@@ -126,13 +127,21 @@ export default function SourceStatusBanner() {
    * treating it as health is the fail-open this detector exists to refuse.
    */
   const incomplete = completenessMessage(completeness);
+  /** ③ A rejected refresh: the numbers below are the LAST GOOD ones, and must say so. */
+  const rejected = refreshVerdict ? rejectionMessage(refreshVerdict) : null;
 
-  if (problems.length === 0 && !staleFeed && !incomplete) return null;
+  if (problems.length === 0 && !staleFeed && !incomplete && !rejected) return null;
 
   const anyRetryable = problems.some(s => s.state === 'failed' || s.state === 'stale' || s.state === 'incomplete');
 
   return (
     <div className="border border-border rounded-xl bg-card px-4 py-3 space-y-2" role="status" aria-live="polite">
+      {rejected && (
+        <div className="flex items-start gap-2.5 text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-destructive" />
+          <p className="flex-1 text-foreground/90">{rejected}</p>
+        </div>
+      )}
       {incomplete && (
         <div className="flex items-start gap-2.5 text-sm">
           <AlertTriangle
