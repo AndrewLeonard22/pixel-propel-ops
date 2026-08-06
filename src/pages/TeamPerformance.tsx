@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
+import { hasUsableData } from '@/lib/sourceStatus';
 import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
@@ -14,7 +15,7 @@ import { parseSourceDate as parseDateSafe } from '@/lib/dates';
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
 
 export default function MediaBuying() {
-  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh, honestNumbers } = useData();
+  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh, honestNumbers, sources } = useData();
 
   const [datePreset, setDatePreset] = useState<DatePreset>('this_month');
   const [customFrom, setCustomFrom] = useState('');
@@ -83,7 +84,28 @@ export default function MediaBuying() {
 
   const team = useMemo(() => buildTeamPerformance(filteredAccounts), [filteredAccounts]);
 
+  // 🔴 EVERY NUMBER ON THIS PAGE TRAVERSES WINDSOR, AND NOTHING HERE CONSULTED IT.
+  // @apprentice and @raccoon measured it: this page RE-DERIVES its own accounts via
+  // buildAccountSummaries(filteredSpend, …), so a dead Windsor yields an EMPTY list and
+  // every reduce(…, 0) returns a hard 0 — rendered with no guard of any kind. The
+  // Dashboard had 5 of 9 tiles guarded and the plumbing to fix the rest; this page had
+  // NO known-state plumbing at all.
+  //
+  // Gated at the PAGE rather than at each formatter: with Windsor dead there is no
+  // subset of these numbers that remains knowable, so suppressing them individually
+  // would leave a page of em dashes pretending to still be a report.
   if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner /></div>;
+  if (!hasUsableData(sources.windsor.state)) {
+    // ⚠️ THIS ONE IS A PER-PERSON SCORECARD. A fabricated "$0.00 revenue · 0 closed" is
+    // not a dashboard reading wrong, it is a scorecard reading wrong ABOUT SOMEBODY.
+    return (
+      <div className="space-y-4 max-w-[1400px]">
+        <h1 className="text-xl font-bold">Media Buying</h1>
+        <HonestNumbersBanner messages={honestNumbers.messages} />
+        <ErrorBanner message={`${sources.windsor.label} is unavailable, and every per-buyer figure is calculated from it. Nothing is shown rather than shown as zero.`} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-[1400px]">

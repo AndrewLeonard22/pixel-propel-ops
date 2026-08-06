@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
-import { ConfigBanner, HonestNumbersBanner } from '@/components/common/Banners';
+import { hasUsableData } from '@/lib/sourceStatus';
+import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { formatCurrency, formatPercent, buildAccountSummaries } from '@/lib/dataService';
 import { loadAccountMappings, getAccountMapping } from '@/lib/config';
 import type { AccountMapping } from '@/lib/types';
@@ -63,7 +64,7 @@ function MetricBar({
 }
 
 export default function Targets() {
-  const { accounts, adSpend, appointments, callData, settings, configured, honestNumbers } = useData();
+  const { accounts, adSpend, appointments, callData, settings, configured, honestNumbers, sources } = useData();
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
 
   const dateRange = useMemo(() => {
@@ -146,7 +147,26 @@ export default function Targets() {
     };
   }, [filteredAccounts]);
 
+  // 🔴 EVERY NUMBER ON THIS PAGE TRAVERSES WINDSOR, AND NOTHING HERE CONSULTED IT.
+  // @apprentice and @raccoon measured it: this page RE-DERIVES its own accounts via
+  // buildAccountSummaries(filteredSpend, …), so a dead Windsor yields an EMPTY list and
+  // every reduce(…, 0) returns a hard 0 — rendered with no guard of any kind. The
+  // Dashboard had 5 of 9 tiles guarded and the plumbing to fix the rest; this page had
+  // NO known-state plumbing at all.
+  //
+  // Gated at the PAGE rather than at each formatter: with Windsor dead there is no
+  // subset of these numbers that remains knowable, so suppressing them individually
+  // would leave a page of em dashes pretending to still be a report.
   if (!configured) return <ConfigBanner />;
+  if (!hasUsableData(sources.windsor.state)) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-bold text-foreground">Targets</h1>
+        <HonestNumbersBanner messages={honestNumbers.messages} />
+        <ErrorBanner message={`${sources.windsor.label} is unavailable, and every figure on this page is calculated from it. Nothing is shown rather than shown as zero.`} />
+      </div>
+    );
+  }
   if (!stats) return null;
 
   return (
