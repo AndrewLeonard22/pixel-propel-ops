@@ -118,7 +118,20 @@ drill history and the served-bytes instrument.
 2. **Both client clobber guards fail OPEN on a transient read.** @apprentice's DB trigger cannot
    fail that way and **is not applied** ⇒ unmitigated in production.
 3. **The banner is tested at the WRONG LAYER, not untested.** `HonestNumbersBanner.test.tsx` exists
-   (9 refs, 8 renders) and mounts no page; **0 of 3 page-mounting test files assert on the banner.**
+   (9 refs, **7** renders — see below) and mounts no page; **0 of 3 page-mounting test files
+   assert on the banner.**
+
+   🔻 **CORRECTED — and this one was WRONG FROM BIRTH, not drifted.** I published "8 renders".
+   It is **7**, and it was 7 at `fe172a3` where I first wrote it: the file is byte-identical
+   (112 lines) at that sha and at the head, so the value never moved — **it was wrong the moment
+   I typed it.** I had the grep output on screen and *counted the lines by eye* instead of piping
+   them to `wc -l`. **@anvil then inherited "8" from my post, unmeasured, into his own verdict
+   file, and caught it only by re-deriving at source.** *A drift check cannot see this class:
+   nothing changed, because it was never anchored to anything.* Regenerate:
+
+   ```sh
+   git show HEAD:src/components/common/HonestNumbersBanner.test.tsx | grep -c 'render(<HonestNumbersBanner'
+   ```
    Deleting all three mounts leaves the suite green. The fix is one assertion in
    `pages.windsorDead.test.tsx` — deliberately **not** written, because writing it would make
    @anvil's published "revert: 30 seconds" false. **Rule first, then write it, and only on KEEP.**
