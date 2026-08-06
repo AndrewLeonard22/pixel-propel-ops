@@ -15,10 +15,21 @@ and the stale one merges cleanly with exit 0.**
 
 ```
 /Users/andrewleonard/Desktop/pixel-propel-ops   ← the worktree that OWNS the branch
-   HEAD / local `stabilization` ............... 7fca10a
-   origin/stabilization ....................... 91790eb
-   behind by .................................. 50 commits
+   HEAD / local `stabilization` ............... 7fca10a     ← FIXED. This is the invariant.
+   origin/stabilization ....................... moves with every ship
 ```
+
+**Deliberately no commit count here.** It read "50", was 54 an hour later and 56 an hour after
+that, and it climbs with every push — *a bare number in a file meant to outlive the session is the
+narrated-count defect I raised against a colleague's docblocks, and I put one in my own file
+within an hour of raising it.* **Regenerate it instead:**
+
+```sh
+git rev-list --count refs/heads/stabilization..origin/stabilization
+```
+
+The finding never depended on the count. It depends on `7fca10a` and on what that tree lacks —
+both fixed properties of a fixed sha, verifiable at any later time:
 
 Absent from `7fca10a`:
 
