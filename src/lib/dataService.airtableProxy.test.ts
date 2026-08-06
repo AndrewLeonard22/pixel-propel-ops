@@ -135,11 +135,29 @@ describe("fetchAirtableData — a dead proxy must never read as zero appointment
         fields: ["Client Name"],
         records: [
           {
+            /**
+             * ⚠️ WIDENED WHEN THE AIRTABLE COLUMN CONTRACT LANDED. This was five fields,
+             * which no real payload looks like — @fable measured 36 distinct field names
+             * across 679 records — so a REAL requirement (`Lead Status` must exist) read as
+             * an over-strict check.
+             *
+             * ⭐ THE CONTRACT WAS VERIFIED AGAINST LIVE EVIDENCE BEFORE THIS FIXTURE WAS
+             * TOUCHED, because "fix the fixture" is exactly how a wrong contract gets
+             * laundered. All four criticals are confirmed present in @andrew's base by two
+             * other seats: Client Name (@bird, 99/100), Appointment Date (the live calendar
+             * places by it), Closed Revenue ($) (@fable, 46/679), Lead Status (@fable
+             * counted its value distribution for D1).
+             */
             fields: {
               "Client Name": "Acme",
               "Appointment Date": "8/4/2026",
               "Lead Valid": "Valid",
               "Closed Revenue ($)": "1,250.50",
+              "Lead Status": "Closed Won",
+              "Show Status": "Showed",
+              "Campaign Name": "SW | Leads Campaign",
+              "Ad Set Name": "AS",
+              "Ad Name": "Ad",
               Setter: "Bob",
             },
           },
