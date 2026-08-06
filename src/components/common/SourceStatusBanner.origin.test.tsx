@@ -45,11 +45,14 @@ function status(over: Partial<SourceStatus>): SourceStatus {
   } as SourceStatus;
 }
 
-function mount(origin: SettingsOrigin, detail: string | null = null) {
+type Comp = { state: 'complete' | 'truncated' | 'unverifiable'; rawRows: number | null; derivedRows: number | null; droppedRows: number; reason: string | null };
+const HEALTHY: Comp = { state: 'complete', rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null };
+
+function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY) {
   useDataMock.mockReturnValue({
     settingsLoaded: true,
     adSpend: [],
-    completeness: { state: 'complete' as const, rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null },
+    completeness,
     loading: false,
     refresh: () => {},
     settingsOrigin: origin,
@@ -130,5 +133,59 @@ describe('SourceStatusBanner — 18 of @bird’s 19 false claims come from here'
     expect((before.match(/Missing:/g) ?? []).length).toBe(3);
     expect((after.match(/Missing:/g) ?? []).length).toBe(0);
     expect(before).not.toBe(after);
+  });
+});
+
+/**
+ * 🔴 THE WIRING, NOT THE PREDICATE — AND THIS FILE EXISTS BECAUSE A SABOTAGE CAUGHT ME.
+ *
+ * sheetCompleteness.test.ts locks the judgement with 21 arms and every one of them passes
+ * with the BANNER COMPLETELY DISCONNECTED. I proved it: replacing the consumer with
+ * `const incomplete = null` left all 379 tests GREEN, and so did bypassing the probe call
+ * in useData.
+ *
+ * ⭐ A DETECTOR NOTHING RENDERS IS A DOCUMENTED LIMIT, NOT A SHIPPED ONE — I wrote that
+ * sentence in the commit for the detector itself and then shipped the wiring without a
+ * single arm that could tell whether it was connected. The predicate being perfect is
+ * exactly what makes this invisible: every test passes, and the user sees nothing.
+ */
+describe('SourceStatusBanner — the CLIFF actually reaches the screen', () => {
+  const TRUNCATED: Comp = { state: 'truncated', rawRows: 39446, derivedRows: 39388, droppedRows: 58, reason: null };
+  const UNVERIFIABLE: Comp = { state: 'unverifiable', rawRows: 5, derivedRows: 5, droppedRows: 0, reason: 'both probes returned identical data, so they may have read the same tab' };
+
+  it('🔴 A TRUNCATING SHEET IS ON SCREEN, with the dropped-row count', () => {
+    const { container } = mount('database', null, TRUNCATED);
+    expect(container.textContent).toMatch(/INCOMPLETE/);
+    expect(container.textContent).toMatch(/58/);
+    expect(container.textContent).toMatch(/array formula/);
+  });
+
+  it('🔑 UNVERIFIABLE is reported too — not knowing is a state, not health', () => {
+    const { container } = mount('database', null, UNVERIFIABLE);
+    expect(container.textContent).toMatch(/could not be verified/i);
+    expect(container.textContent).toMatch(/same tab/);
+  });
+
+  it('🔴 ANTI-VACUITY CONTROL: a COMPLETE sheet renders NOTHING about completeness', () => {
+    // Without this the wiring is satisfiable by always showing the warning, which is how a
+    // real warning stops being read — and this banner is silent furniture when healthy.
+    const { container } = mount('database', null, HEALTHY);
+    expect(container.textContent ?? '').not.toMatch(/INCOMPLETE|could not be verified/i);
+  });
+
+  it('a truncating sheet alone is enough to MOUNT the banner — no failed source needed', () => {
+    // The load-bearing wiring fact: every other predicate in this component asks whether a
+    // source FAILED. A truncating sheet fails nothing, so without an explicit term in the
+    // early return the whole banner never renders and the finding reaches no one.
+    useDataMock.mockReturnValue({
+      settingsLoaded: true, loading: false, refresh: () => {},
+      settingsOrigin: 'database' as SettingsOrigin, settingsDetail: null,
+      adSpend: [], completeness: TRUNCATED,
+      sources: {
+        windsor: status({ state: 'valid' }), airtable: status({ state: 'valid' }), callCenter: status({ state: 'valid' }),
+      } as Record<SourceKey, SourceStatus>,
+    });
+    const { container } = render(<MemoryRouter><SourceStatusBanner /></MemoryRouter>);
+    expect(container.textContent).toMatch(/INCOMPLETE/);
   });
 });
