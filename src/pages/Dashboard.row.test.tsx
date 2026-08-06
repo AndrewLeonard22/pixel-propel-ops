@@ -53,9 +53,13 @@ beforeEach(() => localStorage.clear());
  * Querying by text was ambiguous — spend and cost-per-appointment can both read $500.00,
  * and my first attempt matched the wrong one.
  */
+// ⛔ DIALS REMOVED FROM THE DASHBOARD 2026-08-05 (@andrew: "we store them on relay
+// instead"). Every index after it shifted by one — which is exactly the hazard the note
+// below warns about, and the reason these arms went RED rather than silently checking the
+// wrong cell. Dials still exist on /call-center and /targets; they are just not here.
 const COL = {
-  name: 0, spend: 1, leads: 2, cpl: 3, dials: 4,
-  appts: 5, leadPct: 6, costPerAppt: 7, closed: 8, revenue: 9,
+  name: 0, spend: 1, leads: 2, cpl: 3,
+  appts: 4, leadPct: 5, costPerAppt: 6, closed: 7, revenue: 8,
 } as const;
 
 /**
@@ -73,7 +77,7 @@ const COL = {
  * That does not make position safe — a REORDER with the same count still slips through —
  * it makes the cheap half of the failure impossible.
  */
-const COL_COUNT = 10;
+const COL_COUNT = 9;
 
 function cells(): string[] {
   const tds = Array.from(screen.getByRole("row").querySelectorAll("td"));
@@ -91,15 +95,23 @@ describe("AccountRow — the flags are WIRED INTO THE CELLS, not merely stamped"
     expect(c.filter(t => t === "—")).toHaveLength(0);
   });
 
-  it("A DEAD CALL-CENTRE blanks DIALS and NOTHING ELSE", () => {
+  it("A DEAD CALL-CENTRE now touches NO CELL IN THIS ROW — the dials column is gone", () => {
+    // ⛔ REWRITTEN with the dials removal. The old arm asserted the DIALS cell reads "—";
+    // that cell no longer exists.
+    // ⭐ THE ASSERTION IS NOW THE STRONGER ONE: with dials off the dashboard, a dead
+    // call-centre must leave this row COMPLETELY UNMARKED — every remaining cell is
+    // Windsor- or Airtable-derived. If a future change re-couples them, this goes RED.
     renderRow(buildRow({ spend: true, appts: true, calls: false }));
     const c = cells();
 
-    expect(c[COL.dials]).toBe("—");
-    // Windsor is alive, so spend must survive — the control that catches a fix which
-    // blanks the whole row rather than the dead source's columns.
     expect(c[COL.spend]).toBe("$500.00");
-    expect(c.filter(t => t === "—")).toHaveLength(1);
+    expect(c.filter(t => t === "—")).toHaveLength(0);
+  });
+
+  it("the DIALS column is gone — a re-add must go RED, not slip in", () => {
+    renderRow(buildRow());
+    expect(cells()).toHaveLength(COL_COUNT);
+    expect(document.body.textContent).not.toMatch(/dials/i);
   });
 
   it("A DEAD WINDSOR blanks the spend-derived cells but not the appointment counts", () => {
@@ -121,7 +133,7 @@ describe("AccountRow — the flags are WIRED INTO THE CELLS, not merely stamped"
     expect(c[COL.spend]).toBe("$500.00");
     expect(c[COL.leads]).toBe("20");
     expect(c[COL.cpl]).toBe("$25.00");
-    for (const k of ["dials", "appts", "leadPct", "costPerAppt", "closed", "revenue"] as const) {
+    for (const k of ["appts", "leadPct", "costPerAppt", "closed", "revenue"] as const) {
       expect(c[COL[k]]).toBe("—");
     }
   });

@@ -167,7 +167,6 @@ export function AccountRow({ account, onSelect }: { account: AccountSummary; onS
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.spendKnown === false ? UNKNOWN : formatCurrency(account.spend)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.spendKnown === false ? UNKNOWN : formatNumber(account.leads)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell"><CPLBadge value={account.cpl} leads={account.leads} known={account.spendKnown} /></td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.callsKnown === false ? UNKNOWN : formatNumber(account.totalDials)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.apptsKnown === false ? UNKNOWN : formatNumber(account.appointments)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">
         {/* Two sources: leads come from Windsor, appointments from Airtable. Either one
@@ -901,7 +900,6 @@ export default function Dashboard() {
           <KPICard label="Total Spend" value={spendOk ? formatCurrency(totals.spend) : '—'} />
           <KPICard label="Total Leads" value={spendOk ? formatNumber(totals.leads) : '—'} />
           <KPICard label="Avg CPL" value={spendOk && totals.cpl > 0 ? formatCurrency(totals.cpl) : '—'} />
-          <KPICard label="Total Dials" value={spendOk && callsOk ? formatNumber(totals.dials) : '—'} />
           {/* ⑥ The tile counts UNMATCHED appointments, so it must say when it is doing so —
               a number that silently changes composition is the defect one level up. */}
           <KPICard
@@ -981,7 +979,6 @@ export default function Dashboard() {
                   <th className="text-right px-3 align-middle">Spend</th>
                   <th className="text-right px-3 align-middle hidden md:table-cell">Leads</th>
                   <th className="text-right px-3 align-middle hidden md:table-cell">CPL</th>
-                  <th className="text-right px-3 align-middle hidden md:table-cell">Dials</th>
                   <th className="text-right px-3 align-middle">Appts</th>
                   <th className="text-right px-3 align-middle hidden md:table-cell">L→A %</th>
                   <th className="text-right px-3 align-middle">Cost/Appt</th>
