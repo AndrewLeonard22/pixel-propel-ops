@@ -109,6 +109,51 @@ function isRealDate(y: number, m: number, d: number): boolean {
 
 // resolveAccountName removed — matching now uses settings.accountAliases directly
 
+/**
+ * 🔴 A SHEET THAT ANSWERS WITH THE WRONG TAB IS A SUCCESSFUL FETCH THAT FABRICATES ZEROS.
+ *
+ * @apprentice measured this from the server side at ~22:00: an INVALID `sheet=` name
+ * returns HTTP 200 CARRYING THE DEFAULT TAB'S SCHEMA. @fable measured the same mechanism by
+ * content — `sheet=RAW DATA` and `sheet=Ads Data` return BYTE-IDENTICAL bodies. His words,
+ * and they are the whole design of this function:
+ *
+ *   "ASSERT THE HEADER SET, NOT THE ROW COUNT. A fallback tab has the wrong headers and
+ *    the right shape — every count-based check passes on it."
+ *
+ * ⭐ AND THE REASON IT IS BYTE-IDENTICAL IS IN OUR CODE, NOT GOOGLE'S: config.ts:609
+ * `convertSheetUrlToCsv(url, tab)` ACCEPTS `tab` AND NEVER READS IT, falling back to
+ * `gid=0` — the FIRST tab — whenever the URL carries no gid. The configured tab name has
+ * never selected anything. That dead control is filed separately (CallCenter.tsx:698);
+ * this function's job is to make its consequence LOUD instead of silent.
+ *
+ * ⚠️ WHY ONE COLUMN AND NOT THE WHOLE SET. The predicate must be the column whose absence
+ * SILENTLY PRODUCES A ZERO, because that is the failure being prevented — not a schema
+ * checksum, which would throw on a legitimately renamed spare column and teach everyone to
+ * delete this check. For calls that column is `ghl_location_name`: without it every row
+ * keys to '' , the dial map skips it, and the app reports 0 DIALS FROM A HEALTHY SOURCE.
+ *
+ * An EMPTY sheet is exempt on purpose: with no rows there are no fabricated numbers, and a
+ * genuinely empty tab is a legitimate state this must not turn into an error.
+ */
+export function assertSheetSchema(
+  rows: Record<string, string>[],
+  required: string[],
+  label: string,
+): void {
+  if (rows.length === 0) return;
+  const present = new Set(Object.keys(rows[0]));
+  const missing = required.filter(h => !present.has(h));
+  if (missing.length === 0) return;
+
+  const found = Object.keys(rows[0]).slice(0, 8).join(', ');
+  throw new Error(
+    `${label}: the sheet returned ${rows.length} rows but is missing the column${missing.length > 1 ? 's' : ''} ` +
+      `${missing.map(m => `"${m}"`).join(', ')}. This is almost certainly the WRONG TAB — ` +
+      `the tab name in Settings does not select a tab, only the gid= in the sheet URL does. ` +
+      `Columns found: ${found}. Reporting this rather than counting every row as zero.`,
+  );
+}
+
 export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpendRow[]> {
   const csvUrl = convertSheetUrlToCsv(settings.googleSheetUrl, settings.googleSheetTab);
   if (!csvUrl) throw new Error('Invalid Google Sheet URL');
@@ -118,7 +163,10 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
   
   const text = await response.text();
   const rows = parseCsv(text);
-  
+  // Without `Account Name` every row groups under 'Unknown' and the whole dashboard is one
+  // fake account — a wrong tab that reads as a successful fetch.
+  assertSheetSchema(rows, ['Account Name'], 'Ad spend sheet');
+
   return rows.map(r => ({
     month: r['Month'] || '',
     date: r['Date'] || '',
@@ -163,6 +211,10 @@ export async function fetchCallCenterData(settings: AppSettings): Promise<CallRo
 
   const text = await response.text();
   const rows = parseCsv(text);
+  // Without `ghl_location_name` every call keys to '' and the dial map skips it — the
+  // source reports SUCCESS with N rows and the app shows 0 DIALS.
+  assertSheetSchema(rows, ['ghl_location_name'], 'Call centre sheet');
+
   return rows.map(r => ({
     timestamp: r['Timestamp'] || '',
     ghlLocationName: r['ghl_location_name'] || '',

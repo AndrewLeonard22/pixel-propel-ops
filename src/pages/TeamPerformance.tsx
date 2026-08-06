@@ -79,8 +79,20 @@ export default function MediaBuying() {
       if (to && d > to) return false;
       return true;
     });
-    return buildAccountSummaries(filteredSpend, filteredAppts, settings, filteredCalls).accounts;
-  }, [accounts, adSpend, appointments, callData, settings, dateRange]);
+    // ⭐ THE 5th ARGUMENT IS NOT OPTIONAL IN PRACTICE. It defaults `?? true`, so a
+    // recompute that omits it ASSERTS EVERY SOURCE IS ALIVE and turns a dead source's em
+    // dashes back into numbers the moment a user picks a date range. Measured on this
+    // page: 5 honest em dashes per row became 5 fabricated values on "This Week".
+    // Same flags as useData.tsx:203, so a filtered view cannot disagree with an unfiltered one.
+    return buildAccountSummaries(filteredSpend, filteredAppts, settings, filteredCalls, {
+      spend: hasUsableData(sources.windsor.state),
+      appts: hasUsableData(sources.airtable.state),
+      calls: hasUsableData(sources.callCenter.state),
+    }).accounts;
+  // `sources` IS A DEPENDENCY NOW, and omitting it would be a stale closure: the memo
+  // reads the source states to build `known`, so a source dying without dateRange changing
+  // would keep serving summaries stamped ALIVE.
+  }, [accounts, adSpend, appointments, callData, settings, dateRange, sources]);
 
   const team = useMemo(() => buildTeamPerformance(filteredAccounts), [filteredAccounts]);
 

@@ -382,10 +382,30 @@ useEffect(() => {
           <input
             type="text"
             value={form.airtableBaseId}
-            onChange={e => updateForm({ airtableBaseId: e.target.value })}
+            onChange={e => updateForm({ airtableBaseId: e.target.value.trim() })}
             placeholder="appXXXXXXXXXXXXXX"
             className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
           />
+          {/*
+            ⭐ THIS EXACT MISTAKE HAPPENED, 2026-08-05: a Personal Access Token was pasted into
+            the Base ID box. Nothing caught it — our credential guard matches KEY NAMES, and
+            `airtableBaseId` is not a credential key, so a token in the wrong field walks
+            straight through into a world-readable table. A name-based guard cannot see a
+            secret in the wrong box; this check looks at the VALUE's SHAPE instead.
+          */}
+          {form.airtableBaseId?.startsWith('pat') && (
+            <p className="text-xs text-destructive mt-1">
+              That looks like a Personal Access Token, not a Base ID — and it has just been
+              stored somewhere the browser can read. Move it to the token field below, put the
+              Base ID (starts with <code>app</code>) here, and rotate that token.
+            </p>
+          )}
+          {form.airtableBaseId && !form.airtableBaseId.startsWith('app') &&
+           !form.airtableBaseId.startsWith('pat') && (
+            <p className="text-xs text-warning mt-1">
+              Airtable Base IDs normally start with <code>app</code>. Double-check this value.
+            </p>
+          )}
         </div>
         <div>
           <label className="text-sm font-medium text-muted-foreground">Table Name</label>
@@ -397,18 +417,33 @@ useEffect(() => {
           />
         </div>
         {/*
-          The Airtable Personal Access Token input is GONE ON PURPOSE — see the
-          note in the AI Assistant section above. Same reasoning, same table.
+          ⛔ OWNER-ORDERED, 2026-08-05. The token input was removed when the secret moved
+          server-side — but airtable-proxy was never deployed, so appointments went dark and
+          there was NO WAY TO PUT THE TOKEN BACK from the UI. The field returns.
+          The token is used ONLY by the direct fallback in fetchAirtableData, behind the
+          proxy. When airtable-proxy is deployed this input can go again.
         */}
-        <div className="rounded-lg border border-muted bg-muted/30 p-3">
-          <p className="text-sm font-medium text-foreground">Access token is managed server-side</p>
+        <div>
+          <label className="text-sm font-medium text-muted-foreground">Personal Access Token</label>
+          <div className="relative mt-1">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={form.airtableToken || ''}
+              onChange={e => updateForm({ airtableToken: e.target.value.trim() })}
+              placeholder="pat..."
+              className="w-full px-3 py-2 pr-10 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
+            />
+            <button type="button" onClick={() => setShowToken(!showToken)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
           <p className="text-xs text-muted-foreground mt-1">
-            The Airtable token is no longer stored in application settings and cannot be
-            entered here. It lives in server-side secrets, where the browser cannot read it.
+            Stored in application settings, which are readable by anyone with the app URL.
+            Treat this token as public and rotate it if it leaks.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* `!form.airtableToken` was a third condition here; the field no longer exists. */}
           <button onClick={testAirtable} disabled={!form.airtableBaseId || airtableStatus === 'loading'}
             className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50">
             {airtableStatus === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Test Connection'}
