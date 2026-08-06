@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
+import { hasUsableData } from '@/lib/sourceStatus';
 import { ConfigBanner } from '@/components/common/Banners';
 import { formatCurrency, formatDate } from '@/lib/dataService';
 import { ChevronLeft, ChevronRight, Copy, Check, AlertTriangle } from 'lucide-react';
@@ -14,7 +15,11 @@ import { computeSetterPayouts, formatPayoutExport } from '@/lib/payout';
 type PayPeriod = 'first' | 'second';
 
 export default function Agents() {
-  const { accounts, settings, configured } = useData();
+  const { accounts, settings, configured, sources } = useData();
+  // 🔴 Payouts are derived ENTIRELY from Airtable appointments. If that source did not
+  // answer, an empty setter list is UNKNOWN, not zero — and "No valid appointments
+  // found" would be the same lie BIRD-008 caught on the dashboard, on this page.
+  const apptsOk = hasUsableData(sources.airtable.state);
   const [payPeriod, setPayPeriod] = useState<PayPeriod>('first');
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
   const [copied, setCopied] = useState(false);
@@ -132,9 +137,25 @@ export default function Agents() {
       )}
 
       {/* Setter cards */}
-      {setterGroups.length === 0 ? (
+      {!apptsOk ? (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-4">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-destructive">
+              {sources.airtable.label} — {sources.airtable.state === 'not-configured'
+                ? `not connected. Missing: ${sources.airtable.missingSettings.join(', ')}.`
+                : `could not load${sources.airtable.error ? `: ${sources.airtable.error}` : ''}.`}
+            </p>
+            <p className="text-destructive/90 mt-0.5">
+              Payouts are calculated from appointments, so none can be shown. This is
+              unknown, not zero — do not read it as "nobody is owed anything".
+            </p>
+          </div>
+        </div>
+      ) : setterGroups.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground text-sm">
-          No valid appointments found for this pay period.
+          No valid appointments in this pay period. Appointments loaded correctly — this
+          is a real zero.
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
