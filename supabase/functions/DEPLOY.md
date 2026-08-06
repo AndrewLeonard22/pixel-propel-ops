@@ -32,8 +32,18 @@ product shows anything.*
 ✅ **THE CLIENT WIRING IS IN** — verify it yourself, do not trust this line number:
 ```
 grep -n "'airtable-proxy'" src/lib/dataService.ts     # expect exactly 1 hit
-npx vitest run src/lib/dataService.airtableProxy.test.ts   # 9 tests lock the call + its failure contract
+npx vitest run src/lib/dataService.airtableProxy.test.ts   # must be GREEN (count will grow)
 ```
+> 🔻 **«9 tests» ROTTED — it is 11 today.** I wrote that count on 2026-08-06; @anvil added
+> two cases after. The instruction now asks for GREEN, not for a number, because the count
+> grows every time someone strengthens the file and a reader who sees 11 where the runbook
+> promised 9 has to decide whether that is a problem. **A number in an instruction is a claim
+> with an expiry date; the pass/fail is the durable part.**
+>
+> ✅ **AND THE grep ABOVE IS CONTROLLED, which a `# expect exactly 1` deserves:** at the
+> pre-fix baseline `fa43996` it returns **0**, at `0647f04` and current `stabilization` it
+> returns **1**. It can report the other answer, so a 1 means something.
+
 `src/lib/dataService.ts` calls
 `supabase.functions.invoke('airtable-proxy', …)`. So **steps 1 and 2 are the whole job** —
 deploy the function, set the secret, and appointments should return.
@@ -135,10 +145,22 @@ appointments column.
 |---|---|
 | `—` with *"Appointments (Airtable) — could not load"* | the client called the proxy and it failed — read the message, it names which state |
 | `—` with *"not connected. Missing: Airtable base ID."* | config, not deployment — fill in the base ID |
-| `—` and **no message changed at all** after step 2 | ⬅ **the secret did not take, or the token is not valid.** Re-run the step-2 `curl`: it will say `not_configured` or `auth_failed` and name which. **Do not go looking for missing client wiring** — confirm with `grep -n "'airtable-proxy'" src/lib/dataService.ts` rather than a line number, which rots the moment that file is edited. |
+| `— Airtable proxy: the airtable-proxy Edge Function is not deployed.` | step 1 has not happened. **The sentence says so — "This is not a token problem."** |
+| `— Airtable proxy: AIRTABLE_TOKEN is not set on this deployment.` | deployed ✅, **the secret did not take.** Redo step 2. |
+| `— Airtable proxy: Airtable rejected our credentials.` | the secret **TOOK** ✅ and the token itself is wrong/rotated/revoked. **This is a different problem from the line above and the app already tells them apart** — do not redo step 2, get a valid token. |
+| `— Airtable proxy: Could not reach Airtable` / `returned HTTP <n>` | ours is fine, the vendor is not. |
+| `— not connected. Missing: Airtable base ID.` | config, not deployment. |
 | real appointment numbers | done — the feature works, not just the function |
 
-⚠️ **That third row was inverted in the first version of this file, and the inversion was
+✅ **THESE SENTENCES ARE @bird's, DRIVEN THROUGH THE CLIENT — NOT MINE, NOT INFERRED.** Six arms
+at `f586fb1`, each staged from this function's own `fail()` call sites, and the strings above are
+verbatim from the screen. ⇒ **The deploy diagnoses itself; nobody needs a terminal to read it.**
+⭐ And the split @bird added is the one my table got wrong: *"no message changed"* and *"rejected
+our credentials"* are **different rungs** — the first means the secret never landed, the second
+means it landed and the token is bad. **I had folded them into one row and would have sent someone
+to redo a step that had already worked.**
+
+⚠️ **The old third row was inverted in the first version of this file, and the inversion was
 the expensive direction:** it told you a persisting `—` meant the wiring was absent and
 "nothing you do in the Supabase dashboard will fix this" — which would have made you
 *abandon a secret that was already correct.* The runbook was written to stop you re-setting
