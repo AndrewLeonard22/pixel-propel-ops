@@ -317,8 +317,23 @@ describe('SourceStatusBanner — the unresolved-client remedy', () => {
     expect(container.textContent).toMatch(/still counted in the appointment totals/i);
   });
 
-  it('🔴 ANTI-VACUITY CONTROL: zero unresolved renders no remedy at all', () => {
+  /**
+   * 🔴 THIS CONTROL WENT VACUOUS WHEN I REWROTE THE COPY IT GUARDS.
+   *
+   * It asserted the absence of "Lookup field" — a string the rewrite DELETED FROM EVERY
+   * STATE. So it passed whether the banner fired or not, and a sabotage making the banner
+   * fire at ZERO unresolved (`> 0` → `>= 0`) went GREEN with a verified plant.
+   *
+   * ⭐ AN ANTI-VACUITY ARM PINNED TO THE OLD WORDING BECOMES VACUOUS THE MOMENT THE WORDING
+   * CHANGES — and it does so silently, because deleting a string can only make a
+   * `not.toMatch` MORE true. Assert against the CURRENT sentence, and against the banner
+   * being absent at all.
+   */
+  it('🔴 ANTI-VACUITY CONTROL: zero unresolved renders NO unresolved sentence', () => {
     const { container } = mount('database', null, HEALTHY, null, 0);
-    expect(container.textContent ?? '').not.toMatch(/Lookup field/i);
+    const t = container.textContent ?? '';
+    expect(t).not.toMatch(/no client recorded/i);        // the CURRENT copy
+    expect(t).not.toMatch(/attribution gap/i);
+    expect(t).not.toMatch(/Lookup field/i);              // and the retired one stays gone
   });
 });
