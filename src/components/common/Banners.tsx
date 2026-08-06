@@ -33,3 +33,49 @@ export function ConfigBanner() {
     </div>
   );
 }
+
+/**
+ * THE HONEST-NUMBERS BANNER — the on-screen half of the mission.
+ *
+ * @andrew accepted the loss of the exclusion list and the setter rates. That makes
+ * performanceSpend === totalSpend permanent and every cost-per-lead inflated, and it makes
+ * every payout figure use a $5 default nobody set. The detectors for both have existed and
+ * been correct for a while; NOTHING RENDERED THEM, which meant a user still saw exactly
+ * what they saw before the work started.
+ *
+ * ⚠️ DELIBERATELY MINIMAL AND OPINION-FREE. It renders `honestNumbers.messages` verbatim
+ * and invents no copy of its own — the sentences are @raccoon's and they are already
+ * numberless by design, so that a count here can never contradict the page it describes.
+ * @dash owns this surface; this exists so the mission is not undelivered at deploy, and it
+ * is meant to be replaced rather than defended.
+ *
+ * NOT DISMISSABLE, on purpose: the condition it reports is not transient, it is the
+ * permanent consequence of a deletion. A dismiss control would let the warning be silenced
+ * while the numbers stayed wrong, which is the defect wearing a different hat.
+ */
+export function HonestNumbersBanner({ messages }: { messages: string[] }) {
+  // Empty means everything is trustworthy. Rendering an empty banner would train the eye
+  // to skip it, which is how a real warning stops being read.
+  if (messages.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      className="border border-warning/40 bg-warning/5 rounded-xl p-4 flex items-start gap-3"
+    >
+      <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+      <div className="flex-1 space-y-1">
+        <p className="text-sm font-semibold text-foreground">
+          Some numbers on this page are not what they appear
+        </p>
+        <ul className="space-y-1">
+          {messages.map(m => (
+            <li key={m} className="text-sm text-muted-foreground">
+              {m}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}

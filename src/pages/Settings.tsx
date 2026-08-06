@@ -3,6 +3,7 @@ import { useData } from '@/hooks/useData';
 import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData } from '@/lib/dataService';
 import type { AppSettings, AccountMapping } from '@/lib/types';
+import { checkSettingsWrite } from '@/lib/settingsWriteGuard';
 import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2, Search } from 'lucide-react';
 
 function isJunkAccount(name: string): boolean {
@@ -20,6 +21,22 @@ const REQUIRED_MAPPINGS = [
 export default function SettingsPage() {
   const { settings, setSettings, adSpend, accounts, callData, appointments, refresh } = useData();
   const [form, setForm] = useState<AppSettings>(settings);
+  // 🔴 THE 22:18:48Z WIPE. `form` used to be seeded ONCE from `settings` and NEVER
+  // re-synced when loadSettingsAsync resolved, so on a cold browser it held
+  // DEFAULT_SETTINGS permanently — and the autosave below then wrote those defaults
+  // over the real config, with no click. Both halves are fixed here:
+  //   ① hydrate `form` from the loaded config on the FIRST identity change of
+  //      `settings` (loadSettingsAsync always calls setSettings with a new object)
+  //   ② hold the autosave until that has happened.
+  const initialSettingsRef = useRef(settings);
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (hydrated) return;
+    if (settings !== initialSettingsRef.current) {
+      setForm(settings);
+      setHydrated(true);
+    }
+  }, [settings, hydrated]);
   const [showToken, setShowToken] = useState(false);
   const [sheetStatus, setSheetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [sheetPreview, setSheetPreview] = useState<Record<string, string>[]>([]);
@@ -118,12 +135,23 @@ useEffect(() => {
       isFirstRender.current = false;
       return;
     }
+    // ① GATE: never autosave from an unhydrated form. This is the fix for the wipe —
+    // the async mappings load fires setAccountMappings, which used to reach performSave
+    // with `form` still holding DEFAULT_SETTINGS.
+    if (!hydrated) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
+      // ② NET: even hydrated, refuse a write that would blank populated config. The
+      // gate protects this caller; the guard protects against the next one too.
+      const verdict = checkSettingsWrite(form, settings);
+      if (!verdict.safe) {
+        console.error('[settings] autosave REFUSED —', verdict.reason);
+        return;
+      }
       performSave(form, accountMappings);
     }, 800);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [form, accountMappings, performSave]);
+  }, [form, accountMappings, performSave, hydrated, settings]);
 
   const updateForm = (patch: Partial<AppSettings>) => {
     setForm(prev => ({ ...prev, ...patch }));
@@ -329,21 +357,20 @@ useEffect(() => {
       {/* Section: AI Assistant */}
       <section className="card-elevated p-6 space-y-4">
         <h2 className="font-semibold text-base">AI Assistant</h2>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Anthropic API Key</label>
-          <div className="relative mt-1">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={form.anthropicApiKey}
-              onChange={e => updateForm({ anthropicApiKey: e.target.value })}
-              placeholder="sk-ant-..."
-              className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 pr-10"
-            />
-            <button type="button" onClick={() => setShowToken(!showToken)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">Required for the AI chat assistant. Get your key at console.anthropic.com</p>
+        {/*
+          The Anthropic API key input is GONE ON PURPOSE — do not restore it.
+          Anything typed here was saved into `app_settings`, a table readable by
+          the anon role, i.e. by anyone on the internet. Leaving an empty box here
+          would be worse than useless: a user seeing a blank key field on a broken
+          dashboard re-enters the key, and that write re-opens the exact hole.
+          The key is a server-side secret now. Rotation happens there.
+        */}
+        <div className="rounded-lg border border-muted bg-muted/30 p-3">
+          <p className="text-sm font-medium text-foreground">API key is managed server-side</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            The Anthropic key is no longer stored in application settings and cannot be
+            entered here. It lives in server-side secrets, where the browser cannot read it.
+          </p>
         </div>
       </section>
 
@@ -369,23 +396,20 @@ useEffect(() => {
             className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
           />
         </div>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Personal Access Token</label>
-          <div className="relative mt-1">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={form.airtableToken}
-              onChange={e => updateForm({ airtableToken: e.target.value })}
-              placeholder="pat..."
-              className="w-full px-3 py-2 pr-10 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-            <button onClick={() => setShowToken(!showToken)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
+        {/*
+          The Airtable Personal Access Token input is GONE ON PURPOSE — see the
+          note in the AI Assistant section above. Same reasoning, same table.
+        */}
+        <div className="rounded-lg border border-muted bg-muted/30 p-3">
+          <p className="text-sm font-medium text-foreground">Access token is managed server-side</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            The Airtable token is no longer stored in application settings and cannot be
+            entered here. It lives in server-side secrets, where the browser cannot read it.
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={testAirtable} disabled={!form.airtableBaseId || !form.airtableToken || airtableStatus === 'loading'}
+          {/* `!form.airtableToken` was a third condition here; the field no longer exists. */}
+          <button onClick={testAirtable} disabled={!form.airtableBaseId || airtableStatus === 'loading'}
             className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50">
             {airtableStatus === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Test Connection'}
           </button>

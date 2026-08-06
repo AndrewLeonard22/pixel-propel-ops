@@ -1,27 +1,40 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
+import { hasUsableData } from '@/lib/sourceStatus';
 import { ConfigBanner } from '@/components/common/Banners';
 import { formatCurrency, formatDate } from '@/lib/dataService';
-import { ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Check, AlertTriangle } from 'lucide-react';
 import { endOfMonth, addMonths, subMonths, format, startOfMonth } from 'date-fns';
-
-function parseDateSafe(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
-  let d = new Date(normalized);
-  if (!isNaN(d.getTime())) return d;
-  const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
-  if (dateOnly && dateOnly !== dateStr) {
-    d = new Date(dateOnly);
-    if (!isNaN(d.getTime())) return d;
-  }
-  return null;
-}
+// ⑤ one of the six divergent parseDateSafe copies, replaced by the shared parser.
+// The local copy handed ISO strings to `new Date()`, which reads them as UTC midnight
+// and renders the PREVIOUS calendar day west of UTC.
+import { parseSourceDate } from '@/lib/dates';
+// ⑦ the payout arithmetic, moved out of this component so it can be tested at all.
+import { computeSetterPayouts, formatPayoutExport } from '@/lib/payout';
 
 type PayPeriod = 'first' | 'second';
 
 export default function Agents() {
-  const { accounts, settings, configured } = useData();
+  const { accounts, settings, configured, sources } = useData();
+  // 🔴 Payouts are derived ENTIRELY from Airtable appointments. If that source did not
+  // answer, an empty setter list is UNKNOWN, not zero — and "No valid appointments
+  // found" would be the same lie BIRD-008 caught on the dashboard, on this page.
+  const apptsOk = hasUsableData(sources.airtable.state);
+  // 🔴 BIRD-051. `eligibleAppointments` reaches appointments THROUGH `accounts`
+  // (`accounts.flatMap(a => a.appointmentList)`), and accounts are WINDSOR-derived.
+  // So Windsor dying empties the payout list while Airtable is perfectly healthy —
+  // and guarding on `apptsOk` alone made this page assert "this is a REAL ZERO"
+  // while holding a valid in-period appointment for a named setter.
+  //
+  // This is my own rule broken in my own fix: A GUARD MUST NAME EVERY SOURCE THE
+  // DERIVATION TRAVERSES, NOT THE SOURCE THE VALUE BELONGS TO. Appointments belong
+  // to Airtable; the derivation traverses Windsor.
+  const spendOk = hasUsableData(sources.windsor.state);
+  const payoutDataOk = apptsOk && spendOk;
+  const downSources = [
+    !apptsOk ? sources.airtable : null,
+    !spendOk ? sources.windsor : null,
+  ].filter(Boolean) as (typeof sources.airtable)[];
   const [payPeriod, setPayPeriod] = useState<PayPeriod>('first');
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
   const [copied, setCopied] = useState(false);
@@ -53,41 +66,25 @@ export default function Agents() {
       .flatMap(a => a.appointmentList)
       .filter(appt => {
         if ((appt.leadValid || '').toLowerCase() !== 'valid') return false;
-        const d = parseDateSafe(appt.appointmentDate);
+        const d = parseSourceDate(appt.appointmentDate);
         if (!d) return false;
         return d >= periodRange.from && d <= periodRange.to;
       });
   }, [accounts, periodRange]);
 
-  const setterGroups = useMemo(() => {
-    const groups = new Map<string, typeof eligibleAppointments>();
-    for (const appt of eligibleAppointments) {
-      const setter = appt.setter?.trim() || '(Unknown)';
-      if (!groups.has(setter)) groups.set(setter, []);
-      groups.get(setter)!.push(appt);
-    }
-    const inactive = settings.inactiveSetters || [];
-    return Array.from(groups.entries())
-      .filter(([name]) => !inactive.includes(name))
-      .map(([name, appts]) => {
-        const rateConfig = (settings.setterBonusRates || []).find(r => r.setterName === name);
-        const rate = rateConfig?.rate ?? 5;
-        return { name, appts, rate, total: appts.length * rate };
-      })
-      .sort((a, b) => b.total - a.total);
-  }, [eligibleAppointments, settings.setterBonusRates, settings.inactiveSetters]);
+  const payout = useMemo(
+    () => computeSetterPayouts(eligibleAppointments, settings),
+    [eligibleAppointments, settings],
+  );
 
-  const grandTotal = useMemo(() => setterGroups.reduce((s, g) => s + g.total, 0), [setterGroups]);
+  const setterGroups = payout.rows;
+  // Only PAYABLE rows count. The (Unknown) bucket is shown but not paid.
+  const grandTotal = payout.payableTotal;
 
   const handleExport = () => {
-    const lines = [
-      `Setter Payout — ${periodLabel}`,
-      '',
-      ...setterGroups.map(g => `${g.name}: ${g.appts.length} appointment${g.appts.length !== 1 ? 's' : ''} × $${g.rate} = ${formatCurrency(g.total)}`),
-      '',
-      `Total: ${formatCurrency(grandTotal)}`,
-    ];
-    navigator.clipboard.writeText(lines.join('\n'));
+    navigator.clipboard.writeText(
+      formatPayoutExport(payout, periodLabel, formatCurrency),
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -139,14 +136,49 @@ export default function Agents() {
         </div>
       </div>
 
+      {/* ⑦ The config-wipe signature: every rate on screen is invented. Say so ONCE,
+           loudly, because the per-card note is easy to read past. */}
+      {payout.allRatesFabricated && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-amber-700">No setter bonus rates are configured.</p>
+            <p className="text-amber-700/90 mt-0.5">
+              Every amount below uses the $5 default, which nobody set. Set the real rates in
+              Settings before paying out.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Setter cards */}
-      {setterGroups.length === 0 ? (
+      {!payoutDataOk ? (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-4">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-destructive">
+              {downSources.map(src => (
+                <span key={src.key} className="block">
+                  {src.label} — {src.state === 'not-configured'
+                    ? `not connected. Missing: ${src.missingSettings.join(', ')}.`
+                    : `could not load${src.error ? `: ${src.error}` : ''}.`}
+                </span>
+              ))}
+            </p>
+            <p className="text-destructive/90 mt-0.5">
+              Payouts are calculated from appointments, so none can be shown. This is
+              unknown, not zero — do not read it as "nobody is owed anything".
+            </p>
+          </div>
+        </div>
+      ) : setterGroups.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground text-sm">
-          No valid appointments found for this pay period.
+          No valid appointments in this pay period. Appointments loaded correctly — this
+          is a real zero.
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {setterGroups.map(({ name, appts, rate, total }) => (
+          {setterGroups.map(({ name, appointments: appts, rate, total, rateSource, payable, warning }) => (
             <div key={name} className="card-elevated p-5 space-y-4">
               {/* Setter header */}
               <div className="flex items-center gap-3">
@@ -155,7 +187,12 @@ export default function Agents() {
                 </div>
                 <div className="min-w-0">
                   <p className="font-semibold text-sm truncate">{name}</p>
-                  <p className="text-xs text-muted-foreground">${rate}/appt bonus rate</p>
+                  <p className="text-xs text-muted-foreground">
+                    ${rate}/appt bonus rate
+                    {rateSource === 'fallback' && (
+                      <span className="ml-1 text-amber-600 font-medium">(default — not configured)</span>
+                    )}
+                  </p>
                 </div>
                 <div className="ml-auto text-right shrink-0">
                   <p className={`text-xl font-bold font-mono-tabular ${total > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
@@ -164,6 +201,14 @@ export default function Agents() {
                   <p className="text-xs text-muted-foreground">{appts.length} appt{appts.length !== 1 ? 's' : ''}</p>
                 </div>
               </div>
+
+              {/* ⑦ why this row is not trustworthy, at the row it applies to */}
+              {warning && (
+                <div className={`flex items-start gap-1.5 text-xs rounded px-2 py-1.5 ${payable ? 'bg-amber-500/10 text-amber-700' : 'bg-destructive/10 text-destructive'}`}>
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{warning}</span>
+                </div>
+              )}
 
               {/* Stats row */}
               <div className="flex gap-6 text-xs">

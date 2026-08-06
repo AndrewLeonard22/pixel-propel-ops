@@ -5,7 +5,12 @@ export interface AppSettings {
   callCenterSheetTab: string;
   airtableBaseId: string;
   airtableTableName: string;
-  airtableToken: string;
+  // ⛔ NO CREDENTIAL FIELDS IN AppSettings. This object is persisted to the
+  // `app_settings` table, which is readable by the anon role — i.e. by anyone,
+  // because this app has no authentication and its publishable key ships in the
+  // browser bundle. `airtableToken` and `anthropicApiKey` lived here and were
+  // retrievable from the open internet. They now live in server-side secrets.
+  // The DB trigger `app_settings_reject_unsafe` rejects them if re-added.
   columnMappings: Record<string, string>;
   showPausedAccounts: boolean;
   showChurnedAccounts: boolean;
@@ -23,7 +28,6 @@ export interface AppSettings {
     poorCpl: number;
     poorLeadPercent: number;
   };
-  anthropicApiKey: string;
   excludedCampaigns: string[];
   setterBonusRates: { setterName: string; rate: number }[];
   inactiveSetters: string[];
@@ -31,7 +35,14 @@ export interface AppSettings {
 
 export interface AdSpendRow {
   month: string;
+  /** The source string exactly as the sheet rendered it. Format is NOT guaranteed. */
   date: string;
+  /**
+   * `date` normalised to ISO `YYYY-MM-DD`, or '' when it could not be interpreted.
+   * ADDITIVE: `date` is unchanged, because six page-level parsers still read it and four
+   * of them shift an ISO string by one day. Migrate readers to this field deliberately.
+   */
+  dateISO: string;
   campaign: string;
   campaignId: string;
   adsetName: string;
@@ -99,6 +110,29 @@ export interface AccountSummary {
   campaigns: CampaignSummary[];
   appointmentList: AppointmentRow[];
   pausedDays?: number;
+  /**
+   * WHICH SOURCES ACTUALLY ANSWERED. Not decoration — without these the row cannot tell a
+   * dead source from a real zero.
+   *
+   * Every money and count field above is a `number`, and a failed source contributes `[]`,
+   * so `costPerAppt = totalAppts > 0 ? spend/totalAppts : 0` yields a confident `$0.00`
+   * whether the appointments source returned nothing or never answered at all. @bird
+   * measured the consequence: the KPI tiles read "—" while the per-account table on the
+   * SAME SCREEN read COST/APPT $0.00, CLOSED 0, REVENUE $0.00 — and the table is what a
+   * buyer actually reads.
+   *
+   * The tiles were honest only because the per-source state is consulted at the RENDER
+   * layer (Dashboard.tsx:751-753), which the rows never reach. Carrying it in the DATA
+   * fixes every consumer at once instead of prop-drilling it through five component
+   * levels — the nested campaign/adset/ad rows derive from the same appointments, so one
+   * flag per source covers all of them.
+   *
+   * OPTIONAL, and absent means "known": Targets.tsx and TeamPerformance.tsx call the
+   * aggregator without source outcomes and must keep behaving exactly as they do today.
+   */
+  spendKnown?: boolean;
+  apptsKnown?: boolean;
+  callsKnown?: boolean;
 }
 
 export interface CampaignSummary {

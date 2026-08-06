@@ -1,25 +1,18 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
-import { ConfigBanner } from '@/components/common/Banners';
+import { hasUsableData } from '@/lib/sourceStatus';
+import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { formatCurrency, formatPercent, buildAccountSummaries } from '@/lib/dataService';
 import { loadAccountMappings, getAccountMapping } from '@/lib/config';
 import type { AccountMapping } from '@/lib/types';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
+// ⑤ shared date parser. The local copy removed here handed ISO date-only strings to
+// new Date(), which parses them as UTC MIDNIGHT and renders the PREVIOUS calendar day
+// west of UTC. Harmless today (the derived tab is all M/D/YYYY) and load-bearing the
+// moment ③ repoints to the raw tab, which is 581/581 ISO.
+import { parseSourceDate as parseDateSafe } from '@/lib/dates';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months';
-
-function parseDateSafe(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
-  let d = new Date(normalized);
-  if (!isNaN(d.getTime())) return d;
-  const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
-  if (dateOnly && dateOnly !== dateStr) {
-    d = new Date(dateOnly);
-    if (!isNaN(d.getTime())) return d;
-  }
-  return null;
-}
 
 function MetricBar({
   label, scope, value, displayValue, zones, scaleMax, description
@@ -71,7 +64,7 @@ function MetricBar({
 }
 
 export default function Targets() {
-  const { accounts, adSpend, appointments, callData, settings, configured } = useData();
+  const { accounts, adSpend, appointments, callData, settings, configured, honestNumbers, sources } = useData();
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
 
   const dateRange = useMemo(() => {
@@ -154,7 +147,26 @@ export default function Targets() {
     };
   }, [filteredAccounts]);
 
+  // 🔴 EVERY NUMBER ON THIS PAGE TRAVERSES WINDSOR, AND NOTHING HERE CONSULTED IT.
+  // @apprentice and @raccoon measured it: this page RE-DERIVES its own accounts via
+  // buildAccountSummaries(filteredSpend, …), so a dead Windsor yields an EMPTY list and
+  // every reduce(…, 0) returns a hard 0 — rendered with no guard of any kind. The
+  // Dashboard had 5 of 9 tiles guarded and the plumbing to fix the rest; this page had
+  // NO known-state plumbing at all.
+  //
+  // Gated at the PAGE rather than at each formatter: with Windsor dead there is no
+  // subset of these numbers that remains knowable, so suppressing them individually
+  // would leave a page of em dashes pretending to still be a report.
   if (!configured) return <ConfigBanner />;
+  if (!hasUsableData(sources.windsor.state)) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-bold text-foreground">Targets</h1>
+        <HonestNumbersBanner messages={honestNumbers.messages} />
+        <ErrorBanner message={`${sources.windsor.label} is unavailable, and every figure on this page is calculated from it. Nothing is shown rather than shown as zero.`} />
+      </div>
+    );
+  }
   if (!stats) return null;
 
   return (
@@ -162,6 +174,7 @@ export default function Targets() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-foreground">Targets</h1>
+          <HonestNumbersBanner messages={honestNumbers.messages} />
           <p className="text-sm text-muted-foreground mt-1">How you're performing against your benchmarks</p>
         </div>
         <select

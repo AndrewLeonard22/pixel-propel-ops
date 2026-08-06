@@ -1,5 +1,6 @@
+import { supabase } from '@/integrations/supabase/client';
 import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, AdSummary, TeamMember, PerformanceLevel, CallRow } from './types';
-import { convertSheetUrlToCsv } from './config';
+import { convertSheetUrlToCsv, isSourceConfigured } from './config';
 
 // Parse CSV text into rows
 function parseCsv(text: string): Record<string, string>[] {
@@ -52,6 +53,60 @@ function parseNumber(val: string | undefined): number {
   return isNaN(num) ? 0 : num;
 }
 
+/**
+ * Normalise a source date string to ISO `YYYY-MM-DD`. Returns '' when it cannot be
+ * interpreted — an honest refusal, never a guess and never today's date.
+ *
+ * ACCEPTS, because all three are present in real exports of this feed:
+ *   M/D/YYYY        the derived tab's rendered format
+ *   YYYY-MM-DD      the raw Windsor tab's format
+ *   a bare integer  a Google Sheets serial, emitted when a cell lost its date format.
+ *                   Four such rows exist in the live feed. `new Date("45884")` reads that
+ *                   as the YEAR 45884, so the naive parse produces a valid far-future date
+ *                   and nothing downstream errors — it is a successful parse of the wrong
+ *                   thing, which is why this is decoded explicitly against the Sheets epoch.
+ *
+ * REFUSES: anything else, including the empty string.
+ */
+export function normalizeSourceDate(raw: string | undefined | null): string {
+  if (raw == null) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return isRealDate(+iso[1], +iso[2], +iso[3]) ? s : '';
+
+  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdy) {
+    const [, m, d, y] = mdy;
+    return isRealDate(+y, +m, +d) ? `${y}-${pad2(+m)}-${pad2(+d)}` : '';
+  }
+
+  // Google Sheets serial: whole days since 1899-12-30. Bounded to a plausible era so a
+  // stray identifier cannot be silently reinterpreted as a date.
+  if (/^\d{1,6}$/.test(s)) {
+    const serial = Number(s);
+    if (serial >= 36526 && serial <= 73050) {          // 2000-01-01 .. 2099-12-31
+      const ms = Date.UTC(1899, 11, 30) + serial * 86400000;
+      const dt = new Date(ms);
+      return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+    }
+    return '';
+  }
+
+  return '';
+}
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+function isRealDate(y: number, m: number, d: number): boolean {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 // resolveAccountName removed — matching now uses settings.accountAliases directly
 
 export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpendRow[]> {
@@ -67,6 +122,7 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
   return rows.map(r => ({
     month: r['Month'] || '',
     date: r['Date'] || '',
+    dateISO: normalizeSourceDate(r['Date'] ?? r['date']),
     campaign: r['Campaign'] || '',
     campaignId: r['Campaign Id'] || r['Campaign ID'] || '',
     adsetName: r['Adset Name'] || r['Ad Set Name'] || '',
@@ -79,57 +135,120 @@ export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpe
   }));
 }
 
+/**
+ * A DEAD CALL-CENTRE SOURCE MUST NOT RENDER AS "no calls were made".
+ *
+ * This used to swallow FOUR distinct failures into the same empty array — never
+ * configured, unparseable URL, HTTP error, and any network throw — so a 403 was
+ * indistinguishable from a quiet day. @bird drove it on production: total dials went
+ * 15,302 -> 0 with no error, no banner, and "Updated" still advancing.
+ *
+ * It now THROWS, which is safe because fetchAllSources() settles each source
+ * independently and turns a throw into { status: 'failed' } for that source alone.
+ * Before that isolation existed, throwing here would have taken the other two down.
+ *
+ * `not configured` stays a RETURN rather than a throw: it is a legitimate state, not a
+ * failure, and fetchAllSources reports it as such before this function is ever called.
+ */
 export async function fetchCallCenterData(settings: AppSettings): Promise<CallRow[]> {
   if (!settings.callCenterSheetUrl) return [];
-  try {
-    const csvUrl = convertSheetUrlToCsv(settings.callCenterSheetUrl, settings.callCenterSheetTab);
-    if (!csvUrl) return [];
-    const response = await fetch(csvUrl);
-    if (!response.ok) return [];
-    const text = await response.text();
-    const rows = parseCsv(text);
-    return rows.map(r => ({
-      timestamp: r['Timestamp'] || '',
-      ghlLocationName: r['ghl_location_name'] || '',
-      agentName: r['Agent Name'] || '',
-      callDuration: parseNumber(r['Call Duration']),
-      callDisposition: r['call_dispostion'] || r['call_disposition'] || '',
-    }));
-  } catch {
-    return [];
+
+  const csvUrl = convertSheetUrlToCsv(settings.callCenterSheetUrl, settings.callCenterSheetTab);
+  if (!csvUrl) throw new Error('Call centre sheet URL is not a valid Google Sheets link');
+
+  const response = await fetch(csvUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch call centre sheet: ${response.status}`);
   }
+
+  const text = await response.text();
+  const rows = parseCsv(text);
+  return rows.map(r => ({
+    timestamp: r['Timestamp'] || '',
+    ghlLocationName: r['ghl_location_name'] || '',
+    agentName: r['Agent Name'] || '',
+    callDuration: parseNumber(r['Call Duration']),
+    callDisposition: r['call_dispostion'] || r['call_disposition'] || '',
+  }));
 }
 
 export async function fetchAirtableData(settings: AppSettings): Promise<{ records: AppointmentRow[], fields: string[] }> {
-  const { airtableBaseId, airtableTableName, airtableToken, columnMappings } = settings;
-  
-  if (!airtableBaseId || !airtableToken) throw new Error('Airtable not configured');
-  
+  const { airtableBaseId, airtableTableName, columnMappings } = settings;
+
+  if (!airtableBaseId) throw new Error('Airtable not configured');
+
+  // ROUTED THROUGH @apprentice's EDGE FUNCTION. The browser holds no credential and never
+  // sees one — the proxy reads AIRTABLE_TOKEN from its own environment. That is precisely
+  // why this patch is credential-free: there is nothing here to leak.
+  //
+  // ⚠️ THE FAILURE CONTRACT IS THE POINT, AND IT IS ENFORCED AT BOTH ENDS. The proxy never
+  // returns 200 on failure (proxy.contract.test.ts), and this function must not undo that
+  // by turning an error into an empty list. `records: []` under status 'ok' means Airtable
+  // genuinely returned nothing; ANY other outcome throws, so a dead source can never render
+  // as "zero appointments". Safe to throw because fetchAllSources() isolates each source.
+  //
+  // The proxy paginates server-side and returns the complete set, so the client offset loop
+  // is gone rather than left unreachable below a throw.
+  //
+  // ⚠️ LOAD-BEARING CONTRACT, NOT A CHECK — @bird's arm G. Because the loop is gone, this
+  // client SILENTLY IGNORES an `offset` in the response. If the proxy ever starts
+  // returning PARTIAL pages, a partial set renders as a complete one: no error, no dash,
+  // no way to tell. It is safe today because the proxy returns everything, and that is a
+  // CONTRACT rather than something this code verifies. Anyone changing the proxy's
+  // pagination must change this function in the same commit.
+  const { data: payload, error: invokeError } = await supabase.functions.invoke(
+    'airtable-proxy',
+    { body: { baseId: airtableBaseId, tableName: airtableTableName } },
+  );
+
+  if (invokeError) {
+    // A non-2xx carries the proxy's own {status, message}; surface THAT, not the generic
+    // "Edge Function returned a non-2xx status code", which names nothing a user can act on.
+    let detail = invokeError.message;
+    const ctx = (invokeError as { context?: Response }).context;
+
+    // 404 MEANS THE FUNCTION IS NOT DEPLOYED, AND THAT IS A DIFFERENT PROBLEM ENTIRELY.
+    // @apprentice measured that these 207 lines of Deno have NEVER executed — not run,
+    // not typechecked, not called, in any environment. Step 1 of DEPLOY.md is their first
+    // execution ever, so a failure there is EXPECTED at least once and must be legible.
+    // "Edge Function returned a non-2xx status code" would send someone to debug a token
+    // for a function that was never pasted.
+    if (ctx?.status === 404) {
+      throw new Error(
+        'Airtable proxy: the airtable-proxy Edge Function is not deployed. ' +
+          'Paste it and set AIRTABLE_TOKEN — see supabase/functions/DEPLOY.md. ' +
+          'This is not a token problem.',
+      );
+    }
+
+    if (ctx && typeof ctx.json === 'function') {
+      try {
+        const body = await ctx.json();
+        if (body?.message) detail = String(body.message);
+      } catch {
+        // keep the generic message rather than inventing one
+      }
+    }
+    throw new Error(`Airtable proxy: ${detail}`);
+  }
+
+  if (!payload || payload.status !== 'ok' || !Array.isArray(payload.records)) {
+    throw new Error(
+      `Airtable proxy returned an unusable response${payload?.message ? `: ${payload.message}` : ''}`,
+    );
+  }
+
   const allRecords: AppointmentRow[] = [];
-  let offset: string | undefined;
-  let fields: string[] = [];
-  
-  do {
-    const url = new URL(`https://api.airtable.com/v0/${airtableBaseId}/${encodeURIComponent(airtableTableName)}`);
-    url.searchParams.set('pageSize', '100');
-    url.searchParams.set('cellFormat', 'string');
-    url.searchParams.set('timeZone', 'America/New_York');
-    url.searchParams.set('userLocale', 'en-us');
-    if (offset) url.searchParams.set('offset', offset);
-    
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${airtableToken}` },
-    });
-    
-    if (!response.ok) throw new Error(`Airtable error: ${response.status}`);
-    
-    const data = await response.json();
-    
-    if (data.records && data.records.length > 0 && fields.length === 0) {
+  let fields: string[] = Array.isArray(payload.fields) ? payload.fields : [];
+
+  {
+    const data = payload as { records: { fields: Record<string, unknown> }[] };
+
+    if (data.records.length > 0 && fields.length === 0) {
       fields = Object.keys(data.records[0].fields);
     }
-    
-    for (const rec of data.records || []) {
+
+    for (const rec of data.records) {
       const f = rec.fields;
       const getField = (key: string) => {
         const mapped = columnMappings[key] || key;
@@ -162,11 +281,143 @@ export async function fetchAirtableData(settings: AppSettings): Promise<{ record
         clientBillingModel: String(getField('Client Billing Model')),
       });
     }
-    
-    offset = data.offset;
-  } while (offset);
-  
+  }
+
   return { records: allRecords, fields };
+}
+
+/**
+ * ACCOUNT IDENTITY — the account column is UNTYPED and this names what is in it.
+ *
+ * The feed carries no account_id field. `Account Name` holds three different things:
+ *   a human name          "Backyard Paradiso"
+ *   a META ACCOUNT ID     "10170221, USD"   — Meta's display for an account nobody named.
+ *                         4 of 61 labels, all historical: every one stopped on or before
+ *                         2025-12-31, because each was NAMED and the id form then vanished.
+ *   a whitespace twin     "Co-Lights " vs "Co-Lights" — 2 pairs in the live feed
+ *
+ * ⚠️ An id-form label is a PREDICTION, not just an observation: it marks an account nobody
+ * has named in Meta, and the day somebody names it the history SPLITS — old rows keep the
+ * id, new rows get the name. That is not hypothetical; it has already happened three times.
+ */
+export type AccountLabelKind = 'name' | 'meta-account-id';
+
+export interface AccountLabel {
+  raw: string;
+  key: string;
+  kind: AccountLabelKind;
+  metaAccountId?: string;
+}
+
+/** Grouping key. trim+lowercase, which is what the aggregator already does — so this is
+ *  behaviour-preserving, and it collapses the whitespace twins as a side effect. */
+export function accountKey(raw: string | undefined | null): string {
+  return String(raw ?? '').trim().toLowerCase();
+}
+
+export function classifyAccountLabel(raw: string | undefined | null): AccountLabel {
+  const r = String(raw ?? '').trim();
+  const m = r.match(/^(\d{6,})\s*,\s*[A-Z]{3}$/);
+  return m
+    ? { raw: r, key: accountKey(r), kind: 'meta-account-id', metaAccountId: m[1] }
+    : { raw: r, key: accountKey(r), kind: 'name' };
+}
+
+/**
+ * DETERMINISTIC ROW KEY, used to deduplicate BEFORE aggregating.
+ *
+ * Uses dateISO rather than the raw date string, so 8/4/2026 and 2026-08-04 — the same day
+ * from two different tabs — collapse to one key instead of surviving as two rows.
+ */
+export function adSpendRowKey(r: AdSpendRow): string {
+  return [
+    r.dateISO || r.date,
+    accountKey(r.accountName),
+    (r.campaignId || '').trim(),
+    (r.adsetId || '').trim(),
+    (r.adId || '').trim(),
+  ].join('\u0000');
+}
+
+export interface DedupeResult {
+  rows: AdSpendRow[];
+  /** ENUMERATED, not counted: a count says something was dropped, only the values say what. */
+  removed: { key: string; accountName: string; date: string }[];
+}
+
+/**
+ * Drop exact duplicate rows before they are summed.
+ *
+ * ⚠️ MEASURED BOUND, carry it: the live feed has ZERO duplicates on this key — 38,944 rows,
+ * 38,944 distinct keys. So this is BEHAVIOUR-NEUTRAL TODAY and exists for the prospective
+ * case: a re-export, an appended refresh or a Windsor backfill introduces them and nothing
+ * else in the pipeline would notice. Do NOT report that we have a duplicate problem.
+ */
+export function dedupeAdSpendRows(rows: AdSpendRow[]): DedupeResult {
+  const seen = new Set<string>();
+  const out: AdSpendRow[] = [];
+  const removed: DedupeResult['removed'] = [];
+  for (const r of rows) {
+    const k = adSpendRowKey(r);
+    if (seen.has(k)) {
+      removed.push({ key: k, accountName: r.accountName, date: r.dateISO || r.date });
+      continue;
+    }
+    seen.add(k);
+    out.push(r);
+  }
+  return { rows: out, removed };
+}
+
+/**
+ * ONE OUTCOME PER SOURCE — the seam that stops a single failure taking the others down.
+ *
+ * `refresh()` currently awaits all three fetches inside a single Promise.all, which REJECTS
+ * on the first rejection and therefore DISCARDS payloads that already arrived. Measured on
+ * production: with a real sheet URL restored and Airtable unavailable, Windsor is fetched
+ * successfully — one request — and the screen still renders $0.00 and an Airtable error.
+ * A partial restore reads as total failure.
+ *
+ * This returns a SETTLED result per source, and distinguishes three states the old shape
+ * could not tell apart:
+ *   ok             we asked and got an answer
+ *   not-configured we never asked, and that is a legitimate state, not a failure
+ *   failed         we asked and it broke — carries the reason
+ *
+ * "not-configured" and "failed" being separate is Andrew's requirement that a dead source
+ * must not render as a zero: an empty list is only honest when the status is `ok`.
+ */
+export type SourceOutcome<T> =
+  | { status: 'ok'; data: T }
+  | { status: 'not-configured' }
+  | { status: 'failed'; error: string };
+
+export interface AllSourcesResult {
+  googleSheet: SourceOutcome<AdSpendRow[]>;
+  airtable: SourceOutcome<{ records: AppointmentRow[]; fields: string[] }>;
+  callCenter: SourceOutcome<CallRow[]>;
+}
+
+async function settle<T>(
+  configured: boolean,
+  fetcher: () => Promise<T>,
+): Promise<SourceOutcome<T>> {
+  if (!configured) return { status: 'not-configured' };
+  try {
+    return { status: 'ok', data: await fetcher() };
+  } catch (e) {
+    return { status: 'failed', error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function fetchAllSources(settings: AppSettings): Promise<AllSourcesResult> {
+  // allSettled, never all — one rejection must not discard the others' payloads.
+  const [googleSheet, airtable, callCenter] = await Promise.all([
+    settle(isSourceConfigured(settings, 'googleSheet'), () => fetchGoogleSheetData(settings)),
+    settle(isSourceConfigured(settings, 'airtable'), () => fetchAirtableData(settings)),
+    settle(isSourceConfigured(settings, 'callCenter'), () => fetchCallCenterData(settings)),
+  ]);
+  return { googleSheet, airtable, callCenter };
 }
 
 function isBlank(val: string | null | undefined): boolean {
@@ -236,12 +487,160 @@ export function normalizeName(s: string): string {
     .trim();
 }
 
+/**
+ * Which sources actually answered on the fetch that produced these arrays.
+ *
+ * ⚠️ ABSENT MEANS KNOWN, DELIBERATELY. A caller that has no source outcomes to offer must
+ * keep the behaviour it has today — Targets.tsx:117 and TeamPerformance.tsx:89 both filter
+ * arrays they already hold and have no notion of a fetch at all. Defaulting to "unknown"
+ * would blank two pages that are working correctly, which is the mirror of the bug.
+ */
+export interface SourceKnown {
+  spend?: boolean;
+  appts?: boolean;
+  calls?: boolean;
+}
+
+/**
+ * May this metric be rendered as a NUMBER at all?
+ *
+ * Two DIFFERENT ways a figure can be meaningless, and both currently render as a confident
+ * zero:
+ *
+ *   ① THE SOURCE DID NOT ANSWER — `known === false`. A failed fetch contributes `[]`, and
+ *      every sum over `[]` is 0. @bird measured 61 of 61 accounts showing COST/APPT $0.00
+ *      from a dead feed.
+ *
+ *   ② THE DENOMINATOR IS ZERO — cost-per-appointment with no appointments is not $0.00,
+ *      it is UNDEFINED. `totalAppts > 0 ? spend/totalAppts : 0` collapses "cannot be
+ *      computed" into "computed, and it is nothing". This one fires even when every source
+ *      is perfectly healthy, which is why @raccoon measured that costPerAppt CANNOT
+ *      discriminate a dead source from a live one — it reads $0.00 in both (RACC-031).
+ *
+ * ⚠️ THIS APPLIES TO RATIOS, NOT TO SUMS. A live source reporting 0 dials genuinely made
+ * zero calls, and blanking that would hide a real and important fact. Only a quotient is
+ * meaningless at a zero denominator.
+ *
+ * ⚠️ `known === false`, never `!known` — absent means known, and `!undefined` is true.
+ */
+export function metricIsMeaningful(known: boolean | undefined, denominator: number): boolean {
+  if (known === false) return false;
+  return denominator > 0;
+}
+
+/**
+ * IS THE CAMPAIGN EXCLUSION LIST ACTUALLY FILTERING ANYTHING?
+ *
+ * @andrew accepted the data loss — the 32 excluded campaigns are gone and are not coming
+ * back. That makes this detector the mission rather than a nicety: the software must not
+ * lie about the CONSEQUENCES of a loss he agreed to.
+ *
+ * WHAT BREAKS, MECHANICALLY: `excludedCampaignIds` is built from settings.excludedCampaigns.
+ * When it is empty the filter at the performanceSpend computation excludes NOTHING, so
+ * performanceSpend === totalSpend, and `cpl = performanceSpend / performanceLeads` is then
+ * computed across campaigns that were deliberately excluded — typically the ones burning
+ * spend for no leads, which is WHY they were excluded. ⇒ EVERY cost-per-lead and
+ * cost-per-appointment on the dashboard is inflated, and nothing on screen says so.
+ *
+ * ⚠️ WHY THREE STATES AND NOT A BOOLEAN. "performanceSpend === totalSpend" is the symptom
+ * @fable named, and taken alone it is AMBIGUOUS — it is equally true when:
+ *     ① nothing is configured                     ← the data loss. Numbers are unfiltered.
+ *     ② a list IS configured but matches no row   ← stale ids; also silently unfiltered,
+ *                                                   and a DIFFERENT thing to tell someone
+ *     ③ the excluded campaigns spent nothing      ← perfectly healthy, MUST NOT WARN
+ * A detector that cannot tell ① from ③ would cry wolf on a correctly-configured account,
+ * and the fastest way to get a warning ignored is to show it when nothing is wrong.
+ */
+export type ExclusionState = 'none-configured' | 'configured-but-inert' | 'active';
+
+export interface ExclusionReport {
+  state: ExclusionState;
+  /** How many ids the settings carry. 0 is the post-wipe state. */
+  configuredCount: number;
+  /** How many of those ids actually matched a spend row. */
+  matchedCount: number;
+  /** Spend that IS being counted toward CPL but would have been excluded. */
+  unfilteredSpend: number;
+  /** Named, not counted — a tally cannot be judged, and these go on screen. */
+  affectedAccounts: string[];
+}
+
+export function detectExclusionState(
+  adSpend: AdSpendRow[],
+  settings?: AppSettings,
+): ExclusionReport {
+  const configured = (settings?.excludedCampaigns || []).map(c => String(c).trim()).filter(Boolean);
+  const configuredIds = new Set(configured);
+
+  const matched = new Set<string>();
+  let unfilteredSpend = 0;
+  const affected = new Set<string>();
+  for (const r of adSpend) {
+    const id = (r.campaignId || '').trim();
+    if (id && configuredIds.has(id)) {
+      matched.add(id);
+      unfilteredSpend += r.spent;
+      if (r.accountName) affected.add(r.accountName);
+    }
+  }
+
+  // ③ first: a configured list that matched rows is working, whatever the spend totals say.
+  if (configured.length > 0 && matched.size > 0) {
+    return {
+      state: 'active',
+      configuredCount: configured.length,
+      matchedCount: matched.size,
+      unfilteredSpend: 0, // it IS being filtered — nothing is leaking into CPL
+      affectedAccounts: [],
+    };
+  }
+
+  // ② configured but nothing matched: the ids are stale, and the numbers are unfiltered
+  // exactly as if the list were empty — but the cause, and so the message, is different.
+  if (configured.length > 0) {
+    return {
+      state: 'configured-but-inert',
+      configuredCount: configured.length,
+      matchedCount: 0,
+      unfilteredSpend: 0,
+      affectedAccounts: [],
+    };
+  }
+
+  // ① nothing configured. Only report accounts that actually HAVE spend — an account with
+  // no spend has no inflated CPL, and naming it would be noise.
+  const withSpend = new Set<string>();
+  let total = 0;
+  for (const r of adSpend) {
+    if (r.spent > 0 && r.accountName) withSpend.add(r.accountName);
+    total += r.spent;
+  }
+  return {
+    state: 'none-configured',
+    configuredCount: 0,
+    matchedCount: 0,
+    unfilteredSpend: total,
+    affectedAccounts: Array.from(withSpend).sort(),
+  };
+}
+
+/** Do these numbers need a caveat on screen? Only ① and ② — never a healthy config. */
+export function exclusionsAreLying(r: ExclusionReport): boolean {
+  return r.state !== 'active';
+}
+
 export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],
   settings?: AppSettings,
   callData?: CallRow[],
+  known?: SourceKnown,
 ): { accounts: AccountSummary[], unmatchedAppointments: AppointmentRow[] } {
+  // `?? true` and not `|| true`: an explicit `false` must survive. `||` would turn every
+  // "this source is dead" back into "known", which is exactly the bug being fixed.
+  const spendKnown = known?.spend ?? true;
+  const apptsKnown = known?.appts ?? true;
+  const callsKnown = known?.calls ?? true;
   const accountMap = new Map<string, { spendRows: AdSpendRow[]; appts: AppointmentRow[]; originalName: string }>();
 
   // 1. Group ad spend by normalized account name
@@ -696,6 +1095,9 @@ export function buildAccountSummaries(
       totalDials: matchedDials,
       dialToApptPercent: matchedDials > 0 ? (totalAppts / matchedDials) * 100 : 0,
       avgCallDuration: matchedDials > 0 ? matchedDuration / matchedDials : 0,
+      spendKnown,
+      apptsKnown,
+      callsKnown,
       campaigns,
       appointmentList: data.appts,
     });

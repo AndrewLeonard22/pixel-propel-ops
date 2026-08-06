@@ -1,14 +1,15 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
-import { ConfigBanner, ErrorBanner } from '@/components/common/Banners';
+import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
-import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries } from '@/lib/dataService';
+import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries, metricIsMeaningful } from '@/lib/dataService';
 import { saveSettings, saveAccountMappings, loadAccountMappings, getAccountMapping } from '@/lib/config';
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check, X } from 'lucide-react';
 import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow, AccountMapping, AppSettings } from '@/lib/types';
 import DateRangePicker, { type DateRange, ALL_TIME } from '@/components/DateRangePicker';
+import { hasUsableData } from '@/lib/sourceStatus';
 
 interface AccountGroup {
   label: string;
@@ -63,20 +64,63 @@ function KPICard({ label, value, mono = true }: { label: string; value: string; 
   );
 }
 
-function CPLBadge({ value }: { value: number }) {
-  const color = value === 0 ? 'text-muted-foreground' : value < 35 ? 'text-success' : value <= 55 ? 'text-warning' : 'text-destructive';
-  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
+/**
+ * The only honest render for a source that did not answer. A zero here is a CLAIM — that
+ * the account booked nothing, closed nothing, earned nothing — and a dead feed cannot
+ * support it. @bird measured the tiles printing this while the table beside them printed
+ * $0.00 from the same dead source.
+ *
+ * ⚠️ ALWAYS COMPARE `=== false`, NEVER `!flag`. The flags are OPTIONAL: Targets.tsx and
+ * TeamPerformance.tsx build summaries without source outcomes, so their rows carry
+ * `undefined`, which means KNOWN. `!undefined` is true and would blank two working pages —
+ * the mirror of the bug this fixes.
+ */
+const UNKNOWN = '—';
+
+/**
+ * THE THREE RATIO BADGES, KEYED ON THE FLAG AND THE DENOMINATOR — NEVER ON THE VALUE.
+ *
+ * @raccoon (RACC-030/031) measured the two failure shapes that were sitting side by side
+ * in this file with OPPOSITE policies:
+ *
+ *   CostPerApptBadge   value === 0 -> grey, but PRINTS $0.00       fabricates a number  🔴
+ *   LeadToApptBadge    value === 0 -> "—"                          fails safe, still wrong
+ *
+ * Both were inferring "do we know this" FROM THE VALUE. The second only looks correct: a
+ * genuine 0% lead-to-appointment rate — a real and bad result a buyer needs to see — was
+ * being rendered as if we had no idea. Copying it would have fixed one badge and preserved
+ * the class in the other.
+ *
+ * ⚠️ AND IT GOT WORSE THE MOMENT I MADE "—" MEAN "the source did not answer": the same
+ * glyph then carried two unrelated meanings on one row, so a reader could not tell a dead
+ * feed from a zero. The value is no longer consulted for knownness anywhere.
+ */
+export function RatioBadge({ known, denominator, color, children }: {
+  known: boolean | undefined;
+  denominator: number;
+  color: string;
+  children: React.ReactNode;
+}) {
+  if (!metricIsMeaningful(known, denominator)) {
+    return <span className="font-mono-tabular text-muted-foreground">{UNKNOWN}</span>;
+  }
+  return <span className={`font-mono-tabular font-semibold ${color}`}>{children}</span>;
 }
 
-function CostPerApptBadge({ value }: { value: number }) {
-  const color = value === 0 ? 'text-muted-foreground' : value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
-  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatCurrency(value)}</span>;
+export function CPLBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
+  const color = value < 35 ? 'text-success' : value <= 55 ? 'text-warning' : 'text-destructive';
+  return <RatioBadge known={known} denominator={leads} color={color}>{formatCurrency(value)}</RatioBadge>;
 }
 
-function LeadToApptBadge({ value }: { value: number }) {
-  if (value === 0) return <span className="font-mono-tabular text-muted-foreground">—</span>;
+export function CostPerApptBadge({ value, appointments, known }: { value: number; appointments: number; known?: boolean }) {
+  const color = value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
+  return <RatioBadge known={known} denominator={appointments} color={color}>{formatCurrency(value)}</RatioBadge>;
+}
+
+export function LeadToApptBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
+  // A true 0% now renders as 0% — it is a real result, not an absence.
   const color = value >= 10 ? 'text-success' : value >= 5 ? 'text-warning' : 'text-destructive';
-  return <span className={`font-mono-tabular font-semibold ${color}`}>{formatPercent(value)}</span>;
+  return <RatioBadge known={known} denominator={leads} color={color}>{formatPercent(value)}</RatioBadge>;
 }
 
 function getPerfByProgram(program: string, cpl: number, costPerAppt: number, appointments: number): PerformanceLevel | null {
@@ -92,10 +136,16 @@ function getPerfByProgram(program: string, cpl: number, costPerAppt: number, app
   return 'poor';
 }
 
-function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: (account: AccountSummary) => void }) {
+export function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: (account: AccountSummary) => void }) {
   const mappings = loadAccountMappings();
   const { program, status } = getAccountMapping(account.accountName, mappings);
-  const perf = (status === 'Paused' || status === 'Churned') ? null : getPerfByProgram(program, account.cpl, account.costPerAppt, account.appointments);
+  // A coloured performance border is a verdict. Two of its three inputs come from sources
+  // that may not have answered, so a dead feed would paint every account "poor" — a claim
+  // about the buyer's work, drawn from nothing.
+  const perfKnown = account.spendKnown !== false && account.apptsKnown !== false;
+  const perf = (status === 'Paused' || status === 'Churned' || !perfKnown)
+    ? null
+    : getPerfByProgram(program, account.cpl, account.costPerAppt, account.appointments);
 
   return (
     <tr
@@ -110,17 +160,19 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
           {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
         </div>
       </td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatCurrency(account.spend)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.leads)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell"><CPLBadge value={account.cpl} /></td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.totalDials)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{formatNumber(account.appointments)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.spendKnown === false ? UNKNOWN : formatCurrency(account.spend)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.spendKnown === false ? UNKNOWN : formatNumber(account.leads)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell"><CPLBadge value={account.cpl} leads={account.leads} known={account.spendKnown} /></td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.callsKnown === false ? UNKNOWN : formatNumber(account.totalDials)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap">{account.apptsKnown === false ? UNKNOWN : formatNumber(account.appointments)}</td>
       <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">
-        <LeadToApptBadge value={account.leadPercent} />
+        {/* Two sources: leads come from Windsor, appointments from Airtable. Either one
+            dead makes the ratio unknowable, not zero. */}
+        <LeadToApptBadge value={account.leadPercent} leads={account.leads} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} />
       </td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} /></td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatNumber(account.closed)}</td>
-      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{formatCurrency(account.revenue)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap"><CostPerApptBadge value={account.costPerAppt} appointments={account.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.apptsKnown === false ? UNKNOWN : formatNumber(account.closed)}</td>
+      <td className="text-right font-mono-tabular text-xs py-3 px-3 whitespace-nowrap hidden md:table-cell">{account.apptsKnown === false ? UNKNOWN : formatCurrency(account.revenue)}</td>
     </tr>
   );
 }
@@ -129,7 +181,7 @@ function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: 
 
 
 
-function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
+export function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
   account: AccountSummary;
   settings: AppSettings;
   onClose: () => void;
@@ -138,12 +190,27 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
   const mappings = loadAccountMappings();
   const { program } = getAccountMapping(account.accountName, mappings);
 
+  // ⚠️ THE PANEL WAS UNGATED WHILE THE ROW ABOVE IT WAS NOT. @raccoon measured it: in the
+  // SAME four-card grid, Cost/Appt refused correctly while the Revenue card beside it
+  // fabricated $0.00 from the same dead source — 1 of 12 appointment-sourced expressions
+  // mentioned apptsKnown. @bird's arms read the ROW and the TILES, both correctly gated;
+  // the panel only renders on a CLICK and no arm clicked. Row, tile, panel — the fix had
+  // landed on the two surfaces that were driven, which is the same layer-blindness the
+  // W1/W2/W3 sabotage measured, arriving on a fourth surface.
+  //
+  // One helper rather than seven inline ternaries, so these cannot drift apart again.
+  const apptsUnknown = account.apptsKnown === false;
+  const appt = (render: () => string) => (apptsUnknown ? UNKNOWN : render());
+
   const showedCount = account.appointmentList.filter(a => {
     const s = (a.showStatus || '').toLowerCase();
     return s === 'showed' || s === 'show';
   }).length;
 
   const dialsPerLead = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '0';
+  // ⚠️ DEAD: showRate and closeRate are each referenced exactly once — here. Nothing
+  // renders them, so they are not a display defect; naming them beats deleting code
+  // at verdict time, when a removal cannot be driven.
   const showRate = account.appointmentList.length > 0 ? (showedCount / account.appointmentList.length) * 100 : 0;
   const closeRate = account.appointmentList.length > 0 ? (account.closed / account.appointmentList.length) * 100 : 0;
 
@@ -162,7 +229,12 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
   });
 
   // Dial activity stats (separate from funnel)
-  const dialBookingRate = account.totalDials > 0 ? ((account.appointments / account.totalDials) * 100).toFixed(1) : '—';
+  // MIXES TWO SOURCES: appointments (Airtable) over dials (call-centre). Either one
+  // unknown makes the rate unknowable, and the old form only checked the denominator.
+  const dialBookingRate =
+    account.callsKnown !== false && metricIsMeaningful(account.apptsKnown, account.totalDials)
+      ? ((account.appointments / account.totalDials) * 100).toFixed(1)
+      : null;
   const dialsPerLeadFunnel = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '—';
 
   // Build funnel stages (no Dials — it's a parallel activity, not a funnel stage)
@@ -212,15 +284,15 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
             </div>
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">CPL</p>
-              <p className="text-lg font-bold font-mono-tabular"><CPLBadge value={account.cpl} /></p>
+              <p className="text-lg font-bold font-mono-tabular"><CPLBadge value={account.cpl} leads={account.leads} known={account.spendKnown} /></p>
             </div>
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Cost/Appt</p>
-              <p className="text-lg font-bold font-mono-tabular"><CostPerApptBadge value={account.costPerAppt} /></p>
+              <p className="text-lg font-bold font-mono-tabular"><CostPerApptBadge value={account.costPerAppt} appointments={account.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></p>
             </div>
             <div className="card-elevated p-3">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Revenue</p>
-              <p className="text-lg font-bold font-mono-tabular text-foreground">{formatCurrency(account.revenue)}</p>
+              <p className="text-lg font-bold font-mono-tabular text-foreground">{appt(() => formatCurrency(account.revenue))}</p>
             </div>
           </div>
 
@@ -232,9 +304,9 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                 <span className="text-xs font-semibold text-foreground">Dial activity</span>
               </div>
               <div className="flex gap-4 text-sm font-mono-tabular">
-                <span><span className="font-semibold text-foreground">{formatNumber(account.totalDials)}</span> <span className="text-[11px] text-muted-foreground font-sans">dials</span></span>
+                <span><span className="font-semibold text-foreground">{account.callsKnown === false ? UNKNOWN : formatNumber(account.totalDials)}</span> <span className="text-[11px] text-muted-foreground font-sans">dials</span></span>
                 <span><span className="font-semibold text-foreground">{dialsPerLeadFunnel}</span> <span className="text-[11px] text-muted-foreground font-sans">per lead</span></span>
-                <span><span className="font-semibold text-foreground">{dialBookingRate}%</span> <span className="text-[11px] text-muted-foreground font-sans">booking rate</span></span>
+                <span><span className="font-semibold text-foreground">{dialBookingRate === null ? UNKNOWN : `${dialBookingRate}%`}</span> <span className="text-[11px] text-muted-foreground font-sans">booking rate</span></span>
               </div>
             </div>
           )}
@@ -256,7 +328,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                 </div>
                 {/* Lead to Appt conversion */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(account.leadPercent)}</span>
+                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown === false || account.spendKnown === false ? false : undefined, account.leads) ? formatPercent(account.leadPercent) : UNKNOWN}</span>
                   <span className="text-[11px] text-muted-foreground">converted to appointments</span>
                 </div>
                 {/* Appointments */}
@@ -265,11 +337,11 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-amber-400" style={{ width: `${Math.max(account.leads > 0 ? (account.appointments / account.leads) * 100 : 0, account.appointments > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.appointments)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.appointments))}</span>
                 </div>
                 {/* Show rate */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(account.appointments > 0 ? (showedCount / account.appointments) * 100 : 0)}</span>
+                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown, account.appointments) ? formatPercent((showedCount / account.appointments) * 100) : UNKNOWN}</span>
                   <span className="text-[11px] text-muted-foreground">showed up</span>
                 </div>
                 {/* Showed */}
@@ -278,11 +350,11 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-emerald-400" style={{ width: `${Math.max(account.leads > 0 ? (showedCount / account.leads) * 100 : 0, showedCount > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(showedCount)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(showedCount))}</span>
                 </div>
                 {/* Close rate */}
                 <div className="flex items-center gap-1.5 ml-[100px]">
-                  <span className="text-[13px] font-semibold text-foreground">{formatPercent(showedCount > 0 ? (account.closed / showedCount) * 100 : 0)}</span>
+                  <span className="text-[13px] font-semibold text-foreground">{metricIsMeaningful(account.apptsKnown, showedCount) ? formatPercent((account.closed / showedCount) * 100) : UNKNOWN}</span>
                   <span className="text-[11px] text-muted-foreground">closed won</span>
                 </div>
                 {/* Closed */}
@@ -291,7 +363,7 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                   <div className="flex-1 h-6 rounded-md bg-muted/30 overflow-hidden">
                     <div className="h-full rounded-md bg-emerald-600" style={{ width: `${Math.max(account.leads > 0 ? (account.closed / account.leads) * 100 : 0, account.closed > 0 ? 3 : 0)}%` }} />
                   </div>
-                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{formatNumber(account.closed)}</span>
+                  <span className="w-12 text-sm font-mono-tabular font-semibold text-foreground text-right">{appt(() => formatNumber(account.closed))}</span>
                 </div>
               </div>
             )}
@@ -331,9 +403,9 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                       <div className="flex flex-wrap gap-3 mt-1.5 ml-5">
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-xs font-mono-tabular font-semibold">{formatCurrency(c.spend)}</span></span>
                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-xs font-mono-tabular font-semibold">{c.leads}</span></span>
-                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-xs font-mono-tabular font-semibold"><CPLBadge value={c.cpl} /></span></span>
-                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-xs font-mono-tabular font-semibold">{c.appointments}</span></span>
-                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-xs font-mono-tabular font-semibold"><CostPerApptBadge value={c.costPerAppt} /></span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-xs font-mono-tabular font-semibold"><CPLBadge value={c.cpl} leads={c.leads} known={account.spendKnown} /></span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-xs font-mono-tabular font-semibold">{appt(() => String(c.appointments))}</span></span>
+                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-xs font-mono-tabular font-semibold"><CostPerApptBadge value={c.costPerAppt} appointments={c.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                       </div>
                     </div>
                     {isExpanded && c.adSets && c.adSets.length > 0 && (
@@ -357,9 +429,9 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                                 <div className="flex flex-wrap gap-3 mt-1 pl-5">
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[11px] font-mono-tabular font-semibold">{formatCurrency(as.spend)}</span></span>
                                   <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.leads}</span></span>
-                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} /></span></span>
-                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{as.appointments}</span></span>
-                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} /></span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[11px] font-mono-tabular font-semibold"><CPLBadge value={as.cpl} leads={as.leads} known={account.spendKnown} /></span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[11px] font-mono-tabular font-semibold">{appt(() => String(as.appointments))}</span></span>
+                                  <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[11px] font-mono-tabular font-semibold"><CostPerApptBadge value={as.costPerAppt} appointments={as.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                                 </div>
                               </div>
                               {isAdSetExpanded && as.ads && as.ads.length > 0 && (
@@ -373,9 +445,9 @@ function AccountDetailPanel({ account, settings, onClose, onToggleExclude }: {
                                       <div className="flex flex-wrap gap-3 pl-3">
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">SPEND</span><span className="text-[10px] font-mono-tabular font-semibold">{formatCurrency(ad.spend)}</span></span>
                                         <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">LEADS</span><span className="text-[10px] font-mono-tabular font-semibold">{ad.leads}</span></span>
-                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[10px] font-mono-tabular font-semibold"><CPLBadge value={ad.cpl} /></span></span>
-                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[10px] font-mono-tabular font-semibold">{ad.appointments}</span></span>
-                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[10px] font-mono-tabular font-semibold"><CostPerApptBadge value={ad.costPerAppt} /></span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPL</span><span className="text-[10px] font-mono-tabular font-semibold"><CPLBadge value={ad.cpl} leads={ad.leads} known={account.spendKnown} /></span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">APPTS</span><span className="text-[10px] font-mono-tabular font-semibold">{appt(() => String(ad.appointments))}</span></span>
+                                        <span className="inline-flex flex-col"><span className="text-[10px] text-muted-foreground">CPA</span><span className="text-[10px] font-mono-tabular font-semibold"><CostPerApptBadge value={ad.costPerAppt} appointments={ad.appointments} known={account.spendKnown === false || account.apptsKnown === false ? false : undefined} /></span></span>
                                       </div>
                                     </div>
                                   ))}
@@ -573,7 +645,7 @@ function UnmatchedSection({
 }
 
 export default function Dashboard() {
-  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, refresh, setSettings } = useData();
+  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, settingsLoaded, sources, refresh, setSettings, honestNumbers } = useData();
   const [assignedClients, setAssignedClients] = useState<Set<string>>(new Set());
   const [recentlyAssigned, setRecentlyAssigned] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -696,6 +768,26 @@ export default function Dashboard() {
     ];
   }, [filteredAccounts]);
 
+  // Whether a KPI may print a number at all. `hasUsableData` is true for valid and for
+  // stale (real data, just older) — it is false for failed and not-configured, where the
+  // only honest render is an em dash.
+  const spendOk = hasUsableData(sources.windsor.state);
+  const apptsOk = hasUsableData(sources.airtable.state);
+  const callsOk = hasUsableData(sources.callCenter.state);
+
+  // "Not configured" is a claim about the user's setup. Until the settings have come back
+  // from the database we have not looked, and on a cold browser (new device, cleared
+  // storage, private window) the local cache is empty, so this used to assert a definite
+  // negative for the length of a network round trip.
+  if (!settingsLoaded) {
+    return (
+      <div className="space-y-6 w-full">
+        <h1 className="text-xl font-bold">Dashboard</h1>
+        <KPISkeleton />
+      </div>
+    );
+  }
+
   if (!configured) {
     return (
       <div className="max-w-2xl mx-auto mt-20">
@@ -708,22 +800,46 @@ export default function Dashboard() {
     <div className="space-y-6 w-full">
       <h1 className="text-xl font-bold">Dashboard</h1>
 
-      {error && <ErrorBanner message={error} onRetry={refresh} />}
+      {/* Above every number it describes. The exclusion loss inflates every CPL and
+          cost-per-appointment on this page, and until this rendered, nothing said so. */}
+      <HonestNumbersBanner messages={honestNumbers.messages} />
 
-      {/* KPIs */}
+      {/* WRAPPED, not onRetry={refresh}: React hands a bare handler reference its click
+          event as the first argument, which refresh read as an override settings object —
+          it then failed its own isConfigured guard and returned without starting anything.
+          The Retry button did nothing at all. */}
+      {error && <ErrorBanner message={error} onRetry={() => refresh()} />}
+
+      {/* KPIs — a number is only printed when the source behind it actually delivered.
+          A dead source reads "—", never "$0.00". Andrew's question is "is this zero real,
+          or did something fail", and on this row it used to be unanswerable for 8 of 9. */}
       {loading ? (
         <KPISkeleton />
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KPICard label="Total Spend" value={formatCurrency(totals.spend)} />
-          <KPICard label="Total Leads" value={formatNumber(totals.leads)} />
-          <KPICard label="Avg CPL" value={formatCurrency(totals.cpl)} />
-          <KPICard label="Total Dials" value={formatNumber(totals.dials)} />
-          <KPICard label="Total Appts" value={formatNumber(totals.appts)} />
-          <KPICard label="Lead → Appt %" value={totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} />
-          <KPICard label="Avg Cost/Appt" value={formatCurrency(totals.costPerAppt)} />
-          <KPICard label="Closed Deals" value={formatNumber(totals.closed)} />
-          <KPICard label="Total Revenue" value={formatCurrency(totals.revenue)} />
+          {/* ⚠️ EVERY GUARD HERE NAMES `spendOk`, INCLUDING THE TILES WHOSE VALUE IS NOT
+              WINDSOR DATA. @bird drove it and @raccoon censused it: all nine totals reduce
+              over `activeAccounts`, and activeAccounts is WINDSOR-DERIVED — no sheet rows,
+              no accounts. So Windsor dying yields an EMPTY ARRAY, every reduce(…, 0)
+              returns a hard 0, and any guard that does not name Windsor renders it.
+              Measured: Windsor dead ⇒ TOTAL DIALS 0 with 3,102 dials alive, and TOTAL
+              APPTS 0 while Airtable was HEALTHY AND HOLDING THE APPOINTMENT.
+
+              ⭐ THE RULE, and it is sharper than "and the flags": A GUARD MUST NAME EVERY
+              SOURCE THE DERIVATION TRAVERSES, NOT THE SOURCE THE VALUE SEMANTICALLY
+              BELONGS TO. `dials` IS call-centre data — which is why `callsOk` alone looked
+              right — but it is summed over a Windsor-derived list, so the derivation
+              traverses Windsor. Spend/leads/cpl were only ever safe by coincidence: their
+              guard happened to name the same source their value came from. */}
+          <KPICard label="Total Spend" value={spendOk ? formatCurrency(totals.spend) : '—'} />
+          <KPICard label="Total Leads" value={spendOk ? formatNumber(totals.leads) : '—'} />
+          <KPICard label="Avg CPL" value={spendOk && totals.cpl > 0 ? formatCurrency(totals.cpl) : '—'} />
+          <KPICard label="Total Dials" value={spendOk && callsOk ? formatNumber(totals.dials) : '—'} />
+          <KPICard label="Total Appts" value={spendOk && apptsOk ? formatNumber(totals.appts) : '—'} />
+          <KPICard label="Lead → Appt %" value={spendOk && apptsOk && totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} />
+          <KPICard label="Avg Cost/Appt" value={spendOk && apptsOk && totals.costPerAppt > 0 ? formatCurrency(totals.costPerAppt) : '—'} />
+          <KPICard label="Closed Deals" value={spendOk && apptsOk ? formatNumber(totals.closed) : '—'} />
+          <KPICard label="Total Revenue" value={spendOk && apptsOk ? formatCurrency(totals.revenue) : '—'} />
         </div>
       )}
 

@@ -1,28 +1,21 @@
 import { useState, useMemo } from 'react';
 import { useData } from '@/hooks/useData';
-import { ConfigBanner, ErrorBanner } from '@/components/common/Banners';
+import { hasUsableData } from '@/lib/sourceStatus';
+import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import { formatCurrency, formatNumber, formatPercent, buildAccountSummaries, buildTeamPerformance } from '@/lib/dataService';
 import { startOfMonth, endOfMonth, subMonths, format } from 'date-fns';
+// ⑤ shared date parser. The local copy removed here handed ISO date-only strings to
+// new Date(), which parses them as UTC MIDNIGHT and renders the PREVIOUS calendar day
+// west of UTC. Harmless today (the derived tab is all M/D/YYYY) and load-bearing the
+// moment ③ repoints to the raw tab, which is 581/581 ISO.
+import { parseSourceDate as parseDateSafe } from '@/lib/dates';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
 
-function parseDateSafe(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const normalized = dateStr.replace(/(\d+:\d+)(am|pm)/i, (_, time, ampm) => `${time} ${ampm.toUpperCase()}`);
-  let d = new Date(normalized);
-  if (!isNaN(d.getTime())) return d;
-  const dateOnly = dateStr.replace(/\s+\d+:\d+\s*(am|pm)?\s*$/i, '').trim();
-  if (dateOnly && dateOnly !== dateStr) {
-    d = new Date(dateOnly);
-    if (!isNaN(d.getTime())) return d;
-  }
-  return null;
-}
-
 export default function MediaBuying() {
-  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh } = useData();
+  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh, honestNumbers, sources } = useData();
 
   const [datePreset, setDatePreset] = useState<DatePreset>('this_month');
   const [customFrom, setCustomFrom] = useState('');
@@ -91,7 +84,28 @@ export default function MediaBuying() {
 
   const team = useMemo(() => buildTeamPerformance(filteredAccounts), [filteredAccounts]);
 
+  // 🔴 EVERY NUMBER ON THIS PAGE TRAVERSES WINDSOR, AND NOTHING HERE CONSULTED IT.
+  // @apprentice and @raccoon measured it: this page RE-DERIVES its own accounts via
+  // buildAccountSummaries(filteredSpend, …), so a dead Windsor yields an EMPTY list and
+  // every reduce(…, 0) returns a hard 0 — rendered with no guard of any kind. The
+  // Dashboard had 5 of 9 tiles guarded and the plumbing to fix the rest; this page had
+  // NO known-state plumbing at all.
+  //
+  // Gated at the PAGE rather than at each formatter: with Windsor dead there is no
+  // subset of these numbers that remains knowable, so suppressing them individually
+  // would leave a page of em dashes pretending to still be a report.
   if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner /></div>;
+  if (!hasUsableData(sources.windsor.state)) {
+    // ⚠️ THIS ONE IS A PER-PERSON SCORECARD. A fabricated "$0.00 revenue · 0 closed" is
+    // not a dashboard reading wrong, it is a scorecard reading wrong ABOUT SOMEBODY.
+    return (
+      <div className="space-y-4 max-w-[1400px]">
+        <h1 className="text-xl font-bold">Media Buying</h1>
+        <HonestNumbersBanner messages={honestNumbers.messages} />
+        <ErrorBanner message={`${sources.windsor.label} is unavailable, and every per-buyer figure is calculated from it. Nothing is shown rather than shown as zero.`} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-[1400px]">
@@ -99,6 +113,7 @@ export default function MediaBuying() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold">Media Buying</h1>
+          <HonestNumbersBanner messages={honestNumbers.messages} />
           <p className="text-sm text-muted-foreground mt-0.5">{dateLabel}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -133,7 +148,8 @@ export default function MediaBuying() {
         </div>
       </div>
 
-      {error && <ErrorBanner message={error} onRetry={refresh} />}
+      {/* wrapped — a bare reference is called with the click event, which refresh read as override settings and silently refused */}
+      {error && <ErrorBanner message={error} onRetry={() => refresh()} />}
 
       {loading ? <TableSkeleton rows={4} /> : team.length === 0 ? <EmptyState message="No media buyer data for this period." /> : (
         <>

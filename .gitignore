@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment — NEVER commit. Contains the Supabase project URL and publishable key.
+.env
+.env.*
+!.env.example
+
+# tsc -b build artifacts (the DoD gate command generates these)
+*.tsbuildinfo

@@ -4,6 +4,30 @@ import { MessageCircle, X, Send, Loader2, Bot } from 'lucide-react';
 import { formatCurrency, formatNumber, formatPercent } from '@/lib/dataService';
 import { loadAccountMappings, getAccountMapping } from '@/lib/config';
 
+/**
+ * Server-side endpoint that proxies the Anthropic call.
+ *
+ * EMPTY UNTIL THE PROXY IS DEPLOYED, and empty is the correct value today: the
+ * Anthropic key is a server-side secret, so the browser has nothing to call with.
+ * When the proxy exists, set VITE_AI_PROXY_ENDPOINT to its URL.
+ *
+ * ⛔ Do NOT point this at api.anthropic.com. That is what it used to do, using a
+ * key read out of a world-readable settings table. The endpoint must be OURS, and
+ * the key must never travel through the browser.
+ *
+ * ⚠️ VITE_* values are compiled into the bundle and are PUBLIC. A URL is fine here.
+ * A KEY IS NOT. Never introduce VITE_ANTHROPIC_API_KEY — it would be exactly as
+ * exposed as the settings row was, just harder to notice.
+ */
+const AI_PROXY_ENDPOINT: string =
+  import.meta.env.VITE_AI_PROXY_ENDPOINT ??
+  // Default to the Supabase edge function shipped in supabase/functions/anthropic-proxy.
+  // Deriving it means deploying the function is the ONLY step — no extra env var to
+  // forget, and forgetting one would leave this empty and the assistant silently dark.
+  (import.meta.env.VITE_SUPABASE_URL
+    ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/anthropic-proxy`
+    : '');
+
 function buildContext(accounts: any[], settings: any): string {
   const mappings = loadAccountMappings();
 
@@ -104,11 +128,29 @@ export default function AIChatPanel() {
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
-    const apiKey = settings.anthropicApiKey;
-    if (!apiKey) {
+    // ⛔ THE DIRECT BROWSER CALL TO api.anthropic.com IS GONE — do not restore it.
+    //
+    // It read `settings.anthropicApiKey`, which was persisted to `app_settings`,
+    // a table readable by the anon role — so the key was retrievable from the open
+    // internet. It also sent the key from the user's browser on every message, with
+    // the header `anthropic-dangerous-direct-browser-access: true`. Anthropic named
+    // that header accurately.
+    //
+    // The key is a server-side secret now, so this panel cannot work until a proxy
+    // exists. It says so, explicitly, rather than rendering an empty or generic
+    // failure — a dead feature that looks merely idle is the defect this whole
+    // project is about. It also must NOT tell the user to go add a key: that field
+    // is deliberately gone, and following that instruction re-opened the exposure.
+    if (!AI_PROXY_ENDPOINT) {
       setMessages(prev => [...prev,
         { role: 'user', content: input.trim() },
-        { role: 'assistant', content: 'No API key configured. Go to Settings → AI Assistant and add your Anthropic API key.' }
+        {
+          role: 'assistant',
+          content:
+            'The AI assistant is unavailable: it needs a server-side proxy that has not been ' +
+            'deployed yet. The Anthropic key is no longer held in the browser, which is ' +
+            'deliberate — it was previously readable by anyone. Nothing to configure here.',
+        },
       ]);
       setInput('');
       return;
@@ -121,13 +163,11 @@ export default function AIChatPanel() {
 
     try {
       const context = buildContext(accounts, settings);
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      // Calls OUR proxy. The proxy holds the key; the browser never sees it.
+      const response = await fetch(AI_PROXY_ENDPOINT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
@@ -144,7 +184,8 @@ export default function AIChatPanel() {
       const assistantMsg = data.content?.[0]?.text || 'Sorry, something went wrong.';
       setMessages(prev => [...prev, { role: 'assistant', content: assistantMsg }]);
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Failed to reach Claude API. Check your API key and try again.' }]);
+      // No longer says "check your API key" — there is no key for the user to check.
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Could not reach the AI service. This is a failure, not an empty answer.' }]);
     } finally {
       setLoading(false);
     }
