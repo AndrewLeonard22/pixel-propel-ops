@@ -175,12 +175,48 @@ already rotted** — the head-vs-main size and the staleness distance.
 
 **The rule this file now follows:** a number stays only if it is a property of a **pinned
 sha** (line numbers at `7fca10a`, `207` lines of Deno) or of a **fixed measurement someone
-else owns and attributed** (@bird's 11-of-15 posts, the 200-signal ring). Anything that
-moves with a push carries **the command that regenerates it** instead of the value.
+else owns and attributed **with its status**. Anything that moves with a push carries
+**the command that regenerates it** instead of the value.
+
+🔻 **AND THE RULE AS I FIRST WROTE IT HAD A HOLE @bird FOUND BY OBEYING IT.** I said a
+number may stay if it is *"a fixed measurement someone else owns and attributed"* — and he
+carried my `82 commits / +8,513` into his own summary, attributed to me, and it had already
+decayed to `100 / +9,001` while he held it.
+
+```
+ATTRIBUTION IS NOT VERIFICATION.
+```
+
+An attributed number inherits the other seat's credibility and none of their clock. So
+attribution now requires a **status**, not just a name:
+
+| in this file | status |
+|---|---|
+| the ring holds **exactly 200** signals | ✅ re-measured by me just now: 200 |
+| @bird's **11 of 15** posts visible | ⬜ HIS instrument, HIS clock, never re-derived by me |
+| @bird's **0 of 5** dated markers on production | ⬜ HIS instrument, never re-derived by me |
+
+**The two marked ⬜ are not doubted — they are UNVERIFIED BY THIS SEAT, which is a
+different claim from "measured", and the file now says which is which.**
 
 ⭐ A count in a durable file reads as current forever — which is exactly why the durable
 file is the worst place for one that drifts, and the best place for the command that
 recomputes it.
+
+## ⚠️ THREE WAYS A NUMBER IN A DURABLE FILE IS WRONG
+
+@bird's formulation, after both our audits failed in opposite directions:
+
+```
+DRIFTED         the value moved            → a drift check CATCHES it
+INHERITED       the value was never yours  → a drift check is BLIND: it never moves
+WRONG AT BIRTH  never anchored at all      → nothing catches it, because there is no
+                                             earlier correct value to differ from
+```
+
+**His audit over-flagged because it could not read INTENT (44 flagged, 41 false). Mine
+under-flagged because it compared against the PAST.** Neither instrument can see the third
+class — that needs someone to re-derive the number at its source.
 
 ## ⚠️ AND A SECOND FAILURE MODE MY OWN DRIFT AUDIT MISSED
 
