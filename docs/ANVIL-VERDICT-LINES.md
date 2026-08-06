@@ -56,7 +56,12 @@ decision, not an obstacle.
    pagination must change `fetchAirtableData` in the same commit.
 
 6. **The routed-page census returns "none left" ON THE 8 PAGES ROUTED AT `fe172a3`.**
-   `Accounts.tsx` and `Campaigns.tsx` render money and carry **no windsor guard**; routing
+   `Accounts.tsx` and `Campaigns.tsx` carry **zero windsor guards** — measured, with a
+   control. ⚠️ CORRECTED: an earlier version of this line said they *render money*. That
+   was never measured and the source contradicts it — both gate the whole table behind
+   `sorted.length === 0 ? <EmptyState/>`, and every remaining formatter sits in a
+   per-account sub-component an empty list never invokes. Same structure as `Targets`
+   and `TeamPerformance`. I measured a GUARD and asserted a RENDER. Routing
    either is a single line in `App.tsx` and re-opens the axis without touching the page.
    Closing shape, if ever needed: one test reading `App.tsx` asserting every routed page
    names windsor — so the **route** fails, not the page.
