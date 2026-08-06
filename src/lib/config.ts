@@ -589,6 +589,14 @@ export const ALLOWED_CONFIG_KEYS = [
   'excludedCampaigns', 'setterBonusRates',
   'activeSetters', 'inactiveSetters',
   'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays',
+  // Which Airtable "Lead Status" choices count as CLOSED WON (@raccoon's D1 build,
+  // Andrew: «yeah make it mappable»). Declared here BEFORE the setting exists, because
+  // an undeclared key is stripped by sanitizeSettings and the write is refused — the
+  // same trap adsRawTabName hit. A string[] of his REAL Airtable choices, not a secret.
+  // ⚠️ EMPTY IS NOT THE SAME AS ABSENT and the difference is @raccoon's to define:
+  // ABSENT must fall back to the hardcoded list, or renaming the option in Airtable
+  // silently zeroes the number Andrew judges accounts on.
+  'closedWonStatuses',
 ] as const;
 
 /**

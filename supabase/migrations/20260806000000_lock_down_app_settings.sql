@@ -91,7 +91,17 @@ DECLARE
     'columnMappings', 'accountAliases', 'perfThresholds',
     'excludedCampaigns', 'setterBonusRates',
     'activeSetters', 'inactiveSetters',
-    'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays'
+    'showPausedAccounts', 'showChurnedAccounts', 'pausedThresholdDays',
+    -- which Airtable "Lead Status" choices count as CLOSED WON (@raccoon's D1 build,
+    -- Andrew: «yeah make it mappable»). His own Airtable option labels, not a secret.
+    -- ⚠️ DELIBERATELY NOT IN protected_collections BELOW — a decision, not an omission.
+    -- That guard refuses old_n > 0 -> new_n = 0, so at ONE ticked status the last untick
+    -- becomes impossible AND the error tells the user to "remove them one at a time",
+    -- advice that cannot be followed when you are already at one. A guard whose own
+    -- instruction is unactionable trains people to route around it. The right defence is
+    -- @raccoon's fallback (ABSENT => the hardcoded list), which makes an empty value
+    -- harmless rather than unreachable.
+    'closedWonStatuses'
   ];
   -- ⚠️ THE TWO CREDENTIAL FIELDS THE OLD FRONTEND STILL MODELS.
   -- These are NOT on the allowlist and never will be. They get SPECIAL handling below
