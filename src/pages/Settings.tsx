@@ -3,6 +3,7 @@ import { useData } from '@/hooks/useData';
 import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync } from '@/lib/config';
 import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData } from '@/lib/dataService';
 import type { AppSettings, AccountMapping } from '@/lib/types';
+import { checkSettingsWrite } from '@/lib/settingsWriteGuard';
 import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2, Search } from 'lucide-react';
 
 function isJunkAccount(name: string): boolean {
@@ -20,6 +21,22 @@ const REQUIRED_MAPPINGS = [
 export default function SettingsPage() {
   const { settings, setSettings, adSpend, accounts, callData, appointments, refresh } = useData();
   const [form, setForm] = useState<AppSettings>(settings);
+  // 🔴 THE 22:18:48Z WIPE. `form` used to be seeded ONCE from `settings` and NEVER
+  // re-synced when loadSettingsAsync resolved, so on a cold browser it held
+  // DEFAULT_SETTINGS permanently — and the autosave below then wrote those defaults
+  // over the real config, with no click. Both halves are fixed here:
+  //   ① hydrate `form` from the loaded config on the FIRST identity change of
+  //      `settings` (loadSettingsAsync always calls setSettings with a new object)
+  //   ② hold the autosave until that has happened.
+  const initialSettingsRef = useRef(settings);
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (hydrated) return;
+    if (settings !== initialSettingsRef.current) {
+      setForm(settings);
+      setHydrated(true);
+    }
+  }, [settings, hydrated]);
   const [showToken, setShowToken] = useState(false);
   const [sheetStatus, setSheetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [sheetPreview, setSheetPreview] = useState<Record<string, string>[]>([]);
@@ -118,12 +135,23 @@ useEffect(() => {
       isFirstRender.current = false;
       return;
     }
+    // ① GATE: never autosave from an unhydrated form. This is the fix for the wipe —
+    // the async mappings load fires setAccountMappings, which used to reach performSave
+    // with `form` still holding DEFAULT_SETTINGS.
+    if (!hydrated) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
+      // ② NET: even hydrated, refuse a write that would blank populated config. The
+      // gate protects this caller; the guard protects against the next one too.
+      const verdict = checkSettingsWrite(form, settings);
+      if (!verdict.safe) {
+        console.error('[settings] autosave REFUSED —', verdict.reason);
+        return;
+      }
       performSave(form, accountMappings);
     }, 800);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [form, accountMappings, performSave]);
+  }, [form, accountMappings, performSave, hydrated, settings]);
 
   const updateForm = (patch: Partial<AppSettings>) => {
     setForm(prev => ({ ...prev, ...patch }));
