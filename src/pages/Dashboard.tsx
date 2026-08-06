@@ -754,7 +754,17 @@ export default function Dashboard() {
      * conversion to a population it may not be in. A TOTAL must count it, a RATE must not."
      */
     const viewIsNarrowed = Boolean(search) || accountFilter !== 'all' || perfFilter !== 'all';
-    const unmatchedInView = viewIsNarrowed ? 0 : dateFilteredResult.unmatchedAppointments.length;
+    const unmatchedTotal = dateFilteredResult.unmatchedAppointments.length;
+    const unmatchedInView = viewIsNarrowed ? 0 : unmatchedTotal;
+    /**
+     * 🟡 @bird: in a NARROWED view the 43 are correctly excluded — and the note explaining
+     * them disappeared with them, because it was gated on the same value. Meanwhile the
+     * banner two inches away still read "43 Unmatched Appointments".
+     * ⇒ The app was dropping 43 appointments SILENTLY while another element on the same
+     *   screen said they existed. The EXCLUSION is right; its DISCLOSURE vanished exactly
+     *   when a reader would want it. So the note now speaks in BOTH states.
+     */
+    const unmatchedExcluded = viewIsNarrowed ? unmatchedTotal : 0;
     const appts = activeAccounts.reduce((s, a) => s + a.appointments, 0) + unmatchedInView;
     const closed = activeAccounts.reduce((s, a) => s + a.closed, 0);
     const revenue = activeAccounts.reduce((s, a) => s + a.revenue, 0);
@@ -787,6 +797,7 @@ export default function Dashboard() {
       costPerAppt: dfyAppts > 0 ? dfyPerfSpend / dfyAppts : 0,
       closed, revenue,
       unmatchedAppts: unmatchedInView,
+      unmatchedExcluded,
     };
   }, [filteredAccounts, dateFilteredResult, search, accountFilter, perfFilter]);
 
@@ -905,7 +916,13 @@ export default function Dashboard() {
           <KPICard
             label="Total Appts"
             value={spendOk && apptsOk ? formatNumber(totals.appts) : '—'}
-            note={totals.unmatchedAppts > 0 ? `includes ${totals.unmatchedAppts} not matched to an account` : undefined}
+            note={
+              totals.unmatchedAppts > 0
+                ? `includes ${totals.unmatchedAppts} not matched to an account`
+                : totals.unmatchedExcluded > 0
+                  ? `excludes ${totals.unmatchedExcluded} not matched to an account — a filtered view shows only matched accounts`
+                  : undefined
+            }
           />
           <KPICard label="Lead → Appt %" value={spendOk && apptsOk && totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} note={apptPopulationNote} />
           <KPICard label="Avg Cost/Appt" value={spendOk && apptsOk && totals.costPerAppt > 0 ? formatCurrency(totals.costPerAppt) : '—'} note={apptPopulationNote} />
