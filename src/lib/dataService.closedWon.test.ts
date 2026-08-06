@@ -317,3 +317,29 @@ describe('🎯 CLOSED-WON IS NOW MAPPABLE — @andrew: "yeah make it mappable"',
     expect(SEVEN.filter(c => isClosedWon({ leadStatus: c }, s))).toEqual(['Closed Won']);
   });
 });
+
+describe('🔴 THE CONTROL AND THE BEHAVIOUR MUST NOT DISAGREE — @apprentice', () => {
+  /**
+   * `?? CLOSED_WON_DEFAULT` does not catch `[]`. So an un-ticked-everything list renders as
+   * every box EMPTY while the classifier counts `Closed Won` through the fallback. A reader
+   * who unticked all seven to mean "count nothing" sees a screen that agrees with them and a
+   * number that does not — and ONLY THE NUMBER REVEALS IT.
+   *
+   * The fallback is the right behaviour (an empty list would zero every closed-deal figure).
+   * What was missing is that the screen said nothing about it. These arms pin the DISAGREEMENT
+   * so it cannot come back silently; the Settings copy names the effect.
+   */
+  const effective = (v: string[] | undefined) => (v && v.length > 0 ? v : CLOSED_WON_DEFAULT);
+
+  it('identifies the exact state where setting and effect diverge', () => {
+    expect(effective(undefined)).toEqual(CLOSED_WON_DEFAULT);   // agrees — nothing set
+    expect(effective(['Comparing bids'])).toEqual(['Comparing bids']); // agrees — explicit
+    // 🔴 the divergent state: the stored value is [] and the effect is the default
+    expect([]).not.toEqual(CLOSED_WON_DEFAULT);
+    expect(effective([])).toEqual(CLOSED_WON_DEFAULT);
+  });
+
+  it('and the number that reveals it is unchanged — empty still counts 46', () => {
+    expect(livePopulation().filter(a => isClosedWon(a, makeSettings({ closedWonStatuses: [] }))).length).toBe(46);
+  });
+});

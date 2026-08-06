@@ -688,6 +688,19 @@ useEffect(() => {
               {missingStatuses.length === 1 ? 'It is' : 'They are'} not counting toward closed deals.
             </p>
           )}
+          {/* 🔴 THE ONE STATE WHERE THE CONTROL AND THE BEHAVIOUR DISAGREE — @apprentice.
+              `?? CLOSED_WON_DEFAULT` does not catch `[]`, so un-ticking everything renders
+              every box EMPTY while the system counts `Closed Won` via the fallback. A reader
+              who unticked all seven to mean "count nothing" sees a screen that agrees with
+              them and a number that does not — and only the number reveals it.
+              ⇒ The boxes still show the SETTING truthfully; this names the EFFECT. */}
+          {(form.closedWonStatuses?.length === 0) && (
+            <p className="mt-2 text-xs text-warning">
+              Nothing is selected, so closed deals are being counted with the built-in default:{' '}
+              <strong>Closed Won</strong>. There is no setting for &ldquo;count nothing as
+              won&rdquo; &mdash; an empty list would take every closed-deal figure to zero.
+            </p>
+          )}
           <p className="mt-1 text-xs text-muted-foreground">
             Un-ticking everything falls back to <strong>Closed Won</strong> rather than counting
             nothing. A deal marked <strong>Closed Lost</strong> is never counted as won, even if
