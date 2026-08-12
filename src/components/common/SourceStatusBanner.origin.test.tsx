@@ -48,7 +48,7 @@ function status(over: Partial<SourceStatus>): SourceStatus {
 type Comp = { state: 'complete' | 'truncated' | 'unverifiable'; rawRows: number | null; derivedRows: number | null; droppedRows: number; reason: string | null };
 const HEALTHY: Comp = { state: 'complete', rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null };
 
-function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY, refreshVerdict: unknown = null, unresolvedClients = 0, route = '/call-center') {
+function mount(origin: SettingsOrigin, detail: string | null = null, completeness: Comp = HEALTHY, refreshVerdict: unknown = null, unresolvedClients = 0, route = '/some-future-page') {
   useDataMock.mockReturnValue({
     settingsLoaded: true,
     adSpend: [],
@@ -57,12 +57,12 @@ function mount(origin: SettingsOrigin, detail: string | null = null, completenes
     unresolvedClients,
     loading: false,
     refresh: () => {},
+    setSpendWindow: () => {},
     settingsOrigin: origin,
     settingsDetail: detail,
     sources: {
-      windsor: status({ label: 'Ad spend (Windsor)', state: 'not-configured', configured: false, missingSettings: ['Google Sheet URL'] }),
+      meta: status({ label: 'Ad spend (Windsor)', state: 'not-configured', configured: false, missingSettings: ['Google Sheet URL'] }),
       airtable: status({ label: 'Appointments (Airtable)', state: 'not-configured', configured: false, missingSettings: ['Airtable base ID'] }),
-      callCenter: status({ label: 'Calls (call-centre sheet)', state: 'not-configured', configured: false, missingSettings: ['Call centre sheet URL'] }),
     } as Record<SourceKey, SourceStatus>,
   });
   return render(
@@ -80,10 +80,11 @@ describe('SourceStatusBanner — 18 of @bird’s 19 false claims come from here'
 
     expect(container.textContent).toMatch(/Missing: Google Sheet URL/);
     expect(container.textContent).toMatch(/Missing: Airtable base ID/);
-    // Three sources, three claims — @raccoon's per-route template count.
-    // ⚠️ MOUNTED ON /call-center DELIBERATELY: the banner is now ROUTE-SCOPED, and this arm
-    // is about the copy existing at all, so it must run where all three sources are relevant.
-    expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(3);
+    // Two sources, two claims — @raccoon's per-route template count, now that the
+    // call-centre source has been deleted outright.
+    // ⚠️ MOUNTED ON AN UNLISTED ROUTE DELIBERATELY: the banner is ROUTE-SCOPED, and this arm
+    // is about the copy existing at all, so it must run where every source is relevant.
+    expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(2);
   });
 
   it('🔴 THE LIVE STATE: an unconfigured BUILD emits ZERO "Missing:" claims', () => {
@@ -123,7 +124,7 @@ describe('SourceStatusBanner — 18 of @bird’s 19 false claims come from here'
       refresh: () => {},
       settingsOrigin: 'local-not-configured' as SettingsOrigin,
       settingsDetail: null,
-      sources: { windsor: status({}), airtable: status({}), callCenter: status({}) } as Record<SourceKey, SourceStatus>,
+      sources: { meta: status({}), airtable: status({}) } as Record<SourceKey, SourceStatus>,
     });
     const { container } = render(<MemoryRouter><SourceStatusBanner /></MemoryRouter>);
     expect(container.textContent).toBe('');
@@ -132,25 +133,29 @@ describe('SourceStatusBanner — 18 of @bird’s 19 false claims come from here'
   it('🔴 THE COUNT @bird MEASURED: 3 per route before, 0 after — same sources, same mount', () => {
     // The defect is a COUNT across routes, so the assertion is a count. Asserting only
     // that the new copy is present would pass even if all three lies stayed beside it.
-    const before = mount('local-no-row', null, HEALTHY, null, 0, '/call-center').container.textContent ?? '';
+    const before = mount('local-no-row', null, HEALTHY, null, 0, '/some-future-page').container.textContent ?? '';
     useDataMock.mockReset();
-    const after = mount('local-not-configured', null, HEALTHY, null, 0, '/call-center').container.textContent ?? '';
+    const after = mount('local-not-configured', null, HEALTHY, null, 0, '/some-future-page').container.textContent ?? '';
 
-    expect((before.match(/Missing:/g) ?? []).length).toBe(3);
+    expect((before.match(/Missing:/g) ?? []).length).toBe(2);
     expect((after.match(/Missing:/g) ?? []).length).toBe(0);
     expect(before).not.toBe(after);
   });
 });
 
 describe('SourceStatusBanner — a source is reported where it FEEDS the page, not everywhere', () => {
-  it('the DASHBOARD does not report the call-centre sheet — dials were removed from it', () => {
-    // @andrew: «remove this too». Dials are gone from the dashboard, so a missing
-    // call-centre sheet changes NO number on that page. A status line about a source with
-    // no consequence on the surface you are looking at is noise, and noise is how a real
-    // warning stops being read.
-    const { container } = mount('local-no-row', null, HEALTHY, null, 0, '/');
-    expect(container.textContent).not.toMatch(/Call centre sheet URL/);
-    expect(container.textContent).not.toMatch(/call-centre sheet/i);
+  it('/calendar reports ONLY Airtable — the sheet feeds no number on that page', () => {
+    // @andrew: «remove this too», about a source line with no consequence on the surface
+    // being looked at. /calendar renders appointments and nothing else, so a missing ad
+    // spend sheet changes NO number there.
+    // ⚠️ RE-POINTED 2026-08-11. This arm used to assert the DASHBOARD omits the call-centre
+    // sheet; that source was deleted outright, so the assertion became unfalsifiable — it
+    // would pass over a banner that had been deleted too. Moved to a scoping pair that
+    // still exists rather than left as decoration.
+    const { container } = mount('local-no-row', null, HEALTHY, null, 0, '/calendar');
+    expect(container.textContent).not.toMatch(/Google Sheet URL/);
+    expect(container.textContent).toMatch(/Missing: Airtable base ID/);
+    expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(1);
   });
 
   it('🔴 ANTI-VACUITY: the dashboard STILL reports the sources it does depend on', () => {
@@ -161,19 +166,20 @@ describe('SourceStatusBanner — a source is reported where it FEEDS the page, n
     expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(2);
   });
 
-  it('🔑 SCOPED, NOT SILENCED: /call-center and /targets still report it', () => {
-    // Those pages genuinely consume dials — dialsPerLead and dialBookingRate are targets
-    // @andrew set — so the same missing sheet still costs him a number there.
-    for (const route of ['/call-center', '/targets']) {
+  it('🔑 SCOPED, NOT SILENCED: the pages that DO consume the sheet still report it', () => {
+    // The other half of the arm above, and the half that stops scoping from becoming
+    // silencing: /targets and /team both derive every number from the ad spend feed, so a
+    // missing sheet costs a number there and must still be named.
+    for (const route of ['/targets', '/team']) {
       useDataMock.mockReset();
       const { container } = mount('local-no-row', null, HEALTHY, null, 0, route);
-      expect(container.textContent, route).toMatch(/Call centre sheet URL/);
+      expect(container.textContent, route).toMatch(/Google Sheet URL/);
     }
   });
 
   it('an UNLISTED route reports every source — silence must be opted into, never inherited', () => {
     const { container } = mount('local-no-row', null, HEALTHY, null, 0, '/some-future-page');
-    expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(3);
+    expect((container.textContent ?? '').match(/Missing:/g) ?? []).toHaveLength(2);
   });
 });
 
@@ -192,19 +198,25 @@ describe('SourceStatusBanner — a source is reported where it FEEDS the page, n
  */
 describe('SourceStatusBanner — the CLIFF actually reaches the screen', () => {
   const TRUNCATED: Comp = { state: 'truncated', rawRows: 39446, derivedRows: 39388, droppedRows: 58, reason: null };
-  const UNVERIFIABLE: Comp = { state: 'unverifiable', rawRows: 5, derivedRows: 5, droppedRows: 0, reason: 'both probes returned identical data, so they may have read the same tab' };
+  const UNVERIFIABLE: Comp = { state: 'unverifiable', rawRows: null, derivedRows: 5, droppedRows: 0, reason: 'the row count could not be read back from Supabase' };
 
   it('🔴 A TRUNCATING SHEET IS ON SCREEN, with the dropped-row count', () => {
     const { container } = mount('database', null, TRUNCATED);
     expect(container.textContent).toMatch(/INCOMPLETE/);
     expect(container.textContent).toMatch(/58/);
-    expect(container.textContent).toMatch(/array formula/);
+    /**
+     * ⚠️ THE REMEDY MOVED WITH THE SOURCE. This asserted /array formula/ while the sheet
+     * fed the dashboard. Post-cutover a short read is a PAGING or query limit against
+     * `ad_insights` — the data is in the database — and the copy has to say so, or it
+     * sends the reader to a Google Sheet that no longer feeds anything.
+     */
+    expect(container.textContent).toMatch(/paging or query limit/i);
   });
 
   it('🔑 UNVERIFIABLE is reported too — not knowing is a state, not health', () => {
     const { container } = mount('database', null, UNVERIFIABLE);
     expect(container.textContent).toMatch(/could not be verified/i);
-    expect(container.textContent).toMatch(/same tab/);
+    expect(container.textContent).toMatch(/could not be read back/);
   });
 
   it('🔴 ANTI-VACUITY CONTROL: a COMPLETE sheet renders NOTHING about completeness', () => {
@@ -223,7 +235,7 @@ describe('SourceStatusBanner — the CLIFF actually reaches the screen', () => {
       settingsOrigin: 'database' as SettingsOrigin, settingsDetail: null,
       adSpend: [], completeness: TRUNCATED, refreshVerdict: null,
       sources: {
-        windsor: status({ state: 'valid' }), airtable: status({ state: 'valid' }), callCenter: status({ state: 'valid' }),
+        meta: status({ state: 'valid' }), airtable: status({ state: 'valid' }),
       } as Record<SourceKey, SourceStatus>,
     });
     const { container } = render(<MemoryRouter><SourceStatusBanner /></MemoryRouter>);

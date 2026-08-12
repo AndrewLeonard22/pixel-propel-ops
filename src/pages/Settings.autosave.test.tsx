@@ -54,7 +54,7 @@ vi.mock('@/hooks/useData', () => ({ useData: useDataMock }));
 const { default: SettingsPage, stableStringify } = await import('./Settings');
 
 const DB_SETTINGS = makeSettings({
-  googleSheetUrl: 'https://docs.google.com/spreadsheets/d/REAL/edit',
+  airtableTableName: 'Appointments',
   airtableBaseId: 'appREAL',
   excludedCampaigns: ['a', 'b', 'c', 'd'],
 });
@@ -67,16 +67,36 @@ function mount(origin: SettingsOrigin, settingsLoaded = true) {
   useDataMock.mockReturnValue({
     settings: DB_SETTINGS,
     setSettings: () => {},
-    adSpend: [], accounts: [], callData: [], appointments: [],
+    adSpend: [], accounts: [], appointments: [],
     refresh: async () => {},
+    // The Dashboard pushes its date range into the SQL query through this. A mock without
+    // it throws on mount — the page genuinely depends on it now.
+    setSpendWindow: () => {},
     settingsOrigin: origin,
     settingsDetail: null,
     settingsLoaded,
     sources: {
-      windsor: status(), airtable: status(), callCenter: status(),
+      meta: status(), airtable: status(),
     } as Record<SourceKey, SourceStatus>,
   });
   return render(<SettingsPage />);
+}
+
+/**
+ * The one edit every arm below makes, targeted BY ITS LABEL.
+ *
+ * ⚠️ THIS FILE USED `screen.getAllByRole('textbox')[0]`, and its sibling
+ * Settings.savedMapping.test.tsx states the law it was breaking: "target by property, never
+ * by position". The Google Sheets connection section was deleted, index 0 silently became a
+ * different control, and 19 arms went red at once. A positional target does not fail when
+ * the page changes, it re-points — these only failed loudly because the new index 0 was a
+ * local filter box that writes nothing.
+ *
+ * `airtableBaseId` is a PROTECTED_SCALAR, exactly like the field this used to drive, so the
+ * blanking arms keep testing the same guard.
+ */
+function editBaseId(value: string) {
+  fireEvent.change(screen.getByLabelText('Base ID'), { target: { value } });
 }
 
 /** Let the 800ms autosave debounce elapse. */
@@ -113,8 +133,7 @@ describe('Settings autosave — a page LOAD is not an EDIT', () => {
     await letAutosaveFire();
     expect(performed.saves).toHaveLength(0);
 
-    const input = screen.getAllByRole('textbox')[0];
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/EDITED/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(1);
@@ -125,8 +144,7 @@ describe('Settings autosave — a page LOAD is not an EDIT', () => {
     // Clicking in from the nav left `hydrated` false forever and the feature dead. The
     // arm above proves an edit saves; this states the property it was proving.
     mount('database');
-    const input = screen.getAllByRole('textbox')[0];
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/X/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
 
     expect(performed.saves.length).toBeGreaterThan(0);
@@ -137,8 +155,7 @@ describe('Settings autosave — a page LOAD is not an EDIT', () => {
     // measured safe:true on that shape because it refuses POPULATED -> EMPTY, not
     // POPULATED -> FEWER. If we never read the database, the only safe write is none.
     mount('local-not-configured');
-    const input = screen.getAllByRole('textbox')[0];
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/X/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(0);
@@ -146,8 +163,7 @@ describe('Settings autosave — a page LOAD is not an EDIT', () => {
 
   it('an UNREACHABLE database also refuses', async () => {
     mount('local-unreachable');
-    const input = screen.getAllByRole('textbox')[0];
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/X/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(0);
@@ -157,8 +173,7 @@ describe('Settings autosave — a page LOAD is not an EDIT', () => {
     // 'local-no-row' is a real answer, not a failure — refusing here would make the app
     // impossible to configure, which is the mirror of the wipe.
     mount('local-no-row');
-    const input = screen.getAllByRole('textbox')[0];
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/NEW/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(1);
@@ -200,8 +215,7 @@ describe('Settings autosave — a page LOAD is not an EDIT', () => {
 
   it('🔴 a SECOND load after a save still writes nothing — the baseline is not one-shot', async () => {
     mount('database');
-    const input = screen.getAllByRole('textbox')[0];
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/X/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
     const afterEdit = performed.saves.length;
 
@@ -257,8 +271,7 @@ describe('Settings autosave — a REFUSED write must stay dirty and say so', () 
     mount('database');
     performed.rejectWith = 'refusing: this would blank 3 populated fields';
 
-    const input = screen.getAllByRole('textbox')[0];
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/A/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
     expect(performed.saves).toHaveLength(1); // attempted, and refused
 
@@ -266,11 +279,11 @@ describe('Settings autosave — a REFUSED write must stay dirty and say so', () 
     // already moved, so this second attempt was skipped and the edit was lost silently.
     // Edit away, then BACK to the refused value — each in its own debounce window, because
     // two changes inside one window collapse to a single scheduled save.
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/B/edit' } });
+    editBaseId('appB');
     await letAutosaveFire();
     expect(performed.saves).toHaveLength(2);
 
-    fireEvent.change(input, { target: { value: 'https://docs.google.com/spreadsheets/d/A/edit' } });
+    editBaseId('appA');
     await letAutosaveFire();
 
     // ⭐ THREE attempts. The refused value A is re-attempted rather than treated as saved —
@@ -282,9 +295,7 @@ describe('Settings autosave — a REFUSED write must stay dirty and say so', () 
     mount('database');
     performed.rejectWith = 'refusing: this would blank 3 populated fields';
 
-    fireEvent.change(screen.getAllByRole('textbox')[0], {
-      target: { value: 'https://docs.google.com/spreadsheets/d/A/edit' },
-    });
+    editBaseId('appEDITED');
     await letAutosaveFire();
 
     // getBy, not findBy: findBy* polls on REAL timers and deadlocks while they are faked.
@@ -299,7 +310,7 @@ describe('Settings autosave — a REFUSED write must stay dirty and say so', () 
     // done. Claiming "nothing was written" would be the comfortable lie.
     mount('database');
     performed.rejectWith = 'refused';
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'https://docs.google.com/spreadsheets/d/A/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
 
     expect(screen.getByRole('alert').textContent).toMatch(/mappings may have saved separately/i);
@@ -309,7 +320,7 @@ describe('Settings autosave — a REFUSED write must stay dirty and say so', () 
     // Without this the fix is satisfiable by never advancing the baseline at all, which
     // would make every render after an edit re-save forever.
     mount('database');
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'https://docs.google.com/spreadsheets/d/A/edit' } });
+    editBaseId('appEDITED');
     await letAutosaveFire();
     const after = performed.saves.length;
     expect(after).toBe(1);
@@ -337,13 +348,11 @@ describe('Settings autosave — an async LOAD must not adopt an in-flight edit',
     mount('database');
 
     // Type immediately, in the same tick as mount — before the mappings promise resolves.
-    fireEvent.change(screen.getAllByRole('textbox')[0], {
-      target: { value: 'https://docs.google.com/spreadsheets/d/TYPED/edit' },
-    });
+    editBaseId('appTYPED');
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(1);
-    expect((performed.saves[0] as { googleSheetUrl: string }).googleSheetUrl).toMatch(/TYPED/);
+    expect((performed.saves[0] as { airtableBaseId: string }).airtableBaseId).toMatch(/TYPED/);
   });
 
   it('ANTI-VACUITY CONTROL: with NO edit, the mappings load still writes nothing', async () => {
@@ -379,9 +388,9 @@ describe('Settings autosave — the WRITE GUARD is actually wired to the page', 
   it('🔴 a write that would BLANK populated config is REFUSED — no save attempted', async () => {
     mount('database');
 
-    // DB_SETTINGS has a populated googleSheetUrl. Emptying it is exactly the shape the
+    // DB_SETTINGS has a populated airtableBaseId. Emptying it is exactly the shape the
     // guard exists for: a populated field going blank, which is what the 22:18 wipe did.
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: '' } });
+    editBaseId('');
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(0);
@@ -389,12 +398,12 @@ describe('Settings autosave — the WRITE GUARD is actually wired to the page', 
 
   it('🔴 and the REFUSAL IS VISIBLE — a guard nobody can see is a save that quietly worked', async () => {
     mount('database');
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: '' } });
+    editBaseId('');
     await letAutosaveFire();
 
     const alert = screen.getByRole('alert');
     expect(alert.textContent).toMatch(/would be blanked/);
-    expect(alert.textContent).toMatch(/googleSheetUrl/);
+    expect(alert.textContent).toMatch(/airtableBaseId/);
     expect(alert.textContent).toMatch(/NOT saved/);
   });
 
@@ -402,9 +411,7 @@ describe('Settings autosave — the WRITE GUARD is actually wired to the page', 
     // Without this the arm above passes if the autosave were simply broken, which is the
     // mirror defect and one this file has already had once tonight.
     mount('database');
-    fireEvent.change(screen.getAllByRole('textbox')[0], {
-      target: { value: 'https://docs.google.com/spreadsheets/d/STILL-POPULATED/edit' },
-    });
+    editBaseId('appEDITED');
     await letAutosaveFire();
 
     expect(performed.saves).toHaveLength(1);

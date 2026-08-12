@@ -36,7 +36,7 @@ const SPEND = [makeAdSpendRow({ accountName: "Acme", spent: 500, leads: 20 })];
 const MATCHED = [makeAppointmentRow({ client: "Acme" })];
 
 function mount(unmatched: ReturnType<typeof makeAppointmentRow>[]) {
-  const built = buildAccountSummaries(SPEND, MATCHED, SETTINGS, []);
+  const built = buildAccountSummaries(SPEND, MATCHED, SETTINGS);
   useDataMock.mockReturnValue({
     accounts: built.accounts,
     adSpend: SPEND,
@@ -53,11 +53,14 @@ function mount(unmatched: ReturnType<typeof makeAppointmentRow>[]) {
     exclusions: { state: "active", configuredCount: 1, matchedCount: 1, unfilteredSpend: 0, affectedAccounts: [] },
     honestNumbers: { hasWarnings: false, messages: [], exclusion: {}, fabricatedRateCount: 0, allRatesFabricated: false },
     sources: {
-      windsor: status({ label: "Ad spend (Windsor)" }),
+      meta: status({ label: "Ad spend (Windsor)" }),
       airtable: status({ label: "Appointments (Airtable)" }),
       callCenter: status({ label: "Calls (call-centre sheet)" }),
     } as Record<SourceKey, SourceStatus>,
     refresh: async () => {},
+    // The Dashboard pushes its date range into the SQL query through this. A mock without
+    // it throws on mount — the page genuinely depends on it now.
+    setSpendWindow: () => {},
     setSettings: () => {},
   });
   return render(<Dashboard />);

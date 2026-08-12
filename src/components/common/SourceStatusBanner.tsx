@@ -4,15 +4,15 @@ import { useData } from '@/hooks/useData';
 import { needsAttention, SOURCE_KEYS, type SourceStatus, type SourceKey } from '@/lib/sourceStatus';
 import { settingsAreUnverified } from '@/lib/config';
 import { describeFreshness, freshnessWarning } from '@/lib/dataFreshness';
-import { completenessMessage } from '@/lib/sheetCompleteness';
+import { completenessMessage } from '@/lib/metaAdSpend';
 import { rejectionMessage } from '@/lib/refreshValidation';
 
 /**
  * Says, per source, what is wrong and what the numbers on screen are worth.
  *
  * WHY IT IS GLOBAL: four of the seven routed pages never read the error state at all, so
- * a total pipeline failure produced no visible signal anywhere on /targets, /agents,
- * /calendar or /call-center. Mounting this in AppLayout means a source failure is visible
+ * a total pipeline failure produced no visible signal anywhere on /targets, /agents
+ * or /calendar. Mounting this in AppLayout means a source failure is visible
  * wherever the user happens to be standing, rather than only on the two pages whose
  * author happened to destructure `error`.
  *
@@ -37,7 +37,7 @@ function stateLine(s: SourceStatus): { icon: typeof AlertTriangle; tone: string;
     case 'stale':
       return {
         icon: Clock,
-        tone: 'text-warning',
+        tone: 'text-warning-strong',
         text: `${s.label} — the latest refresh failed${s.error ? ` (${s.error})` : ''}. Showing the last good data${
           s.lastSuccessAt ? `, received ${s.lastSuccessAt.toLocaleTimeString()}` : ''
         }.`,
@@ -47,7 +47,7 @@ function stateLine(s: SourceStatus): { icon: typeof AlertTriangle; tone: string;
       // handled here so wiring it up is a one-line change rather than a UI project.
       return {
         icon: AlertTriangle,
-        tone: 'text-warning',
+        tone: 'text-warning-strong',
         text: `${s.label} — the last refresh did not pass validation${s.error ? `: ${s.error}` : ''}. Treat these numbers as provisional.`,
       };
     default:
@@ -111,26 +111,22 @@ export default function SourceStatusBanner() {
 
   /**
    * ⭐ REPORT A SOURCE ONLY WHERE IT FEEDS THE PAGE. @andrew, on the dashboard: «remove this
-   * too» — the call-centre "not connected" line.
+   * too» — a "not connected" line for a source that changed no number on that page.
    *
-   * He is right, and the reason is structural rather than cosmetic. Dials were removed from
-   * the dashboard, so the call-centre sheet now contributes NOTHING to this page: its absence
-   * changes no number here. A status line about a source with no consequence on the surface
-   * you are looking at is noise, and noise is how a REAL warning stops being read.
+   * A status line about a source with no consequence on the surface you are looking at is
+   * noise, and noise is how a REAL warning stops being read.
    *
-   * ⛔ IT IS NOT SILENCED, IT IS SCOPED. /call-center and /targets genuinely consume dials —
-   * `dialsPerLead` and `dialBookingRate` are targets @andrew set — so the same missing sheet
-   * is still reported THERE, where it actually costs him a number. Hiding it everywhere would
-   * be the honest-state failure this whole branch exists to remove.
+   * ⛔ SCOPING IS NOT SILENCING. Every source is still reported on the pages it actually
+   * feeds, where its absence costs a number.
    *
    * DEFAULT IS ALL KEYS: an unlisted route reports every source. A new page must opt OUT
    * deliberately, never inherit silence by being forgotten — the registry-that-fails-open
    * shape we have been closing all night.
    */
   const RELEVANT_SOURCES: Record<string, readonly SourceKey[]> = {
-    '/': ['windsor', 'airtable'],
+    '/': ['meta', 'airtable'],
     '/calendar': ['airtable'],
-    '/team': ['windsor', 'airtable'],
+    '/team': ['meta', 'airtable'],
     '/agents': ['airtable'],
   };
   const { pathname } = useLocation();
@@ -208,14 +204,17 @@ export default function SourceStatusBanner() {
       {incomplete && (
         <div className="flex items-start gap-2.5 text-sm">
           <AlertTriangle
-            className={`w-4 h-4 mt-0.5 shrink-0 ${completeness.state === 'truncated' ? 'text-destructive' : 'text-muted-foreground'}`}
+            /* `source-empty` is destructive for the same reason `truncated` is: both mean the
+               numbers on screen are missing data. A muted icon over "every total is zero"
+               would be the banner agreeing that it is a footnote. */
+            className={`w-4 h-4 mt-0.5 shrink-0 ${completeness.state === 'truncated' || completeness.state === 'source-empty' ? 'text-destructive' : 'text-muted-foreground'}`}
           />
           <p className="flex-1 text-foreground/90">{incomplete}</p>
         </div>
       )}
       {staleFeed && (
         <div className="flex items-start gap-2.5 text-sm">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning-strong" />
           <p className="flex-1 text-foreground/90">{staleFeed}</p>
         </div>
       )}

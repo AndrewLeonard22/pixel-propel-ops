@@ -29,7 +29,12 @@
     --secondary-foreground: 240 1% 20%;   /* Relay ink2 #323233 */
 
     --muted: 210 20% 98%;
-    --muted-foreground: 240 0% 53%;       /* Relay text-muted #878788 */
+    /* ⛔ CONTRAST, NOT TASTE. Relay's #878788 is 3.59:1 on white — below AA 4.5:1 — and it
+       paints nearly the whole table body: every Meta-name subtext, program, media buyer and
+       spend figure, plus all five column headers. In the Linear reference the VALUES are
+       near-full-contrast ink and only the headers recede; at 53% lightness the whole table
+       reads uniformly washed out. 45% is #737373 = 4.74:1, same hue, same role. */
+    --muted-foreground: 240 0% 45%;
 
     --accent: 224 100% 97%;               /* Relay selected #f0f4ff */
     --accent-foreground: 218 87% 45%;     /* Relay pill-active text #0f58d6 */
@@ -42,12 +47,26 @@
 
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
+    /**
+     * ⭐ TWO AMBERS, BECAUSE ONE CANNOT DO BOTH JOBS.
+     * #F59F0A is 2.13:1 on white. As a 6px dot or a 10% tint that is correct and vivid; as
+     * TEXT ("Unmapped", "1 needs a company name", a warning-toned spend figure) it is
+     * unreadable. No single lightness satisfies both: anything that passes AA as text is a
+     * brown that stops reading as a warning dot. So `--warning` stays the FILL and
+     * `--warning-strong` is the INK. Same rule for both themes, inverted.
+     */
+    --warning-strong: 32 95% 30%;         /* 5.3:1 on white */
 
     --border: 220 13% 91%;                /* Relay border #e5e7eb */
     --input: 220 13% 91%;
     --ring: 218 100% 55%;                 /* Relay blue */
 
-    --radius: 0.75rem;
+    /* 0.75rem remapped `rounded-md` to 10px and `rounded-lg` to 12px, which is the same
+       value Tailwind's own `rounded-xl` already is — three names, two values, no scale.
+       0.5rem restores a real ramp: sm 4 / md 6 / lg 8 / xl 12. It is also the radius the
+       Linear and Anthropic-console references actually use; 12px on a 32px control is the
+       chunky look that reads as a 2019 admin theme. */
+    --radius: 0.5rem;
 
     --sidebar-background: 221 44% 7%;     /* Relay navy sidebar #0a0f1a */
     --sidebar-foreground: 225 53% 94%;    /* Relay dark ink #e8ecf8 */
@@ -61,6 +80,15 @@
 
     --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
+
+    /* ── LEDGER SURFACES. Added because the table needs surfaces the existing set cannot
+       express: in DARK, --muted and --card are the SAME value, so `bg-muted/30` on a table
+       header strip is invisible against --background. A divider also has to be LIGHTER than
+       --border, because --border is the weight of a box outline and a hairline rule between
+       rows must recede below it or the table reads as a grid of cells. */
+    --surface-raised: 210 20% 98%;   /* #f9fafb  header strips, reference blocks */
+    --row-hover:      210 20% 96%;   /* #f2f4f7  clearly readable, unlike muted/40 on white */
+    --divider:        220 13% 93%;   /* #eaecf0  hairline, one step lighter than --border */
   }
 
   .dark {
@@ -84,6 +112,9 @@
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
+    /* On navy the ink has to go the OTHER way: a 30%-lightness amber is invisible on
+       #101623. Same token, same role, inverted. */
+    --warning-strong: 38 95% 68%;
     --border: 223 32% 22%;                /* Relay navy border #26304a */
     --input: 223 32% 22%;
     --ring: 222 100% 68%;                 /* Relay blue on navy */
@@ -96,6 +127,10 @@
     --sidebar-border: 223 32% 22%;
     --sidebar-ring: 222 100% 68%;
     --sidebar-muted: 226 19% 62%;
+
+    --surface-raised: 221 36% 13%;   /* lifts off #101623 without becoming a card */
+    --row-hover:      221 34% 17%;
+    --divider:        223 28% 19%;   /* recedes vs --border #26304a */
   }
 }
 
@@ -109,12 +144,15 @@
 }
 
 @layer utilities {
+  /* ⛔ THE FALLBACK IS PART OF THE SPEC. `'Geist Mono', monospace` resolved to Courier on
+     every machine because nothing loaded Geist Mono (fixed: src/main.tsx). Even now the
+     tail matters — it is what renders during `font-display: swap` and if the woff2 404s. */
   .font-mono-tabular {
-    font-family: 'Geist Mono', monospace;
+    font-family: 'Geist Mono Variable', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
     font-variant-numeric: tabular-nums;
   }
   .kpi-number {
-    font-family: 'Geist Mono', monospace;
+    font-family: 'Geist Mono Variable', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: 700;
     font-size: 28px;
     letter-spacing: -0.03em;
@@ -123,13 +161,33 @@
   .fade-in {
     animation: fadeIn 0.3s ease-in-out;
   }
+  /**
+   * 🔴 THE "HORRIBLE OLD ASS UI", IN ONE RULE.
+   *
+   * @andrew, on the app as a whole: "the UI is so shit … horrible old ass UI". `SettingsShell`
+   * names the mechanism exactly — bordered, shadowed, rounded-xl boxes are "the old admin
+   * dashboard feel" — and then removes them from ONE page. This utility is applied 29 times
+   * across seven files including Dashboard, Targets, Team and Campaigns: the two screens the
+   * user opens first still ship the look that Settings was rebuilt to escape. A law that
+   * holds in one file is not a law, it is a preference that happened to win an argument once.
+   *
+   * ⭐ FIXED AT THE DEFINITION, NOT AT 29 CALL SITES. The class keeps its name and its box
+   * model, so every consumer's layout is untouched and nothing can be missed; what changes is
+   * the paint. Flat surface, ONE hairline, 8px instead of 12px, and no shadow at all — the
+   * Linear/Anthropic-console treatment the design references actually use, where separation
+   * comes from a rule and from whitespace rather than from a drop shadow.
+   *
+   * ⛔ THE HOVER SHADOW HAD TO GO ON ITS OWN MERITS: it fired on STATIC panels — KPI tiles,
+   * chart frames, table wrappers — none of which are clickable. A lift on hover is a promise
+   * of interactivity, and 29 of 29 of these did not keep it.
+   *
+   * `--card-shadow` / `--card-shadow-hover` are deliberately left defined: they are still the
+   * right tokens for things that genuinely float (popovers, sheets), and deleting them would
+   * push those back to hard-coded rgba.
+   */
   .card-elevated {
-    @apply bg-card text-card-foreground rounded-xl border;
-    box-shadow: var(--card-shadow);
-    transition: box-shadow 0.2s ease;
-  }
-  .card-elevated:hover {
-    box-shadow: var(--card-shadow-hover);
+    @apply bg-card text-card-foreground rounded-lg border border-divider;
+    transition: border-color 0.15s ease;
   }
 }
 

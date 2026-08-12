@@ -37,13 +37,13 @@ function sourceStatus(over: Partial<SourceStatus>): SourceStatus {
   } as SourceStatus;
 }
 
-function mountWith(airtable: Partial<SourceStatus>, windsor: Partial<SourceStatus> = {}) {
+function mountWith(airtable: Partial<SourceStatus>, meta: Partial<SourceStatus> = {}) {
   useDataMock.mockReturnValue({
     accounts: [],
     settings: makeSettings(),
     configured: true,
     sources: {
-      windsor: sourceStatus({ label: "Ad spend (Windsor)", ...windsor }),
+      meta: sourceStatus({ label: "Ad spend", ...meta }),
       airtable: sourceStatus(airtable),
       callCenter: sourceStatus({ label: "Calls (call-centre sheet)" }),
     } as Record<SourceKey, SourceStatus>,

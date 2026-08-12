@@ -1,17 +1,18 @@
 export interface AppSettings {
-  googleSheetUrl: string;
-  googleSheetTab: string;
   /**
-   * The RAW tab the derived ad-spend tab is generated from, BY NAME.
+   * ⛔ `googleSheetUrl`, `googleSheetTab` and `adsRawTabName` ARE GONE, 2026-08-11.
    *
-   * Used only by the completeness detector: it compares this tab's row count to the derived
-   * tab's, and any divergence means the derived tab's array formula has run out of range.
-   * ⚠️ NAME, not gid, deliberately — @fable's live probe addressed both tabs by name, and a
-   * name is something a user can read off the sheet's tab bar. gid requires digging in a URL.
-   * The silent-fallback hazard is identical for both forms and is defeated by the sig proof,
-   * so the discoverable one wins.
+   * Ad spend now comes from `ad_insights` via Supabase (src/lib/metaAdSpend.ts), which needs
+   * no user-supplied connection details at all — the Edge Function already holds the Meta
+   * credentials. There is nothing for a user to type, so there is no setting.
+   *
+   * ⚠️ RETIRED, NOT MERELY DELETED. The three keys are listed in `DELETED_FEATURE_KEYS` in
+   * config.ts so the allowlist drift-lock can tell "deliberately retired" from "silently
+   * dropped", and they must stay out of `DEFAULT_SETTINGS` for the same reason. Removing a
+   * key from the type while leaving it in the allowlist makes every settings autosave refuse
+   * itself — the write guard reads the resulting shape as a blanking. That took production
+   * down once; the three edits belong in ONE commit.
    */
-  adsRawTabName?: string;
   /**
    * Which Lead Status values count as a WON deal. @andrew: "yeah make it mappable".
    *
@@ -21,8 +22,6 @@ export interface AppSettings {
    * have. See isClosedWonStatus.
    */
   closedWonStatuses?: string[];
-  callCenterSheetUrl: string;
-  callCenterSheetTab: string;
   airtableBaseId: string;
   airtableTableName: string;
   // ⛔ OWNER-ORDERED EXCEPTION 2026-08-05 — see ALLOWED_CONFIG_KEYS in config.ts for the full
@@ -75,7 +74,22 @@ export interface AdSpendRow {
   adId: string;
   spent: number;
   leads: number;
+  /**
+   * ⚠️ A LABEL, NOT THE IDENTITY — since the Supabase cutover. This is Meta's CURRENT
+   * display name for `accountId`, and Meta rewrites it: five confirmed renames, including
+   * `Publicity 1` -> `Washbroz X SocialWorks`. Grouping on it is what split one client into
+   * two accounts on the old sheet feed. Group on `accountId`; render this.
+   */
   accountName: string;
+  /**
+   * ⭐ META'S IMMUTABLE ACCOUNT ID, and the account's real identity.
+   *
+   * ADDITIVE, exactly as `dateISO` was: the Supabase source always populates it, hand-built
+   * fixtures do not, and every reader falls back to the normalised `accountName` when it is
+   * absent. That fallback is what let ~600 tests written against the old row shape survive
+   * the source swap unchanged.
+   */
+  accountId?: string;
 }
 
 export interface AppointmentRow {
@@ -109,16 +123,22 @@ export interface AppointmentRow {
   clientBillingModel: string;
 }
 
-export interface CallRow {
-  timestamp: string;
-  ghlLocationName: string;
-  agentName: string;
-  callDuration: number;
-  callDisposition: string;
-}
 
 export interface AccountSummary {
+  /**
+   * ⚠️ THE MATCH KEY, NOT THE LABEL. This is the Meta account name exactly as the ad-spend
+   * feed rendered it, and it stays that way because appointment attribution, campaign
+   * grouping, the account filter and every React key are built on it. Rendering it is what
+   * put " X SocialWorks" on five screens.
+   */
   accountName: string;
+  /**
+   * ⭐ WHAT THE USER SHOULD SEE — the curated client name from `ad_accounts.company_name`,
+   * resolved through src/lib/accountRegistry.ts. `null` when this account has no trustworthy
+   * company name, which is a state the UI must SAY rather than paper over: a null here is
+   * never to be replaced with the account id or with a number.
+   */
+  companyName?: string | null;
   program: string;
   mediaBuyer: string;
   status: string;
@@ -135,9 +155,6 @@ export interface AccountSummary {
   closed: number;
   revenue: number;
   billed: number;
-  totalDials: number;
-  dialToApptPercent: number;
-  avgCallDuration: number;
   campaigns: CampaignSummary[];
   /**
    * Account appointments attached to NO campaign. The campaign rows sum to
@@ -170,7 +187,6 @@ export interface AccountSummary {
    */
   spendKnown?: boolean;
   apptsKnown?: boolean;
-  callsKnown?: boolean;
 }
 
 export interface CampaignSummary {
@@ -241,7 +257,14 @@ export interface DateRange {
 export interface AccountMapping {
   sheetName: string;
   airtableName: string;
-  program: 'Done For You' | 'Done With You' | 'Other';
+  /**
+   * ⚠️ `Internal` IS IN HERE NOW, AND ITS ABSENCE WAS A LIE ON SCREEN. The accounts table
+   * offers Done For You / Done With You / Internal and its footnote described what Internal
+   * does; this union had no `Internal` member, so the literal string could not reach any
+   * consumer through any code path and the promise could not be kept by construction.
+   * `Other` stays for the legacy rows that already hold it.
+   */
+  program: 'Done For You' | 'Done With You' | 'Internal' | 'Other';
   mediaBuyer: string;
   status: 'Active' | 'Paused' | 'Churned';
 }

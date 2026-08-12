@@ -7,6 +7,8 @@ import PerformanceBadge from '@/components/common/PerformanceBadge';
 import { formatCurrency, formatNumber, formatPercent, formatDate, getPerformance } from '@/lib/dataService';
 import type { AccountSummary } from '@/lib/types';
 import { X } from 'lucide-react';
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { accountTitle } from '@/lib/accountDisplay';
 
 function AccountDetail({ account, onClose }: { account: AccountSummary; onClose: () => void }) {
   const showRate = account.appointmentList.length > 0
@@ -16,18 +18,40 @@ function AccountDetail({ account, onClose }: { account: AccountSummary; onClose:
     ? (account.closed / account.appointmentList.length) * 100
     : 0;
 
+  const title = accountTitle(account);
+
+  /**
+   * 🔴 THIS WAS A SECOND, HAND-ROLLED SIDE PANEL, and the app already had one.
+   *
+   * It was `fixed inset-0 z-50 flex justify-end` over a bare click-catching overlay: no
+   * focus trap, no Escape key, no `aria-modal`, no scroll lock, no accessible name, and an
+   * `h2 font-bold text-lg` header against the settings panel's `text-[15px] font-semibold`.
+   * Two panel languages in one product, and only one of them was reachable from a keyboard.
+   * Radix's Sheet is the one already in `src/components/ui`, already used by
+   * AccountEditPanel, and it brings all five of those behaviours for free.
+   */
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-foreground/20" onClick={onClose} />
-      <div className="relative w-full max-w-2xl bg-card border-l shadow-xl overflow-y-auto">
-        <div className="sticky top-0 bg-card border-b p-4 flex items-center justify-between z-10">
-          <h2 className="font-bold text-lg">{account.accountName}</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-accent">
-            <X className="w-5 h-5" />
+    <Sheet open onOpenChange={o => { if (!o) onClose(); }}>
+      <SheetContent side="right" showClose={false} className="w-full sm:max-w-2xl p-0 flex flex-col gap-0">
+        <div className="shrink-0 flex items-start justify-between gap-3 border-b border-divider px-5 py-4">
+          <div className="min-w-0">
+            <SheetTitle className="truncate text-[15px] font-semibold tracking-[-0.01em]" title={title.label}>
+              {title.label}
+            </SheetTitle>
+            <SheetDescription className="mt-0.5 truncate text-[13px] text-muted-foreground" title={title.subtitle ?? undefined}>
+              {title.subtitle ?? `${account.program} · ${account.mediaBuyer}`}
+            </SheetDescription>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="shrink-0 -mr-1 -mt-1 grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-row-hover hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors"
+          >
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Summary stats */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="card-elevated p-4">
@@ -104,8 +128,8 @@ function AccountDetail({ account, onClose }: { account: AccountSummary; onClose:
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -174,13 +198,16 @@ export default function Accounts() {
                     onClick={() => setSelected(a)}
                     className="border-b border-border/50 hover:bg-accent/30 cursor-pointer transition-colors"
                   >
-                    <td className="py-3 px-2 font-medium">{a.accountName}</td>
+                    {/* The CLIENT's name, with Meta's own on the tooltip. This column
+                        rendered `accountName` — the raw Meta string — which is why the
+                        mapping screen appeared to do nothing. */}
+                    <td className="py-3 px-2 font-medium" title={a.accountName}>{accountTitle(a).label}</td>
                     <td className="py-3 px-2 text-muted-foreground">{a.program}</td>
                     <td className="py-3 px-2 text-muted-foreground">{a.mediaBuyer || '—'}</td>
                     <td className="py-3 px-2 text-right font-mono-tabular">{formatCurrency(a.spend)}</td>
                     <td className="py-3 px-2 text-right font-mono-tabular">{formatNumber(a.leads)}</td>
                     <td className="py-3 px-2 text-right">
-                      <span className={`font-mono-tabular font-semibold ${perf === 'good' ? 'text-success' : perf === 'fair' ? 'text-warning' : 'text-destructive'}`}>
+                      <span className={`font-mono-tabular font-semibold ${perf === 'good' ? 'text-success' : perf === 'fair' ? 'text-warning-strong' : 'text-destructive'}`}>
                         {formatCurrency(a.cpl)}
                       </span>
                     </td>

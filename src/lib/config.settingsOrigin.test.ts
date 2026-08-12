@@ -47,7 +47,7 @@ vi.mock('@/integrations/supabase/client', () => ({
 const { loadSettingsWithSource, settingsAreUnverified } = await import('./config');
 
 /** A row shaped the way loadSettingsWithSource requires to accept it as authoritative. */
-const REAL_ROW = { googleSheetUrl: 'https://docs.google.com/spreadsheets/d/REAL', airtableBaseId: 'appREAL' };
+const REAL_ROW = { airtableTableName: 'Appointments', airtableBaseId: 'appREAL' };
 
 beforeEach(() => {
   localStorage.clear();
@@ -67,7 +67,7 @@ describe('loadSettingsWithSource — the reason for a fallback survives to the c
 
     expect(r.origin).toBe('database');
     expect(r.detail).toBeNull();
-    expect(r.settings.googleSheetUrl).toBe(REAL_ROW.googleSheetUrl);
+    expect(r.settings.airtableBaseId).toBe(REAL_ROW.airtableBaseId);
     expect(settingsAreUnverified(r.origin)).toBe(false);
   });
 
@@ -83,7 +83,7 @@ describe('loadSettingsWithSource — the reason for a fallback survives to the c
     expect(settingsAreUnverified(r.origin)).toBe(true);
     // ⭐ AND THE ROW WAS NEVER CONSULTED — proof we did not merely relabel a read that
     // happened. A build with no URL must not send a request at all.
-    expect(r.settings.googleSheetUrl).toBe('');
+    expect(r.settings.airtableBaseId).toBe('');
   });
 
   it('a read ERROR is "local-unreachable" and carries the underlying message', async () => {

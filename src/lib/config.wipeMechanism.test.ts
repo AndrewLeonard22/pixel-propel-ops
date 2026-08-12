@@ -111,7 +111,7 @@ describe('🔴 the stale source: loadSettings() is synchronous localStorage', ()
     const { loadSettings } = await import('./config');
     const s = loadSettings();
     expect(s.excludedCampaigns).toEqual([]);
-    expect(s.googleSheetUrl).toBe('');
+    expect(s.airtableBaseId).toBe('');
   });
 
   it('returns DEFAULTS when localStorage is CORRUPT, silently', async () => {
@@ -145,7 +145,7 @@ describe('🔴 COMPOSED: the wipe, end to end', () => {
     expect(written.excludedCampaigns).toEqual(['the-one-they-clicked']);
     // 🔴 the 32 exclusions that were in the DB are GONE, and so is everything else
     //    the browser never loaded. This is the outage, reproduced.
-    expect(written.googleSheetUrl).toBe('');
+    expect(written.airtableBaseId).toBe('');
     expect(written.accountAliases).toEqual([]);
     expect(written.setterBonusRates).toEqual([]);
   });

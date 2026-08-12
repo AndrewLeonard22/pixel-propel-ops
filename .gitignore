@@ -35,3 +35,17 @@ dist-ssr
 
 # tsc -b build artifacts (the DoD gate command generates these)
 *.tsbuildinfo
+
+# Vitest's transform cache, moved OUT of node_modules on purpose — see vitest.config.ts.
+# Worktrees symlink node_modules back here, so the default location is shared between
+# checkouts at different commits and silently serves one commit's code to another's tests.
+.vite-cache
+.vercel
+
+# scripts/gates.mjs holds this while it has a type error planted in dataService.ts, so a
+# second run refuses instead of restoring the first run's poison into the file.
+.gates.lock
+src/__gate_control_poison__.test.ts
+
+# Vitest cache for the live-render verification harness (vitest.live.config.ts).
+.vite-cache-live

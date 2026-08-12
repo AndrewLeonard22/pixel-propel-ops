@@ -11,11 +11,12 @@ import { startOfMonth, endOfMonth, subMonths, format } from 'date-fns';
 // west of UTC. Harmless today (the derived tab is all M/D/YYYY) and load-bearing the
 // moment ③ repoints to the raw tab, which is 581/581 ISO.
 import { parseSourceDate as parseDateSafe } from '@/lib/dates';
+import { Combobox } from '@/components/ui/combobox';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
 
 export default function MediaBuying() {
-  const { accounts, adSpend, appointments, callData, settings, loading, error, configured, refresh, honestNumbers, sources, settingsOrigin, settingsDetail} = useData();
+  const { accounts, adSpend, appointments, settings, loading, error, configured, refresh, honestNumbers, sources, settingsOrigin, settingsDetail, accountRegistry} = useData();
 
   const [datePreset, setDatePreset] = useState<DatePreset>('this_month');
   const [customFrom, setCustomFrom] = useState('');
@@ -72,27 +73,29 @@ export default function MediaBuying() {
       if (to && d > to) return false;
       return true;
     });
-    const filteredCalls = callData.filter(row => {
-      const d = parseDateSafe(row.timestamp);
-      if (!d) return false;
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    });
-    // ⭐ THE 5th ARGUMENT IS NOT OPTIONAL IN PRACTICE. It defaults `?? true`, so a
-    // recompute that omits it ASSERTS EVERY SOURCE IS ALIVE and turns a dead source's em
-    // dashes back into numbers the moment a user picks a date range. Measured on this
-    // page: 5 honest em dashes per row became 5 fabricated values on "This Week".
-    // Same flags as useData.tsx:203, so a filtered view cannot disagree with an unfiltered one.
-    return buildAccountSummaries(filteredSpend, filteredAppts, settings, filteredCalls, {
-      spend: hasUsableData(sources.windsor.state),
+    // ⭐ NEITHER TRAILING ARGUMENT IS OPTIONAL IN PRACTICE — both default to a value that
+    // asserts something this page cannot know. `known` defaults `?? true` (omitting it
+    // asserts every source is alive and turns a dead source's em dashes back into numbers;
+    // measured here: 5 honest em dashes per row became 5 fabricated values on "This Week").
+    //
+    // 🔴 `registry` defaults to a registry that answers NOTHING, and THIS PAGE IS THE WORST
+    // PLACE TO OMIT IT: it groups on `mediaBuyer`, which `ad_accounts` owns. Measured over
+    // the identical rows with the argument as the only variable
+    // (`scripts/probe-registry-drop.mts`), the whole league table moved —
+    //     Jez         $717,011.42  ->  $554,491.72
+    //     Unassigned   $52,041.27  ->  $216,465.00
+    // $162,519.70 relocated between buyers by picking a date range. Both versions look
+    // entirely plausible, which is why nothing on screen could have said so.
+    // Same arguments as useData.tsx, so a filtered view cannot disagree with an unfiltered one.
+    return buildAccountSummaries(filteredSpend, filteredAppts, settings, {
+      spend: hasUsableData(sources.meta.state),
       appts: hasUsableData(sources.airtable.state),
-      calls: hasUsableData(sources.callCenter.state),
-    }).accounts;
+    }, accountRegistry).accounts;
   // `sources` IS A DEPENDENCY NOW, and omitting it would be a stale closure: the memo
   // reads the source states to build `known`, so a source dying without dateRange changing
-  // would keep serving summaries stamped ALIVE.
-  }, [accounts, adSpend, appointments, callData, settings, dateRange, sources]);
+  // would keep serving summaries stamped ALIVE. `accountRegistry` is a dependency for the
+  // same reason — it arrives on the data path, after the first render.
+  }, [accounts, adSpend, appointments, settings, dateRange, sources, accountRegistry]);
 
   const team = useMemo(() => buildTeamPerformance(filteredAccounts), [filteredAccounts]);
 
@@ -107,14 +110,14 @@ export default function MediaBuying() {
   // subset of these numbers that remains knowable, so suppressing them individually
   // would leave a page of em dashes pretending to still be a report.
   if (!configured) return <div className="max-w-2xl mx-auto mt-20"><ConfigBanner origin={settingsOrigin} detail={settingsDetail} /></div>;
-  if (!hasUsableData(sources.windsor.state)) {
+  if (!hasUsableData(sources.meta.state)) {
     // ⚠️ THIS ONE IS A PER-PERSON SCORECARD. A fabricated "$0.00 revenue · 0 closed" is
     // not a dashboard reading wrong, it is a scorecard reading wrong ABOUT SOMEBODY.
     return (
       <div className="space-y-4 max-w-[1400px]">
         <h1 className="text-xl font-bold">Media Buying</h1>
         <HonestNumbersBanner messages={honestNumbers.messages} />
-        <ErrorBanner message={`${sources.windsor.label} is unavailable, and every per-buyer figure is calculated from it. Nothing is shown rather than shown as zero.`} />
+        <ErrorBanner message={`${sources.meta.label} is unavailable, and every per-buyer figure is calculated from it. Nothing is shown rather than shown as zero.`} />
       </div>
     );
   }
@@ -129,17 +132,19 @@ export default function MediaBuying() {
           <p className="text-sm text-muted-foreground mt-0.5">{dateLabel}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select
+          <Combobox
+            aria-label="Date range"
             value={datePreset}
-            onChange={e => setDatePreset(e.target.value as DatePreset)}
-            className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-          >
-            <option value="all">All Time</option>
-            <option value="this_month">This Month</option>
-            <option value="last_month">Last Month</option>
-            <option value="last_3_months">Last 3 Months</option>
-            <option value="custom">Custom Range</option>
-          </select>
+            onChange={v => setDatePreset((v ?? 'all') as DatePreset)}
+            options={[
+              { value: 'all', label: 'All time' },
+              { value: 'this_month', label: 'This month' },
+              { value: 'last_month', label: 'Last month' },
+              { value: 'last_3_months', label: 'Last 3 months' },
+              { value: 'custom', label: 'Custom range' },
+            ]}
+            className="w-44"
+          />
           {datePreset === 'custom' && (
             <div className="flex items-center gap-2">
               <input

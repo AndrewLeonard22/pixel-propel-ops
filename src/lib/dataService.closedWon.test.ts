@@ -134,7 +134,6 @@ describe('the fix reaches the ACCOUNT numbers, not just the helper', () => {
       [makeAdSpendRow({ accountName: 'Acme', spent: 500, leads: 20 })],
       appts,
       makeSettings(),
-      [],
     );
     expect(accounts[0].closed).toBe(1);
   });
@@ -151,7 +150,6 @@ describe('the fix reaches the ACCOUNT numbers, not just the helper', () => {
       [makeAdSpendRow({ accountName: 'Acme', spent: 500, leads: 20 })],
       appts,
       makeSettings(),
-      [],
     );
     expect(accounts[0].closed).toBe(1);        // the count is corrected
     expect(accounts[0].revenue).toBe(1250);    // the money is NOT

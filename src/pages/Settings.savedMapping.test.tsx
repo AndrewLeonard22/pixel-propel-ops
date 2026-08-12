@@ -62,26 +62,47 @@ function mount() {
   useDataMock.mockReturnValue({
     settings: SETTINGS,
     setSettings: () => {},
-    adSpend: [], accounts: [], callData: [], appointments: [],
+    adSpend: [], accounts: [], appointments: [],
     refresh: async () => {},
+    // The Dashboard pushes its date range into the SQL query through this. A mock without
+    // it throws on mount — the page genuinely depends on it now.
+    setSpendWindow: () => {},
     settingsOrigin: 'database' as const, settingsDetail: null, settingsLoaded: true,
-    sources: { windsor: status(), airtable: status(), callCenter: status() } as Record<SourceKey, SourceStatus>,
+    sources: { meta: status(), airtable: status() } as Record<SourceKey, SourceStatus>,
   });
   return render(<SettingsPage />);
 }
 
-/** Drive the real control — the mapping UI does not exist until this resolves. */
+/**
+ * Drive the real control — the mapping UI does not exist until this resolves.
+ *
+ * ⚠️ REWRITTEN FOR THE 2026-08-11 REDESIGN, and the law it guards is unchanged. Three
+ * things moved underneath it:
+ *   ① The Google Sheets and call-centre sections are gone, so there is now exactly ONE
+ *     "Test connection" button. It is STILL targeted through its own section rather than by
+ *     index — this file's own law, "target by property, never by position", and the sibling
+ *     autosave file broke exactly that law and went red on 19 arms.
+ *   ② `<section>` + `getByText('Airtable Connection')` became the settings shell's section
+ *     element, keyed on the stable id rather than on prose that a copy edit can change.
+ *   ③ The 13 native `<select>` elements became comboboxes, because a native select is what
+ *     @andrew called "horrendous". A combobox has no `.value` to read, so the assertions
+ *     read the TRIGGER'S RENDERED TEXT — which is strictly closer to what a user sees than
+ *     `select.value` ever was.
+ */
 async function reachTheMappingUI(fields: string[]) {
   airtableImpl.mockResolvedValue({ records: [], fields, unresolvedLinks: 0 });
-  // ⚠️ THREE sections each render a "Test Connection" button — Google Sheets, the call
-  // centre, and Airtable. Target it through the AIRTABLE SECTION rather than by index:
-  // an index would silently drift the day a section is added or reordered, and would then
-  // be testing a different source's button while still passing. @bird's law — target by
-  // property, never by position.
-  const airtableSection = screen.getByText('Airtable Connection').closest('section');
+  const airtableSection = document.getElementById('connections');
   expect(airtableSection).toBeTruthy();
   fireEvent.click(within(airtableSection as HTMLElement).getByRole('button', { name: /test connection/i }));
-  await waitFor(() => expect(screen.getByText(/Column Mappings/i)).toBeVisible());
+  await waitFor(() => expect(screen.getByText(/Column mappings/i)).toBeVisible());
+}
+
+/** The combobox trigger for one mapping row, found via its own label. */
+function triggerFor(label: string): HTMLElement {
+  const labelEl = screen.getByText(label);
+  const trigger = labelEl.parentElement?.querySelector('[role="combobox"]');
+  expect(trigger, `no combobox rendered for ${label}`).toBeTruthy();
+  return trigger as HTMLElement;
 }
 
 beforeEach(() => {
@@ -90,12 +111,12 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-describe('the mapping select never presents a WORKING saved value as unchosen', () => {
+describe('the mapping control never presents a WORKING saved value as unchosen', () => {
   it('🔴 CONTROL FIRST — @bird\'s finding: no mapping UI at all before the fetch', () => {
     // His first pass read 0-of-124 against a control that had not rendered. Asserting the
     // pre-state here means the arms below cannot silently measure the same empty page.
     mount();
-    expect(screen.queryByText(/Column Mappings/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Column mappings/i)).not.toBeInTheDocument();
   });
 
   it('🔴 THE SAVED VALUE IS STILL AN OPTION when the fetch does not contain it', async () => {
@@ -104,38 +125,35 @@ describe('the mapping select never presents a WORKING saved value as unchosen', 
     // re-pointed. The union cannot help here: the column is absent from every record.
     await reachTheMappingUI(['Client Name', 'Appointment Date', 'Lead Status']);
 
-    expect(screen.getByText(`${SAVED} (saved — not in the current Airtable fetch)`)).toBeInTheDocument();
+    expect(screen.getByText(/Saved, but not in the current Airtable fetch/)).toBeInTheDocument();
   });
 
-  it('🔴 AND THE SELECT DISPLAYS IT — the exact join @bird could not make', async () => {
+  it('🔴 AND THE CONTROL DISPLAYS IT — the exact join @bird could not make', async () => {
     mount();
     await reachTheMappingUI(['Client Name', 'Appointment Date', 'Lead Status']);
 
-    // Find the select by its own label, not by position: 13 selects render and an index
-    // would silently drift the day a mapping is added.
-    const label = screen.getByText('Closed Revenue');
-    const select = label.parentElement?.querySelector('select') as HTMLSelectElement;
-
-    expect(select).toBeTruthy();
-    expect(select.value).toBe(SAVED);          // NOT '' — not "— Select —"
+    // Found by its own label, not by position: 13 controls render and an index would
+    // silently drift the day a mapping is added.
+    expect(triggerFor('Closed Revenue').textContent).toContain(SAVED);
+    // ⭐ THE WHOLE POINT: it must NOT read as unchosen. A control showing "Not mapped" over
+    // a correct saved value is one click from blanking $1,609,728.72 of attributed revenue.
+    expect(triggerFor('Closed Revenue').textContent).not.toContain('Not mapped');
   });
 
-  it('🔑 ANTI-VACUITY CONTROL: when the fetch DOES contain it, no "(saved…)" note appears', async () => {
+  it('🔑 ANTI-VACUITY CONTROL: when the fetch DOES contain it, no "saved…" note appears', async () => {
     // Without this, a fix that always rendered the extra option would pass above — and the
     // note would then be permanent furniture on a perfectly healthy mapping.
     mount();
     await reachTheMappingUI(['Client Name', SAVED]);
 
-    expect(screen.queryByText(/saved — not in the current Airtable fetch/)).not.toBeInTheDocument();
-    const select = screen.getByText('Closed Revenue').parentElement?.querySelector('select') as HTMLSelectElement;
-    expect(select.value).toBe(SAVED);          // still selected, via the real option
+    expect(screen.queryByText(/Saved, but not in the current Airtable fetch/)).not.toBeInTheDocument();
+    expect(triggerFor('Closed Revenue').textContent).toContain(SAVED); // still selected, via the real option
   });
 
-  it('an UNMAPPED column still shows "— Select —" — the honest empty state survives', async () => {
+  it('an UNMAPPED column still reads "Not mapped" — the honest empty state survives', async () => {
     mount();
     await reachTheMappingUI(['Client Name']);
 
-    const select = screen.getByText('Campaign Name').parentElement?.querySelector('select') as HTMLSelectElement;
-    expect(select.value).toBe('');
+    expect(triggerFor('Campaign Name').textContent).toContain('Not mapped');
   });
 });

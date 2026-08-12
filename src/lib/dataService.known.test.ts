@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildAccountSummaries, metricIsMeaningful } from "./dataService";
-import { makeAdSpendRow, makeAppointmentRow, makeCallRow, makeSettings } from "@/test/factories";
+import { makeAdSpendRow, makeAppointmentRow, makeSettings } from "@/test/factories";
 
 /**
  * POPULATION UNDER TEST
@@ -33,11 +33,10 @@ const APPTS = [
   makeAppointmentRow({ client: "Acme" }),
   makeAppointmentRow({ client: "Acme", adId: "334" }),
 ];
-const CALLS = [makeCallRow({ ghlLocationName: "Acme" })];
 const SETTINGS = makeSettings();
 
-const build = (known?: Parameters<typeof buildAccountSummaries>[4]) =>
-  buildAccountSummaries(SPEND, APPTS, SETTINGS, CALLS, known).accounts;
+const build = (known?: Parameters<typeof buildAccountSummaries>[3]) =>
+  buildAccountSummaries(SPEND, APPTS, SETTINGS, known).accounts;
 
 describe("buildAccountSummaries — source liveness reaches the ROW, not just the tile", () => {
   it("THE COMPATIBILITY RULE: omitting `known` means KNOWN, so the legacy callers are untouched", () => {
@@ -46,7 +45,6 @@ describe("buildAccountSummaries — source liveness reaches the ROW, not just th
     // Targets.tsx and TeamPerformance.tsx take this branch on every render.
     expect(acct.spendKnown).toBe(true);
     expect(acct.apptsKnown).toBe(true);
-    expect(acct.callsKnown).toBe(true);
   });
 
   it("a partially-specified `known` defaults ONLY the keys it omits", () => {
@@ -54,25 +52,25 @@ describe("buildAccountSummaries — source liveness reaches the ROW, not just th
 
     expect(acct.apptsKnown).toBe(false);
     expect(acct.spendKnown).toBe(true);
-    expect(acct.callsKnown).toBe(true);
   });
 
   it("AN EXPLICIT `false` SURVIVES — this is `?? true`, and `|| true` would erase it", () => {
-    const [acct] = build({ spend: false, appts: false, calls: false });
+    const [acct] = build({ spend: false, appts: false });
 
     // `||` collapses false to true and silently restores the bug, with every test that
     // only checks the true case still passing.
     expect(acct.spendKnown).toBe(false);
     expect(acct.apptsKnown).toBe(false);
-    expect(acct.callsKnown).toBe(false);
   });
 
-  it("BIRD'S EXACT SCENARIO: call-centre dead, Windsor alive — flags disagree per source", () => {
-    const [acct] = build({ spend: true, appts: true, calls: false });
+  it("BIRD'S EXACT SCENARIO, re-based: Airtable dead, Windsor alive — flags disagree per source", () => {
+    // ⚠️ ORIGINALLY "call-centre dead". That source was deleted on 2026-08-11, so the arm
+    // is re-pointed at the surviving pair rather than deleted: what it guards is that two
+    // sources can hold DIFFERENT liveness on the same row, which is the whole mechanism.
+    const [acct] = build({ spend: true, appts: false });
 
-    expect(acct.callsKnown).toBe(false); // TOTAL DIALS must render "—"
-    expect(acct.spendKnown).toBe(true); // TOTAL SPEND must still render $654,261.49
-    expect(acct.apptsKnown).toBe(true);
+    expect(acct.apptsKnown).toBe(false); // TOTAL APPTS must render "—"
+    expect(acct.spendKnown).toBe(true);  // TOTAL SPEND must still render $654,261.49
   });
 
   it("the flags reach EVERY row, not just the first — a per-row render reads each one", () => {
@@ -80,7 +78,6 @@ describe("buildAccountSummaries — source liveness reaches the ROW, not just th
       [...SPEND, makeAdSpendRow({ accountName: "Beta", campaignId: "999" })],
       APPTS,
       SETTINGS,
-      CALLS,
       { appts: false },
     ).accounts;
 
@@ -89,7 +86,7 @@ describe("buildAccountSummaries — source liveness reaches the ROW, not just th
   });
 
   it("IS BEHAVIOUR-NEUTRAL ON THE MATHS — the flags describe the data, they do not change it", () => {
-    const withFlags = build({ spend: false, appts: false, calls: false });
+    const withFlags = build({ spend: false, appts: false });
     const without = build();
 
     // If flagging a source altered a number, the flag would be a second source of truth.

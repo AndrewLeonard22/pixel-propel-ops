@@ -5,13 +5,10 @@ const SETTINGS_KEY = 'socialworks_settings';
 const ACCOUNT_MAPPINGS_KEY = 'accountMappings';
 
 const DEFAULT_SETTINGS: AppSettings = {
-  googleSheetUrl: '',
-  googleSheetTab: 'Ads Data',
-  // @fable measured both tabs on @andrew's live sheet by these exact names:
-  // 'Ads Data' (derived) and 'Ads - Raw' (source), 38,997 rows each, differing sigs.
-  adsRawTabName: 'Ads - Raw',
-  callCenterSheetUrl: '',
-  callCenterSheetTab: 'RAW DATA',
+  // ⛔ googleSheetUrl / googleSheetTab / adsRawTabName removed 2026-08-11 with the sheet.
+  // They must stay OUT of here as well as out of ALLOWED_CONFIG_KEYS — the drift-lock's
+  // anti-vacuity arm checks both, because a key retired from the allowlist but left in the
+  // defaults is re-sent on the next save and quietly re-admitted.
   airtableBaseId: '',
   airtableTableName: 'Appointments',
   columnMappings: {
@@ -258,7 +255,13 @@ export async function loadSettingsWithSource(): Promise<SettingsLoad> {
     // the last-known-good copy on each machine that opened the app afterwards.
     // NOT CHANGED HERE: making this a validity test rather than a presence test
     // is order item ①b / ⑥ and belongs to the lane that owns source state.
-    if (dbSettings && typeof dbSettings === 'object' && dbSettings.googleSheetUrl !== undefined) {
+    // ⚠️ THE PROBE KEY CHANGED WITH THE SHEET, and it had to. This asks "is there a real
+    // settings row here", and it asked it by looking for `googleSheetUrl` — a key that no
+    // longer exists on any row. Left alone, EVERY database row would fail this test, every
+    // load would fall back to localStorage, and the app would report `local-no-row` while a
+    // perfectly good row sat in the table. `airtableBaseId` is the remaining connection
+    // scalar and carries the same "someone configured this" meaning.
+    if (dbSettings && typeof dbSettings === 'object' && dbSettings.airtableBaseId !== undefined) {
       const merged = sanitizeSettings({
         ...DEFAULT_SETTINGS,
         ...dbSettings,
@@ -294,7 +297,11 @@ export async function loadSettingsWithSource(): Promise<SettingsLoad> {
  * Fields whose loss is DESTRUCTIVE rather than an ordinary edit. Enumerated deliberately:
  * these are the connection settings and the curated lists that no refresh can rebuild.
  */
-const PROTECTED_SCALARS = ['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId'] as const;
+// ⚠️ `googleSheetUrl` was the first entry until 2026-08-11. It was REPLACED, not merely
+// removed: this list must keep more than one scalar or the two-scalar clobber cases below
+// degrade to one-scalar cases and stop exercising the "names EVERY field it would have
+// destroyed" path. `airtableTableName` is the other connection scalar a wipe can eat.
+const PROTECTED_SCALARS = ['airtableBaseId', 'airtableTableName'] as const;
 const PROTECTED_LISTS = [
   'excludedCampaigns',
   'setterBonusRates',
@@ -444,10 +451,10 @@ export async function saveAccountMappings(mappings: any[]): Promise<void> {
   await upsertSetting('account_mappings', mappings);
 }
 
-/** The three independent data sources the tracker reads. */
-export type DataSource = 'googleSheet' | 'airtable' | 'callCenter';
+/** The independent data sources the tracker reads. */
+export type DataSource = 'adSpend' | 'airtable';
 
-export const DATA_SOURCES: DataSource[] = ['googleSheet', 'airtable', 'callCenter'];
+export const DATA_SOURCES: DataSource[] = ['adSpend', 'airtable'];
 
 /**
  * Is ONE source configured? Each source depends only on its OWN fields.
@@ -458,8 +465,16 @@ export const DATA_SOURCES: DataSource[] = ['googleSheet', 'airtable', 'callCente
  */
 export function isSourceConfigured(settings: AppSettings, source: DataSource): boolean {
   switch (source) {
-    case 'googleSheet':
-      return !!settings.googleSheetUrl;
+    /**
+     * ⭐ AD SPEND IS CONFIGURED WHEN SUPABASE IS. It needs no user-supplied setting since
+     * the cutover — the Meta credentials live in the Edge Function — but this must NOT
+     * therefore become a constant `true`. The suite's sabotage harness treats `always true`
+     * as a poison and would refuse it, and rightly: with no Supabase connection the fetcher
+     * genuinely cannot read `ad_insights`, and "not configured" is the honest name for that
+     * rather than a fetch failure the user is invited to retry.
+     */
+    case 'adSpend':
+      return isSupabaseConfigured;
     case 'airtable':
       // ⚠️ @raccoon wrote this as `airtableBaseId && airtableToken`. The token is GONE
       // from AppSettings — credentials are server-side now (order item ②), so the client
@@ -468,8 +483,6 @@ export function isSourceConfigured(settings: AppSettings, source: DataSource): b
       // at a base", and whether the credential works is the proxy's answer, surfaced as a
       // FETCH failure rather than a config state. Same seam, one fewer operand.
       return !!settings.airtableBaseId;
-    case 'callCenter':
-      return !!settings.callCenterSheetUrl;
   }
 }
 
@@ -479,14 +492,14 @@ export function configuredSources(settings: AppSettings): DataSource[] {
 }
 
 /**
- * ⚠️ REQUIRES ALL THREE SOURCES, ACROSS TWO UNRELATED VENDORS.
+ * ⚠️ REQUIRES BOTH SOURCES, ACROSS TWO UNRELATED VENDORS.
  *
  * This is why production renders "Configure your data sources" with ZERO requests and
  * NO error: `useData.tsx:63` returns early and silently when this is false, so a missing
  * Airtable credential suppresses the Google Sheets spend feed as well.
  *
  * 🔴 DO NOT relax this to `configuredSources(settings).length > 0` ON ITS OWN.
- * `refresh()` fetches all three inside a single `Promise.all`, and `fetchAirtableData`
+ * `refresh()` fetches both inside a single `Promise.all`, and `fetchAirtableData`
  * THROWS 'Airtable not configured' when the token is absent. Relaxing the gate alone
  * turns a blank page into a red error banner with still-zero data, because Promise.all
  * discards the Google Sheets rows that WERE fetchable.
@@ -503,14 +516,14 @@ export function anySourceConfigured(settings: AppSettings): boolean {
 }
 
 /**
- * ⚠️ REQUIRES ALL THREE SOURCES, ACROSS TWO UNRELATED VENDORS.
+ * ⚠️ REQUIRES BOTH SOURCES, ACROSS TWO UNRELATED VENDORS.
  *
  * This is why production renders "Configure your data sources" with ZERO requests and
  * NO error: `useData.tsx:63` returns early and silently when this is false, so a missing
  * Airtable credential suppresses the Google Sheets spend feed as well.
  *
  * 🔴 DO NOT relax this to `configuredSources(settings).length > 0` ON ITS OWN.
- * `refresh()` fetches all three inside a single `Promise.all`, and `fetchAirtableData`
+ * `refresh()` fetches both inside a single `Promise.all`, and `fetchAirtableData`
  * THROWS 'Airtable not configured' when the token is absent. Relaxing the gate alone
  * turns a blank page into a red error banner with still-zero data, because Promise.all
  * discards the Google Sheets rows that WERE fetchable.
@@ -524,12 +537,11 @@ export function isConfigured(settings: AppSettings): boolean {
   // is a change my removal FORCED, not a redesign of the gate.
   //
   // ⛔ THE GATE IS STILL WRONG AND FIXING IT IS NOT THIS CHANGE'S JOB.
-  // It remains a SINGLE GLOBAL flag over THREE INDEPENDENT SOURCES: Windsor and
-  // the call-centre sheet still cannot load unless `airtableBaseId` is set, and
-  // neither of them uses Airtable at all. A missing Airtable config should
+  // It remains a SINGLE GLOBAL flag over INDEPENDENT SOURCES: ad spend still cannot
+  // load unless `airtableBaseId` is set, and it does not use Airtable at all. A missing Airtable config should
   // disable the Airtable panel, not the whole dashboard. Per-source state is
   // @dash's lane (order item ⑥) and the split is order item ①b.
-  return !!(settings.googleSheetUrl && settings.airtableBaseId);
+  return !!(isSupabaseConfigured && settings.airtableBaseId);
 }
 
 /**
@@ -560,13 +572,25 @@ export function isConfigured(settings: AppSettings): boolean {
  * the authority — this is the client half, so a bad write fails early and
  * visibly rather than as a 400 from PostgREST.
  */
-export const ALLOWED_CONFIG_KEYS = [
-  'googleSheetUrl', 'googleSheetTab',
-  // The RAW tab, for the truncation detector (item ①). ⚠️ NO DATE HERE ON PURPOSE: the
-  // ~2026-08-12 figure was derived from a formula range @apprentice could not reproduce,
-  // so it is a prediction, not a deadline. The detector needs neither.
-  'adsRawTabName',
+/**
+ * ⛔ KEYS RETIRED WITH A DELETED FEATURE. Named rather than forgotten.
+ *
+ * The allowlist is a PERMIT list, so dropping a key is always legal on the wire — sending
+ * fewer keys can never be rejected. What is NOT safe is dropping one silently: the drift
+ * lock compares the allowlist against the keys actually present in the stored row, and a
+ * key that disappears with no record is indistinguishable from one deleted by accident.
+ * This list is how "deliberately retired" is told apart from "silently dropped".
+ *
+ * `googleSheetUrl`, `googleSheetTab`, `adsRawTabName` — retired 2026-08-11 when ad spend
+ * moved from the Google Sheet CSV to `ad_insights`. The sheet had been silently missing
+ * $166,895 (27.6%) of spend, including all of July 2026.
+ */
+export const DELETED_FEATURE_KEYS = [
   'callCenterSheetUrl', 'callCenterSheetTab',
+  'googleSheetUrl', 'googleSheetTab', 'adsRawTabName',
+] as const;
+
+export const ALLOWED_CONFIG_KEYS = [
   'airtableBaseId', 'airtableTableName',
   // ⛔⛔ OWNER-ORDERED EXCEPTION, 2026-08-05. Andrew, verbatim: «JUST PUT THE ACCESS TOKEN
   // BACK IN PIXEL, YOU FUCKING REMOVED IT SO NOW I CANT SEE MY AIRTABLE DATA».
@@ -620,15 +644,6 @@ export function sanitizeSettings<T>(settings: T): T {
     if (allowed.has(key)) clean[key] = value;
   }
   return clean as T;
-}
-
-export function convertSheetUrlToCsv(url: string, tab?: string): string {
-  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
-  if (!match) return '';
-  const spreadsheetId = match[1];
-  const gidMatch = url.match(/gid=(\d+)/);
-  const gid = gidMatch ? gidMatch[1] : '0';
-  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}`;
 }
 
 export { DEFAULT_SETTINGS };

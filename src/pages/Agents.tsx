@@ -30,11 +30,11 @@ export default function Agents() {
   // This is my own rule broken in my own fix: A GUARD MUST NAME EVERY SOURCE THE
   // DERIVATION TRAVERSES, NOT THE SOURCE THE VALUE BELONGS TO. Appointments belong
   // to Airtable; the derivation traverses Windsor.
-  const spendOk = hasUsableData(sources.windsor.state);
+  const spendOk = hasUsableData(sources.meta.state);
   const payoutDataOk = apptsOk && spendOk;
   const downSources = [
     !apptsOk ? sources.airtable : null,
-    !spendOk ? sources.windsor : null,
+    !spendOk ? sources.meta : null,
   ].filter(Boolean) as (typeof sources.airtable)[];
   const [payPeriod, setPayPeriod] = useState<PayPeriod>('first');
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
@@ -140,11 +140,11 @@ export default function Agents() {
       {/* ⑦ The config-wipe signature: every rate on screen is invented. Say so ONCE,
            loudly, because the per-card note is easy to read past. */}
       {payout.allRatesFabricated && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
+          <AlertTriangle className="w-4 h-4 text-warning-strong shrink-0 mt-0.5" />
           <div className="text-sm">
-            <p className="font-semibold text-amber-700">No setter bonus rates are configured.</p>
-            <p className="text-amber-700/90 mt-0.5">
+            <p className="font-semibold text-warning-strong">No setter bonus rates are configured.</p>
+            <p className="text-warning-strong/90 mt-0.5">
               Every amount below uses the $5 default, which nobody set. Set the real rates in
               Settings before paying out.
             </p>
@@ -196,12 +196,12 @@ export default function Agents() {
                   <p className="text-xs text-muted-foreground">
                     ${rate}/appt bonus rate
                     {rateSource === 'fallback' && (
-                      <span className="ml-1 text-amber-600 font-medium">(default — not configured)</span>
+                      <span className="ml-1 text-warning-strong font-medium">(default — not configured)</span>
                     )}
                   </p>
                 </div>
                 <div className="ml-auto text-right shrink-0">
-                  <p className={`text-xl font-bold font-mono-tabular ${total > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                  <p className={`text-xl font-bold font-mono-tabular ${total > 0 ? 'text-success' : 'text-muted-foreground'}`}>
                     {formatCurrency(total)}
                   </p>
                   <p className="text-xs text-muted-foreground">{appts.length} appt{appts.length !== 1 ? 's' : ''}</p>
@@ -210,7 +210,7 @@ export default function Agents() {
 
               {/* ⑦ why this row is not trustworthy, at the row it applies to */}
               {warning && (
-                <div className={`flex items-start gap-1.5 text-xs rounded px-2 py-1.5 ${payable ? 'bg-amber-500/10 text-amber-700' : 'bg-destructive/10 text-destructive'}`}>
+                <div className={`flex items-start gap-1.5 text-xs rounded px-2 py-1.5 ${payable ? 'bg-warning/10 text-warning-strong' : 'bg-destructive/10 text-destructive'}`}>
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                   <span>{warning}</span>
                 </div>
@@ -228,7 +228,7 @@ export default function Agents() {
                 </div>
                 <div>
                   <p className="text-muted-foreground">Amount Owed</p>
-                  <p className={`font-mono-tabular font-semibold text-sm mt-0.5 ${total > 0 ? 'text-emerald-600' : ''}`}>{formatCurrency(total)}</p>
+                  <p className={`font-mono-tabular font-semibold text-sm mt-0.5 ${total > 0 ? 'text-success' : ''}`}>{formatCurrency(total)}</p>
                 </div>
               </div>
 
@@ -252,7 +252,7 @@ export default function Agents() {
       <div className="card-elevated border p-4 flex items-center justify-between gap-4">
         <div>
           <p className="text-xs text-muted-foreground">Total payout — {periodLabel}</p>
-          <p className={`text-2xl font-bold font-mono-tabular mt-0.5 ${grandTotal > 0 ? 'text-emerald-600' : 'text-foreground'}`}>
+          <p className={`text-2xl font-bold font-mono-tabular mt-0.5 ${grandTotal > 0 ? 'text-success' : 'text-foreground'}`}>
             {formatCurrency(grandTotal)}
           </p>
         </div>
@@ -260,7 +260,7 @@ export default function Agents() {
           onClick={handleExport}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border hover:bg-accent transition-colors"
         >
-          {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+          {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
           {copied ? 'Copied!' : 'Export'}
         </button>
       </div>

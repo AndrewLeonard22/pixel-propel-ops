@@ -16,28 +16,28 @@ import type { AccountSummary } from '@/lib/types';
  * If the fixture ever stops separating them these arms pass vacuously, so the ANTI-VACUITY
  * arm below asserts the two candidate answers are not equal.
  */
+/**
+ * ⚠️ PROGRAM AND STATUS LIVE ON THE SUMMARY NOW, and this fixture used to inject them by
+ * mocking `loadAccountMappings` instead. That mock was a faithful copy of the defect: the
+ * Dashboard re-derived program/status from the legacy localStorage alias store while the
+ * summary it had been handed already carried both, with a DIFFERENT default rule on each
+ * side ('Done For You' there, 'Unknown' here). One owner per field — dataService resolves
+ * it once, from the curated `ad_accounts` mapping with the legacy store as fallback, and
+ * every screen reads the answer rather than recomputing it.
+ */
 const acct = (o: Partial<AccountSummary>): AccountSummary => ({
   accountName: 'X', spend: 0, leads: 0, performanceSpend: 0, performanceLeads: 0,
   appointments: 0, closed: 0, revenue: 0, billed: 0, totalDials: 0, cpl: 0,
   leadPercent: 0, costPerAppt: 0, campaigns: [], appointmentList: [],
+  program: 'Done For You', status: 'Active', mediaBuyer: 'Unassigned',
   ...o,
 } as unknown as AccountSummary);
 
-const DFY = acct({ accountName: 'Acme DFY', performanceSpend: 500, performanceLeads: 10, appointments: 1, spend: 500, leads: 10 });
-const DWY = acct({ accountName: 'Zeta DWY', performanceSpend: 900, performanceLeads: 20, appointments: 0, spend: 900, leads: 20 });
+const DFY = acct({ accountName: 'Acme DFY', program: 'Done For You', performanceSpend: 500, performanceLeads: 10, appointments: 1, spend: 500, leads: 10 });
+const DWY = acct({ accountName: 'Zeta DWY', program: 'Done With You', performanceSpend: 900, performanceLeads: 20, appointments: 0, spend: 900, leads: 20 });
 
 const useDataMock = vi.fn();
 vi.mock('@/hooks/useData', () => ({ useData: useDataMock }));
-vi.mock('@/lib/config', async importOriginal => {
-  const real = await importOriginal<typeof import('@/lib/config')>();
-  return {
-    ...real,
-    loadAccountMappings: () => ([
-      { sheetName: 'Acme DFY', airtableName: 'Acme DFY', program: 'Done For You', mediaBuyer: '', status: 'Active' },
-      { sheetName: 'Zeta DWY', airtableName: 'Zeta DWY', program: 'Done With You', mediaBuyer: '', status: 'Active' },
-    ]),
-  };
-});
 const { default: Dashboard } = await import('./Dashboard');
 
 const ok = { label: 'src', state: 'valid', error: null, missingSettings: [], configured: true } as never;
@@ -46,7 +46,10 @@ beforeEach(() => {
     settings: makeSettings(), setSettings: () => {}, adSpend: [{ dateISO: '2026-08-05' }],
     accounts: [DFY, DWY], appointments: [], unmatchedAppointments: [], callData: [],
     loading: false, error: null, configured: true, settingsLoaded: true, settingsOrigin: 'database',
-    sources: { windsor: ok, airtable: ok, callCenter: ok }, refresh: async () => {},
+    sources: { meta: ok, airtable: ok, callCenter: ok }, refresh: async () => {},
+    // The Dashboard pushes its date range into the SQL query through this. A mock without
+    // it throws on mount — the page genuinely depends on it now.
+    setSpendWindow: () => {},
     honestNumbers: { hasWarnings: false, messages: [], exclusion: {}, fabricatedRateCount: 0, allRatesFabricated: false },
     exclusions: { state: 'active', configuredCount: 0, matchedCount: 0, unfilteredSpend: 0, affectedAccounts: [] },
     lastUpdated: null,

@@ -89,7 +89,7 @@ function archadeckLike() {
       campaignId: '', campaignName: '', adSetId: '', adSetName: '', adId: '', adName: '',
     }),
   ];
-  return buildAccountSummaries(spend, appts, SETTINGS, []);
+  return buildAccountSummaries(spend, appts, SETTINGS);
 }
 
 describe('🔴 THE GAP IS REAL AND IT IS STRUCTURAL, not one account being unlucky', () => {
@@ -118,7 +118,7 @@ describe('🔴 THE GAP IS REAL AND IT IS STRUCTURAL, not one account being unluc
       // matches the CAMPAIGN by id, but carries NO ad-set or ad evidence at all
       makeAppointmentRow({ client: 'Acme', campaignId: 'C1', adSetId: '', adSetName: '', adId: '', adName: '' }),
     ];
-    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS, []);
+    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS);
     const camp = (accounts[0].campaigns ?? [])[0];
     const adSetAppts = (camp.adSets ?? []).reduce((s, a) => s + a.appointments, 0);
 
@@ -141,7 +141,7 @@ describe('🔴 THE GAP IS REAL AND IT IS STRUCTURAL, not one account being unluc
       makeAppointmentRow({ client: 'Acme', campaignId: 'C1', adSetId: 'AS1' }),
       makeAppointmentRow({ client: 'Acme', campaignId: 'C2', adSetId: 'AS2' }),
     ];
-    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS, []);
+    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS);
     const acct = accounts[0];
     const parts = (acct.campaigns ?? []).reduce((s, c) => s + c.appointments, 0);
 
@@ -159,7 +159,6 @@ describe('⚠️ THE ZERO CASE — where a divide-by-zero or a false em dash hid
       [makeAdSpendRow({ accountName: 'Quiet', campaignId: 'C1', spent: 500, leads: 20 })],
       [],
       SETTINGS,
-      [],
     );
     const acct = accounts[0];
 
@@ -180,7 +179,6 @@ describe('⚠️ THE ZERO CASE — where a divide-by-zero or a false em dash hid
       [makeAdSpendRow({ accountName: 'Quiet', campaignId: 'C1', spent: 500, leads: 0 })],
       [],
       SETTINGS,
-      [],
     );
     for (const c of accounts[0].campaigns ?? []) {
       expect(Number.isFinite(c.cpl)).toBe(true);
@@ -201,7 +199,7 @@ describe('revenue and closed reconcile after D1', () => {
       makeAppointmentRow({ client: 'Acme', campaignId: 'C2', leadStatus: 'Closed Lost', closedRevenue: 0 }),
       makeAppointmentRow({ client: 'Acme', campaignId: 'C2', leadStatus: 'Closed Won', closedRevenue: 500 }),
     ];
-    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS, []);
+    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS);
     const acct = accounts[0];
     const camps = acct.campaigns ?? [];
 
@@ -228,7 +226,7 @@ describe('✅ THE GAP IS NOW NAMED — the count the panel renders', () => {
     // Without this, a field hardcoded to 1 (or to `appointments`) would pass the arm above.
     const spend = [makeAdSpendRow({ accountName: 'Acme', campaignId: 'C1', adsetId: 'AS1', spent: 100, leads: 10 })];
     const appts = [makeAppointmentRow({ client: 'Acme', campaignId: 'C1', adSetId: 'AS1' })];
-    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS, []);
+    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS);
 
     expect(accounts[0].appointments).toBe(1);
     expect(accounts[0].unattributedAppointments).toBe(0);
@@ -236,7 +234,7 @@ describe('✅ THE GAP IS NOW NAMED — the count the panel renders', () => {
 
   it('never negative — a campaign cannot out-count its account', () => {
     const { accounts } = buildAccountSummaries(
-      [makeAdSpendRow({ accountName: 'Quiet', campaignId: 'C1', spent: 500, leads: 20 })], [], SETTINGS, [],
+      [makeAdSpendRow({ accountName: 'Quiet', campaignId: 'C1', spent: 500, leads: 20 })], [], SETTINGS,
     );
     expect(accounts[0].unattributedAppointments).toBe(0);
     expect(accounts[0].unattributedAppointments).toBeGreaterThanOrEqual(0);
@@ -259,7 +257,7 @@ describe('🔑 THE THIRD CATEGORY — a DANGLING reference is unattributed too',
       // all six PRESENT but dangling — in neither of his counts
       makeAppointmentRow({ client: 'Acme', campaignId: 'GHOST', adSetId: 'NOPE', adSetName: 'nope', adId: 'X', adName: 'x', campaignName: 'ghost' }),
     ];
-    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS, []);
+    const { accounts } = buildAccountSummaries(spend, appts, SETTINGS);
     const acct = accounts[0];
 
     expect(acct.appointments).toBe(3);
@@ -290,7 +288,7 @@ describe('🔴 THE ⑥ POPULATION AND THIS ONE ARE NOT THE SAME ROWS — equal s
       makeAppointmentRow({ client: 'Archadeck', campaignId: 'C1', adSetId: 'AS1', adSetName: 'S1', adId: 'AD1', adName: 'A1' }),
       makeAppointmentRow({ client: 'Archadeck', campaignId: '', adSetId: '', adSetName: '', adId: '', adName: '', campaignName: '' }),
     ];
-    const { accounts, unmatchedAppointments } = buildAccountSummaries(spend, appts, SETTINGS, []);
+    const { accounts, unmatchedAppointments } = buildAccountSummaries(spend, appts, SETTINGS);
 
     expect(accounts[0].appointments).toBe(2);            // BOTH attached to the account
     expect(unmatchedAppointments).toHaveLength(0);       // ⇒ neither is one of ⑥'s 43

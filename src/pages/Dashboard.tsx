@@ -1,15 +1,17 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useData } from '@/hooks/useData';
 import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import PerformanceBadge from '@/components/common/PerformanceBadge';
-import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries, metricIsMeaningful } from '@/lib/dataService';
-import { saveSettings, saveAccountMappings, loadAccountMappings, getAccountMapping } from '@/lib/config';
+import { formatCurrency, formatNumber, formatPercent, formatDate, buildAccountSummaries, metricIsMeaningful, isClosedWon } from '@/lib/dataService';
+import { saveSettings, saveAccountMappings } from '@/lib/config';
 import { ChevronDown, ChevronRight, Search, AlertTriangle, Check, X } from 'lucide-react';
-import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, CallRow, AccountMapping, AppSettings } from '@/lib/types';
+import type { AccountSummary, CampaignSummary, PerformanceLevel, AppointmentRow, AccountMapping, AppSettings } from '@/lib/types';
 import DateRangePicker, { type DateRange, ALL_TIME } from '@/components/DateRangePicker';
+import { Combobox } from '@/components/ui/combobox';
 import { hasUsableData } from '@/lib/sourceStatus';
+import { accountTitle } from '@/lib/accountDisplay';
 
 interface AccountGroup {
   label: string;
@@ -35,6 +37,22 @@ function AccountSection({ group, onSelect }: { group: AccountGroup; onSelect: (a
       ))}
     </>
   );
+}
+
+/**
+ * A local Date -> the `YYYY-MM-DD` the SQL filter compares against, or undefined for an
+ * open end.
+ *
+ * ⚠️ LOCAL PARTS, NEVER `toISOString()`. `ad_insights.date` is a calendar date with no
+ * timezone; `toISOString` converts through UTC, so for any user west of Greenwich the
+ * start of a month becomes the last day of the previous month and the query silently
+ * returns the wrong window. The picker builds these Dates from local midnight, so local
+ * getters are what round-trip them.
+ */
+function toIsoDay(d: Date | undefined): string | undefined {
+  if (!d || Number.isNaN(d.getTime())) return undefined;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 function parseDateSafe(dateStr: string): Date | null {
@@ -112,22 +130,37 @@ export function RatioBadge({ known, denominator, color, children }: {
 }
 
 export function CPLBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
-  const color = value < 35 ? 'text-success' : value <= 55 ? 'text-warning' : 'text-destructive';
+  const color = value < 35 ? 'text-success' : value <= 55 ? 'text-warning-strong' : 'text-destructive';
   return <RatioBadge known={known} denominator={leads} color={color}>{formatCurrency(value)}</RatioBadge>;
 }
 
 export function CostPerApptBadge({ value, appointments, known }: { value: number; appointments: number; known?: boolean }) {
-  const color = value < 180 ? 'text-success' : value <= 240 ? 'text-warning' : 'text-destructive';
+  const color = value < 180 ? 'text-success' : value <= 240 ? 'text-warning-strong' : 'text-destructive';
   return <RatioBadge known={known} denominator={appointments} color={color}>{formatCurrency(value)}</RatioBadge>;
 }
 
 export function LeadToApptBadge({ value, leads, known }: { value: number; leads: number; known?: boolean }) {
   // A true 0% now renders as 0% — it is a real result, not an absence.
-  const color = value >= 10 ? 'text-success' : value >= 5 ? 'text-warning' : 'text-destructive';
+  const color = value >= 10 ? 'text-success' : value >= 5 ? 'text-warning-strong' : 'text-destructive';
   return <RatioBadge known={known} denominator={leads} color={color}>{formatPercent(value)}</RatioBadge>;
 }
 
 function getPerfByProgram(program: string, cpl: number, costPerAppt: number, appointments: number): PerformanceLevel | null {
+  /**
+   * 🔴 A VERDICT NEEDS A RULE, AND "no program set" IS NOT A RULE.
+   *
+   * Every branch below judges the media buyer's work, and the two branches are chosen by
+   * PROGRAM. When the program is unset there is no basis to pick one — and this function
+   * used to fall through to the DFY cost-per-appointment rule anyway, because its caller
+   * defaulted a missing program to 'Done For You'. Five live accounts have no program, one
+   * of which (No Streaks) spent $7,008 in 2026 and last spent today, so this was a real
+   * verdict rendered from a guess.
+   *
+   * `Internal` is excluded for the opposite reason: it is agency and recruiting spend, and
+   * client cost-per-lead targets are not what it should be measured against. Both return
+   * null, which the row already renders as "no coloured border" rather than as "poor".
+   */
+  if (program === 'Unknown' || program === 'Internal') return null;
   if (program === 'Done With You') {
     if (cpl === 0) return null;
     if (cpl < 35) return 'good';
@@ -141,8 +174,16 @@ function getPerfByProgram(program: string, cpl: number, costPerAppt: number, app
 }
 
 export function AccountRow({ account, onSelect }: { account: AccountSummary; onSelect: (account: AccountSummary) => void }) {
-  const mappings = loadAccountMappings();
-  const { program, status } = getAccountMapping(account.accountName, mappings);
+  /**
+   * ⛔ ONE OWNER PER FIELD. This read `getAccountMapping(account.accountName, ...)` out of
+   * the legacy localStorage alias store while the summary it was handed ALREADY carried
+   * `program` and `status` — two resolvers, two default rules ('Done For You' here versus
+   * 'Unknown' there), so the row could be judged by a rule the account was not grouped by.
+   * The summary is the single owner now; it is built in one place (dataService) from the
+   * curated `ad_accounts` mapping with the legacy store as fallback.
+   */
+  const { program, status } = account;
+  const title = accountTitle(account);
   // A coloured performance border is a verdict. Two of its three inputs come from sources
   // that may not have answered, so a dead feed would paint every account "poor" — a claim
   // about the buyer's work, drawn from nothing.
@@ -159,7 +200,10 @@ export function AccountRow({ account, onSelect }: { account: AccountSummary; onS
     >
       <td className="py-3 px-3">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm truncate">{account.accountName}</span>
+          {/* ⭐ THE CLIENT'S NAME, NOT META'S. This rendered `accountName` — the raw Meta
+              string including " X SocialWorks" — which is why renaming an account in
+              Settings changed nothing anywhere the user actually looks. */}
+          <span className="font-semibold text-sm truncate" title={title.subtitle ?? title.label}>{title.label}</span>
           <span className="text-xs text-muted-foreground">{account.campaigns.length} campaigns</span>
           {account.mediaBuyer && <span className="text-xs text-muted-foreground">· {account.mediaBuyer}</span>}
         </div>
@@ -190,8 +234,8 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
   onClose: () => void;
   onToggleExclude: (campaignId: string) => Promise<void>;
 }) {
-  const mappings = loadAccountMappings();
-  const { program } = getAccountMapping(account.accountName, mappings);
+  const { program } = account;
+  const panelTitle = accountTitle(account);
 
   // ⚠️ THE PANEL WAS UNGATED WHILE THE ROW ABOVE IT WAS NOT. @raccoon measured it: in the
   // SAME four-card grid, Cost/Appt refused correctly while the Revenue card beside it
@@ -210,7 +254,6 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
     return s === 'showed' || s === 'show';
   }).length;
 
-  const dialsPerLead = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '0';
   // ⚠️ DEAD: showRate and closeRate are each referenced exactly once — here. Nothing
   // renders them, so they are not a display defect; naming them beats deleting code
   // at verdict time, when a removal cannot be driven.
@@ -231,15 +274,6 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
-
-  // Dial activity stats (separate from funnel)
-  // MIXES TWO SOURCES: appointments (Airtable) over dials (call-centre). Either one
-  // unknown makes the rate unknowable, and the old form only checked the denominator.
-  const dialBookingRate =
-    account.callsKnown !== false && metricIsMeaningful(account.apptsKnown, account.totalDials)
-      ? ((account.appointments / account.totalDials) * 100).toFixed(1)
-      : null;
-  const dialsPerLeadFunnel = account.leads > 0 ? (account.totalDials / account.leads).toFixed(1) : '—';
 
   /**
    * The funnel stages are rendered INLINE below, each with its own conversion caption.
@@ -288,8 +322,10 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
         {/* Header */}
         <div className="sticky top-0 z-10 bg-card border-b px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-foreground">{account.accountName}</h2>
-            {account.mediaBuyer && <p className="text-xs text-muted-foreground">{account.mediaBuyer}</p>}
+            <h2 className="text-lg font-bold text-foreground">{panelTitle.label}</h2>
+            <p className="text-xs text-muted-foreground">
+              {[panelTitle.subtitle, account.mediaBuyer].filter(Boolean).join(' · ')}
+            </p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted transition-colors">
             <X className="w-5 h-5 text-muted-foreground" />
@@ -316,21 +352,6 @@ export function AccountDetailPanel({ account, settings, onClose, onToggleExclude
               <p className="text-lg font-bold font-mono-tabular text-foreground">{appt(() => formatCurrency(account.revenue))}</p>
             </div>
           </div>
-
-          {/* Dial Activity */}
-          {account.totalDials > 0 && (
-            <div className="border border-border rounded-lg px-4 py-3 flex items-center gap-5">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-violet-500" />
-                <span className="text-xs font-semibold text-foreground">Dial activity</span>
-              </div>
-              <div className="flex gap-4 text-sm font-mono-tabular">
-                <span><span className="font-semibold text-foreground">{account.callsKnown === false ? UNKNOWN : formatNumber(account.totalDials)}</span> <span className="text-[11px] text-muted-foreground font-sans">dials</span></span>
-                <span><span className="font-semibold text-foreground">{dialsPerLeadFunnel}</span> <span className="text-[11px] text-muted-foreground font-sans">per lead</span></span>
-                <span><span className="font-semibold text-foreground">{dialBookingRate === null ? UNKNOWN : `${dialBookingRate}%`}</span> <span className="text-[11px] text-muted-foreground font-sans">booking rate</span></span>
-              </div>
-            </div>
-          )}
 
           {/* Section 2 — Conversion Funnel */}
           <div>
@@ -688,7 +709,7 @@ function UnmatchedSection({
         className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
       >
         {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        <AlertTriangle className="w-4 h-4 text-yellow-500" />
+        <AlertTriangle className="w-4 h-4 text-warning-strong" />
         <span>{visibleAppts.length} Unmatched Appointment{visibleAppts.length !== 1 ? 's' : ''}</span>
         <span className="text-muted-foreground font-normal ml-1">({displayAppts.length} unique client{displayAppts.length !== 1 ? 's' : ''})</span>
       </button>
@@ -717,23 +738,23 @@ function UnmatchedSection({
                     <td className="px-3 py-2 text-muted-foreground">{appt.campaignName || '—'}</td>
                     <td className="px-3 py-2">
                       {justAssigned ? (
-                        <span className="inline-flex items-center gap-1 text-green-600 text-xs font-medium">
+                        <span className="inline-flex items-center gap-1 text-success text-xs font-medium">
                           <Check className="w-3.5 h-3.5" /> Mapped!
                         </span>
                       ) : (
-                        <select
-                          disabled={isAssigning}
-                          defaultValue=""
-                          onChange={e => {
-                            if (e.target.value) handleAssign(appt, e.target.value);
-                          }}
-                          className="px-2 py-1 text-xs rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring/30 w-full disabled:opacity-50"
-                        >
-                          <option value="" disabled>Select account…</option>
-                          {accounts.map(a => (
-                            <option key={a.accountName} value={a.accountName}>{a.accountName}</option>
-                          ))}
-                        </select>
+                        // @andrew: "the dropdowns on here look horrendous, look what modern
+                        // software does." A native <select> over 30+ account names, in a
+                        // table cell, with no search. Same control the Settings panel uses.
+                        <Combobox
+                          aria-label={`Assign an account to the appointment for ${appt.client || 'this lead'}`}
+                          value={null}
+                          onChange={v => { if (v) handleAssign(appt, v); }}
+                          options={accounts.map(a => a.accountName)}
+                          placeholder={isAssigning ? 'Assigning…' : 'Select account'}
+                          searchPlaceholder="Search accounts"
+                          emptyLabel="No matching account."
+                          className="h-8 text-xs"
+                        />
                       )}
                     </td>
                   </tr>
@@ -748,7 +769,7 @@ function UnmatchedSection({
 }
 
 export default function Dashboard() {
-  const { accounts, adSpend, appointments, unmatchedAppointments, callData, settings, loading, error, configured, settingsLoaded, sources, refresh, setSettings, honestNumbers, settingsOrigin, settingsDetail} = useData();
+  const { accounts, adSpend, appointments, unmatchedAppointments, settings, loading, error, configured, settingsLoaded, sources, refresh, setSettings, honestNumbers, settingsOrigin, settingsDetail, accountRegistry} = useData();
   const [assignedClients, setAssignedClients] = useState<Set<string>>(new Set());
   const [recentlyAssigned, setRecentlyAssigned] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -756,6 +777,25 @@ export default function Dashboard() {
   const [accountFilter, setAccountFilter] = useState('all');
   const [dateRange, setDateRange] = useState<DateRange>(ALL_TIME);
   const [selectedAccountName, setSelectedAccountName] = useState<string | null>(null);
+
+  /**
+   * ⭐ PUSH THE DATE RANGE DOWN INTO SQL.
+   *
+   * Half the reason for leaving the Google Sheet: a CSV must be downloaded whole and
+   * filtered here, so "This Month" cost the same 48,000-row transfer as All Time.
+   * `ad_insights` answers a WHERE clause, so the same choice now narrows the QUERY.
+   *
+   * ⚠️ THE CLIENT-SIDE FILTER BELOW STAYS, and it is not redundant. It is what keeps this
+   * page correct while the narrowed refetch is in the air — for that moment `adSpend` still
+   * holds the WIDER set, and without the second filter the tiles would show the old range's
+   * totals under the new range's label. It also still filters APPOINTMENTS, which come from
+   * Airtable and are not narrowed by this query at all. Belt and braces, on purpose: after
+   * the refetch lands the filter is simply a no-op over an already-correct set.
+   */
+  const { setSpendWindow } = useData();
+  useEffect(() => {
+    setSpendWindow({ from: toIsoDay(dateRange.from), to: toIsoDay(dateRange.to) });
+  }, [dateRange, setSpendWindow]);
 
   /**
    * ⑥ RETURNS THE WHOLE RESULT NOW, NOT JUST `.accounts`.
@@ -781,37 +821,64 @@ export default function Dashboard() {
       if (to && d > to) return false;
       return true;
     });
-    const filteredCalls = callData.filter(row => {
-      const d = parseDateSafe(row.timestamp);
-      if (!d) return false;
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    });
-    // ⭐ THE 5th ARGUMENT IS NOT OPTIONAL IN PRACTICE. It defaults `?? true`, so a
-    // recompute that omits it ASSERTS EVERY SOURCE IS ALIVE and turns a dead source's em
-    // dashes back into numbers the moment a user picks a date range. Measured on this
-    // page: 5 honest em dashes per row became 5 fabricated values on "This Week".
-    // Same flags as useData.tsx:203, so a filtered view cannot disagree with an unfiltered one.
-    return buildAccountSummaries(filteredSpend, filteredAppts, settings, filteredCalls, {
-      spend: hasUsableData(sources.windsor.state),
+    /**
+     * ⭐ BOTH TRAILING ARGUMENTS ARE OPTIONAL IN THE SIGNATURE AND MANDATORY IN PRACTICE.
+     * Every one of them defaults to a value that ASSERTS something this page cannot know,
+     * and each omission has already shipped once.
+     *
+     * ④ `known` defaults `?? true`, so omitting it asserts EVERY SOURCE IS ALIVE and turns
+     *    a dead source's em dashes back into numbers the moment a user picks a date range.
+     *    Measured on this page: 5 honest em dashes per row became 5 fabricated values on
+     *    "This Week". Same flags as useData.tsx, so a filtered view cannot disagree with an
+     *    unfiltered one.
+     *
+     * 🔴 ⑤ `registry` defaults to `emptyAccountRegistry()` — AND IT WAS OMITTED HERE, ON
+     *    Targets, AND ON TeamPerformance. A registry that answers nothing is not neutral:
+     *    it is the pre-cutover identity model. So picking ANY date range silently recomputed
+     *    the whole page against `ad_accounts` as if that table did not exist. Measured over
+     *    the identical rows, the argument as the ONLY variable
+     *    (`scripts/probe-registry-drop.mts`):
+     *
+     *        TOTAL SPEND tile     $769,052.69  ->  $770,956.72
+     *        TOTAL LEADS tile          30,393  ->      30,966
+     *        company name         51 of 52 accounts fall back to Meta's raw label
+     *                             ("Washbroz" -> "Washbroz X SocialWorks")
+     *        program              3 accounts revert · media buyer 2 revert
+     *        status               an ARCHIVED account returns as Active and re-enters
+     *                             the Active-only totals above
+     *
+     *    ⇒ The unfiltered page and the filtered page answered with DIFFERENT ACCOUNT
+     *    IDENTITIES, and the difference was invisible because both answers are plausible.
+     *    It also killed the `ad_account_airtable_names` path — the stable
+     *    Airtable-client-name -> `account_id` join — dropping appointments back onto the
+     *    legacy alias store and the fuzzy tier, which is precisely the rename bug the
+     *    cutover exists to remove.
+     */
+    return buildAccountSummaries(filteredSpend, filteredAppts, settings, {
+      spend: hasUsableData(sources.meta.state),
       appts: hasUsableData(sources.airtable.state),
-      calls: hasUsableData(sources.callCenter.state),
-    });
+    }, accountRegistry);
   // `sources` IS A DEPENDENCY NOW, and omitting it would be a stale closure: the memo
   // reads the source states to build `known`, so a source dying without dateRange changing
-  // would keep serving summaries stamped ALIVE.
-  }, [accounts, adSpend, appointments, callData, settings, dateRange, sources]);
+  // would keep serving summaries stamped ALIVE. `accountRegistry` is a dependency for the
+  // same reason: it arrives on the data path, so a memo that closed over the initial empty
+  // one would keep serving Meta's raw names after the real mapping had loaded.
+  }, [accounts, adSpend, appointments, settings, dateRange, sources, accountRegistry, unmatchedAppointments]);
 
   const dateFilteredAccounts = dateFilteredResult.accounts;
 
   const filteredAccounts = useMemo(() => {
     return dateFilteredAccounts.filter(a => {
-      if (search && !a.accountName.toLowerCase().includes(search.toLowerCase())) return false;
+      // Search both names. The box sits under a column that now shows the CLIENT name, and
+      // filtering only on Meta's meant typing what you could see returned nothing.
+      if (search) {
+        const q = search.toLowerCase();
+        const hay = `${a.accountName} ${a.companyName ?? ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       if (accountFilter !== 'all' && a.accountName !== accountFilter) return false;
       if (perfFilter !== 'all') {
-        const mappings = loadAccountMappings();
-        const { program, status } = getAccountMapping(a.accountName, mappings);
+        const { program, status } = a;
         const perf = (status === 'Paused' || status === 'Churned') ? null : getPerfByProgram(program, a.cpl, a.costPerAppt, a.appointments);
         if (perf !== perfFilter) return false;
       }
@@ -820,18 +887,59 @@ export default function Dashboard() {
   }, [dateFilteredAccounts, search, perfFilter, accountFilter]);
 
   const totals = useMemo(() => {
-    const mappings = loadAccountMappings();
-    
-    const activeAccounts = filteredAccounts.filter(a => {
-      const { status } = getAccountMapping(a.accountName, mappings);
-      return status === 'Active';
-    });
-    
-    const dfyAccounts = activeAccounts.filter(a => {
-      const { program } = getAccountMapping(a.accountName, mappings);
-      return program !== 'Done With You';
-    });
-    
+    const activeAccounts = filteredAccounts.filter(a => a.status === 'Active');
+    /**
+     * 🔴 `Internal` WAS FALLING INTO THE CLIENT-FACING DFY RATE, because this line asked
+     * "not DWY" instead of asking what the population actually is.
+     *
+     * `Internal` is a NEW program value — it arrived with `ad_accounts` at the cutover — and
+     * it means OUR OWN agency and recruiting spend, which books no client appointments. It
+     * satisfied `!== 'Done With You'`, so it landed in the numerator of a rate whose
+     * denominator it contributes nothing to. Measured 2026-08-12 on the live feed: the
+     * `SocialWorks` account carries $51,056.88 and 0 appointments, and Avg Cost/Appt read
+     * $637.55 where the client-facing population gives $549.82 — a 13.8% overstatement of
+     * what it costs us to book a client an appointment, on the tile the media buyers are
+     * judged on.
+     *
+     * ⭐ THE REST OF THE PAGE ALREADY KNEW. `getPerfByProgram` returns null for `Internal`
+     * (line ~163: "it is agency and recruiting spend"), and the account table gives Internal
+     * its own collapsed group. This reducer was the one place that had not been told.
+     *
+     * ⛔ IT LEAVES THE *TOTALS* ALONE ON PURPOSE. Total Spend and Total Leads still count
+     * Internal, because they are totals over money we actually spent. Only the two RATE tiles
+     * narrow, and the note under them names both exclusions.
+     */
+    const dfyAccounts = activeAccounts.filter(a => a.program !== 'Done With You' && a.program !== 'Internal');
+
+    /**
+     * 🔴 EVERY TILE ON THIS ROW IS ACTIVE-ONLY, AND THE ROW NEVER SAID SO.
+     *
+     * The line above has always been here, and the two disclosures further down (`dwyExcluded`
+     * on the rate tiles, `unmatchedExcluded` on Total Appts) exist precisely because a tile
+     * whose population is narrower than its label is a number the next reader has to re-open.
+     * This filter is the THIRD narrowing on the same row and it was the only silent one.
+     *
+     * ⭐ THE CUTOVER MADE IT BITE. `resolveStatus` now lets `ad_accounts.status = 'archived'`
+     * override to `Churned`, which is what made the Archived control a control at all — and it
+     * immediately started removing real money from a tile labelled TOTAL SPEND. Measured
+     * 2026-08-12 against the live feed: the `Hiring` account is archived, so $1,904.03 and 573
+     * leads leave every total on this row, and the headline reads $769,080.31 where the feed
+     * holds $770,984.34. Both numbers are correct; only one of them was explained.
+     *
+     * ⚠️ THE FIX IS THE DISCLOSURE, NOT THE POPULATION. Active-only is deliberate and is
+     * encoded in four other places (the account groups below, Targets, TeamPerformance, the
+     * performance filter). Widening the reducer here to "fix" the reconciliation would put a
+     * churned client's spend back into the number the media buyers are judged on.
+     */
+    const inactiveAccounts = filteredAccounts.filter(a => a.status !== 'Active');
+    const excludedSpend = inactiveAccounts.reduce((s, a) => s + a.spend, 0);
+    const excludedLeads = inactiveAccounts.reduce((s, a) => s + a.leads, 0);
+    const excludedNames = inactiveAccounts
+      .filter(a => a.spend > 0 || a.leads > 0)
+      .sort((x, y) => y.spend - x.spend)
+      .map(a => accountTitle(a).label);
+
+
     const spend = activeAccounts.reduce((s, a) => s + a.spend, 0);
     const leads = activeAccounts.reduce((s, a) => s + a.leads, 0);
     const perfSpend = activeAccounts.reduce((s, a) => s + a.performanceSpend, 0);
@@ -866,9 +974,36 @@ export default function Dashboard() {
      */
     const unmatchedExcluded = viewIsNarrowed ? unmatchedTotal : 0;
     const appts = activeAccounts.reduce((s, a) => s + a.appointments, 0) + unmatchedInView;
-    const closed = activeAccounts.reduce((s, a) => s + a.closed, 0);
-    const revenue = activeAccounts.reduce((s, a) => s + a.revenue, 0);
-    const dials = activeAccounts.reduce((s, a) => s + a.totalDials, 0);
+    /**
+     * 🔴 THE SAME LAW, APPLIED TO THE TWO TILES THAT WERE LEFT OUT OF IT — and this is the
+     * defect the cutover exposed rather than caused.
+     *
+     * ⑥ above fixed TOTAL APPTS by adding `unmatchedInView` back. `closed` and `revenue`
+     * still reduced over ACCOUNTS ONLY, so an unmatched appointment that is a CLOSED WON
+     * DEAL left the headline with nothing on screen naming it. Measured 2026-08-12 against
+     * the live sources: `Green Plus Remodeling`'s 30 detached appointments include 4 wins
+     * worth $22,100, and the tiles read 43 / $1,598,243.72 where 47 / $1,620,343.72 exists.
+     * The unmatched banner counts APPOINTMENTS and has never counted MONEY, so $22,100 of
+     * real revenue was invisible to every reader of this page.
+     *
+     * ⚠️ A DETACHED APPOINTMENT IS STILL A REAL SIGNED DEAL. It has no ACCOUNT, which is why
+     * it may not enter a per-account rate (see @raccoon's rule above), but "closed deals" and
+     * "total revenue" are TOTALS over the business, not rates over a program. The identical
+     * reasoning that put 57 bookings back into TOTAL APPTS puts their wins back here.
+     *
+     * ⛔ AND UNDER THE SAME NARROWING GUARD, for the same reason: in a filtered view these
+     * tiles describe the accounts on screen, and an appointment belonging to no account is
+     * not in that population. Excluded there, and SAID SO there — the disclosure speaks in
+     * both states, exactly as `unmatchedExcluded` does.
+     */
+    const unmatchedWins = dateFilteredResult.unmatchedAppointments.filter(a => isClosedWon(a, settings));
+    const unmatchedRevenueTotal = unmatchedWins.reduce((s, a) => s + (a.closedRevenue || 0), 0);
+    const unmatchedClosedInView = viewIsNarrowed ? 0 : unmatchedWins.length;
+    const unmatchedRevenueInView = viewIsNarrowed ? 0 : unmatchedRevenueTotal;
+    const unmatchedClosedExcluded = viewIsNarrowed ? unmatchedWins.length : 0;
+    const unmatchedRevenueExcluded = viewIsNarrowed ? unmatchedRevenueTotal : 0;
+    const closed = activeAccounts.reduce((s, a) => s + a.closed, 0) + unmatchedClosedInView;
+    const revenue = activeAccounts.reduce((s, a) => s + a.revenue, 0) + unmatchedRevenueInView;
 
     // ⭐ ONE POPULATION FOR BOTH APPOINTMENT TILES. Before this, `costPerAppt` summed
     // DFY-only spend over DFY-only appointments while `leadToApptPct` summed ALL-account
@@ -886,27 +1021,88 @@ export default function Dashboard() {
     const dfyPerfSpend = dfyAccounts.reduce((s, a) => s + a.performanceSpend, 0);
     const dfyPerfLeads = dfyAccounts.reduce((s, a) => s + a.performanceLeads, 0);
     const dfyAppts = dfyAccounts.reduce((s, a) => s + a.appointments, 0);
-    const dwyExcluded = activeAccounts.length - dfyAccounts.length;
+    // Counted SEPARATELY rather than as one "excluded" number, because the note has to name
+    // WHICH population left: "Done-With-You" and "Internal" are excluded for opposite
+    // reasons (a client whose leads we do not work, versus spend that has no client at all),
+    // and a single count would make the reader open the table to find out which.
+    const dwyExcluded = activeAccounts.filter(a => a.program === 'Done With You').length;
+    const internalExcluded = activeAccounts.filter(a => a.program === 'Internal').length;
 
     return {
       spend, leads,
       cpl: perfLeads > 0 ? perfSpend / perfLeads : 0,
-      appts, dials,
+      appts,
       leadToApptPct: dfyPerfLeads > 0 ? (dfyAppts / dfyPerfLeads) * 100 : 0,
       dwyExcluded,
+      internalExcluded,
       costPerAppt: dfyAppts > 0 ? dfyPerfSpend / dfyAppts : 0,
       closed, revenue,
       unmatchedAppts: unmatchedInView,
       unmatchedExcluded,
+      unmatchedClosed: unmatchedClosedInView,
+      unmatchedRevenue: unmatchedRevenueInView,
+      unmatchedClosedExcluded,
+      unmatchedRevenueExcluded,
+      excludedSpend, excludedLeads, excludedNames,
     };
-  }, [filteredAccounts, dateFilteredResult, search, accountFilter, perfFilter]);
+  }, [filteredAccounts, dateFilteredResult, search, accountFilter, perfFilter, settings]);
+
+  /**
+   * ⭐ THE SENTENCE THAT MAKES THE ACTIVE-ONLY NARROWING READABLE, and the rules it follows.
+   *
+   * ① IT NAMES THE ACCOUNTS, not just a count. "1 account excluded" sends the reader to the
+   *    table to work out which one; the name ends the question on the tile row.
+   * ② IT SPEAKS ONLY WHEN MONEY OR LEADS ACTUALLY LEFT. A churned account with no spend in
+   *    the window changes no total, and a banner that fires on every load is the thing
+   *    @andrew asked to be removed («annoying just remove these popups»). Silence here is
+   *    earned by measurement, not by omission.
+   * ③ IT IS NOT GATED ON `spendOk`. When the feed is dead the tiles read "—" and there are no
+   *    account rows at all, so `excludedNames` is empty and this says nothing anyway.
+   */
+  const excludedNames = totals.excludedNames;
+  const statusExclusionNote =
+    excludedNames.length > 0
+      ? `Totals cover Active accounts only. Excluded: ${
+          excludedNames.slice(0, 3).join(', ')
+        }${excludedNames.length > 3 ? `, and ${excludedNames.length - 3} more` : ''} (${
+          formatCurrency(totals.excludedSpend)
+        }, ${formatNumber(totals.excludedLeads)} leads).`
+      : null;
 
   // Derive selectedAccount from name so it auto-updates after refresh
-  // Both appointment tiles are Done-For-You only; the note says so on the tile itself.
-  const apptPopulationNote =
-    totals.dwyExcluded > 0
-      ? `Done-For-You accounts only — ${totals.dwyExcluded} Done-With-You excluded`
+  // Both appointment tiles are Done-For-You only; the note says so on the tile itself, and
+  // it now names `Internal` too — see the `dfyAccounts` block for why that spend used to be
+  // inside a client-facing rate and what it did to the number.
+  const apptPopulationNote = (() => {
+    const parts: string[] = [];
+    if (totals.dwyExcluded > 0) parts.push(`${totals.dwyExcluded} Done-With-You`);
+    if (totals.internalExcluded > 0) parts.push(`${totals.internalExcluded} Internal`);
+    return parts.length > 0
+      ? `Done-For-You accounts only — ${parts.join(' and ')} excluded`
       : 'Done-For-You accounts only';
+  })();
+
+  /**
+   * ⭐ THE MONEY THAT IS IN — OR OUT OF — THE TWO DEAL TILES, SAID ON THE TILES.
+   *
+   * A total whose composition changes with a filter, and says nothing, is the defect one
+   * level up from a wrong number: the reader has no way to know the question changed. This
+   * is the same sentence pattern TOTAL APPTS already carries, applied to the two tiles that
+   * were quietly reducing over accounts only while $22,100 of real closed revenue sat in the
+   * unmatched bucket.
+   */
+  const unmatchedDealsNote =
+    totals.unmatchedClosed > 0
+      ? `includes ${totals.unmatchedClosed} from appointments not matched to an account`
+      : totals.unmatchedClosedExcluded > 0
+        ? `excludes ${totals.unmatchedClosedExcluded} from appointments not matched to an account — a filtered view shows only matched accounts`
+        : undefined;
+  const unmatchedRevenueNote =
+    totals.unmatchedClosed > 0
+      ? `includes ${formatCurrency(totals.unmatchedRevenue)} from appointments not matched to an account`
+      : totals.unmatchedClosedExcluded > 0
+        ? `excludes ${formatCurrency(totals.unmatchedRevenueExcluded)} from appointments not matched to an account — a filtered view shows only matched accounts`
+        : undefined;
 
   const selectedAccount = useMemo(
     () => selectedAccountName ? dateFilteredAccounts.find(a => a.accountName === selectedAccountName) ?? null : null,
@@ -925,21 +1121,33 @@ export default function Dashboard() {
   }, [settings, setSettings, refresh]);
 
   const accountGroups = useMemo((): AccountGroup[] => {
-    const mappings = loadAccountMappings();
     const dfy: AccountSummary[] = [];
     const dwy: AccountSummary[] = [];
+    const internal: AccountSummary[] = [];
+    const unset: AccountSummary[] = [];
     const paused: AccountSummary[] = [];
     const churned: AccountSummary[] = [];
     for (const a of filteredAccounts) {
-      const { program, status } = getAccountMapping(a.accountName, mappings);
-      if (status === 'Paused') { paused.push(a); continue; }
-      if (status === 'Churned') { churned.push(a); continue; }
-      if (program === 'Done With You') { dwy.push(a); continue; }
+      if (a.status === 'Paused') { paused.push(a); continue; }
+      if (a.status === 'Churned') { churned.push(a); continue; }
+      if (a.program === 'Done With You') { dwy.push(a); continue; }
+      if (a.program === 'Internal') { internal.push(a); continue; }
+      /**
+       * 🔴 AN ACCOUNT WITH NO PROGRAM USED TO BE FILED UNDER "Done For You — Active".
+       * `getAccountMapping` defaulted a missing program to that string, so five live
+       * accounts (Co-Lights, No Streaks, Quality Painting, STR, Trimlight Phoenix —
+       * $18,547 all-time, $7,008 of it in 2026) were asserted into a program nobody had
+       * chosen for them, under a heading that named it. A refusal must be a VALUE: they
+       * get their own group, so the gap is visible and one click from being closed.
+       */
+      if (!a.program || a.program === 'Unknown') { unset.push(a); continue; }
       dfy.push(a);
     }
     return [
       { label: 'Done For You — Active', accounts: dfy, defaultOpen: true },
       { label: 'Done With You — Active', accounts: dwy, defaultOpen: true },
+      { label: 'No program set', accounts: unset, defaultOpen: true },
+      { label: 'Internal', accounts: internal, defaultOpen: false },
       { label: 'Paused', accounts: paused, defaultOpen: false },
       { label: 'Churned', accounts: churned, defaultOpen: false },
     ];
@@ -948,12 +1156,11 @@ export default function Dashboard() {
   // Whether a KPI may print a number at all. `hasUsableData` is true for valid and for
   // stale (real data, just older) — it is false for failed and not-configured, where the
   // only honest render is an em dash.
-  const spendOk = hasUsableData(sources.windsor.state);
+  const spendOk = hasUsableData(sources.meta.state);
   const apptsOk = hasUsableData(sources.airtable.state);
-  // No `callsOk` here on purpose: the dials tile was the only thing on this page gated on
-  // it, and it was removed 2026-08-05. The call-centre source is still SURFACED to the user
-  // — SourceStatusBanner enumerates SOURCE_KEYS itself, and the completeness read consults
-  // it — so its health is not hidden by the tile going away.
+  // There is no `callsOk`: the call-centre source was removed entirely on 2026-08-11.
+  // Its sheet was never connected in production, so every dial figure the app rendered
+  // was a confident zero standing in for data that never existed.
 
   // "Not configured" is a claim about the user's setup. Until the settings have come back
   // from the database we have not looked, and on a cold browser (new device, cleared
@@ -1025,15 +1232,15 @@ export default function Dashboard() {
               over `activeAccounts`, and activeAccounts is WINDSOR-DERIVED — no sheet rows,
               no accounts. So Windsor dying yields an EMPTY ARRAY, every reduce(…, 0)
               returns a hard 0, and any guard that does not name Windsor renders it.
-              Measured: Windsor dead ⇒ TOTAL DIALS 0 with 3,102 dials alive, and TOTAL
-              APPTS 0 while Airtable was HEALTHY AND HOLDING THE APPOINTMENT.
+              Measured: Windsor dead ⇒ TOTAL APPTS 0 while Airtable was HEALTHY AND
+              HOLDING THE APPOINTMENT.
 
               ⭐ THE RULE, and it is sharper than "and the flags": A GUARD MUST NAME EVERY
               SOURCE THE DERIVATION TRAVERSES, NOT THE SOURCE THE VALUE SEMANTICALLY
-              BELONGS TO. `dials` IS call-centre data — which is why `callsOk` alone looked
-              right — but it is summed over a Windsor-derived list, so the derivation
-              traverses Windsor. Spend/leads/cpl were only ever safe by coincidence: their
-              guard happened to name the same source their value came from. */}
+              BELONGS TO. Total appts is AIRTABLE data, so `apptsOk` alone looked right,
+              but it is summed over a Windsor-derived list, so the derivation traverses
+              Windsor too. Spend/leads/cpl were only ever safe by coincidence: their guard
+              happened to name the same source their value came from. */}
           <KPICard label="Total Spend" value={spendOk ? formatCurrency(totals.spend) : '—'} />
           <KPICard label="Total Leads" value={spendOk ? formatNumber(totals.leads) : '—'} />
           <KPICard label="Avg CPL" value={spendOk && totals.cpl > 0 ? formatCurrency(totals.cpl) : '—'} />
@@ -1052,9 +1259,22 @@ export default function Dashboard() {
           />
           <KPICard label="Lead → Appt %" value={spendOk && apptsOk && totals.leadToApptPct > 0 ? formatPercent(totals.leadToApptPct) : '—'} mono={false} note={apptPopulationNote} />
           <KPICard label="Avg Cost/Appt" value={spendOk && apptsOk && totals.costPerAppt > 0 ? formatCurrency(totals.costPerAppt) : '—'} note={apptPopulationNote} />
-          <KPICard label="Closed Deals" value={spendOk && apptsOk ? formatNumber(totals.closed) : '—'} />
-          <KPICard label="Total Revenue" value={spendOk && apptsOk ? formatCurrency(totals.revenue) : '—'} />
+          {/* Both tiles now count the wins that belong to no account, and say when they do —
+              see the `unmatchedWins` block in `totals`. */}
+          <KPICard label="Closed Deals" value={spendOk && apptsOk ? formatNumber(totals.closed) : '—'} note={unmatchedDealsNote} />
+          <KPICard label="Total Revenue" value={spendOk && apptsOk ? formatCurrency(totals.revenue) : '—'} note={unmatchedRevenueNote} />
         </div>
+      )}
+
+      {/* ⭐ ONE LINE FOR THE WHOLE ROW, because the narrowing applies to the whole row.
+          Nine tiles all reduce over `activeAccounts`; nine copies of the same sentence would
+          be noise, and putting it on only the money tile would leave the other eight
+          unexplained. See `statusExclusionNote` for why it names the accounts and why it is
+          silent when nothing left. */}
+      {!loading && statusExclusionNote && (
+        <p className="text-[11px] text-muted-foreground -mt-2" data-testid="status-exclusion-note">
+          {statusExclusionNote}
+        </p>
       )}
 
       {/* Filters */}
@@ -1066,29 +1286,36 @@ export default function Dashboard() {
             placeholder="Search accounts..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="pl-9 pr-4 py-2 text-sm rounded-lg border bg-card focus:outline-none focus:ring-2 focus:ring-ring/20 w-56"
+            className="pl-9 pr-4 h-9 text-sm rounded-md border border-input bg-background transition-colors hover:border-border focus:outline-none focus-visible:border-ring w-56 min-w-0"
           />
         </div>
-        <select
+        {/* Both were native <select> with `focus:outline-none` and nothing put back, so
+            keyboard focus was invisible on them as well as looking like 2011. */}
+        <Combobox
+          aria-label="Filter accounts"
           value={accountFilter}
-          onChange={e => setAccountFilter(e.target.value)}
-          className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-        >
-          <option value="all">All Accounts</option>
-          {accounts.map(a => (
-            <option key={a.accountName} value={a.accountName}>{a.accountName}</option>
-          ))}
-        </select>
-        <select
+          onChange={v => setAccountFilter(v ?? 'all')}
+          // value = the match key (Meta's name), label = what the user calls the client.
+          options={[
+            { value: 'all', label: 'All accounts' },
+            ...accounts.map(a => ({ value: a.accountName, label: accountTitle(a).label })),
+          ]}
+          searchPlaceholder="Search accounts"
+          emptyLabel="No matching account."
+          className="w-48"
+        />
+        <Combobox
+          aria-label="Filter by performance"
           value={perfFilter}
-          onChange={e => setPerfFilter(e.target.value as any)}
-          className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none"
-        >
-          <option value="all">All Performance</option>
-          <option value="good">Good</option>
-          <option value="fair">Fair</option>
-          <option value="poor">Poor</option>
-        </select>
+          onChange={v => setPerfFilter((v ?? 'all') as 'all' | 'good' | 'fair' | 'poor')}
+          options={[
+            { value: 'all', label: 'All performance' },
+            { value: 'good', label: 'Good' },
+            { value: 'fair', label: 'Fair' },
+            { value: 'poor', label: 'Poor' },
+          ]}
+          className="w-44"
+        />
         <DateRangePicker value={dateRange} onChange={setDateRange} includeAllTime />
       </div>
 

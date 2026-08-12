@@ -16,11 +16,14 @@
  * sense that matters: it takes its fetchers as arguments. That is what makes
  * "one source failing must not take the others down" testable without a DOM.
  */
-import type { AppSettings, AdSpendRow, AppointmentRow, CallRow } from './types';
+import type { AppSettings, AdSpendRow, AppointmentRow } from './types';
+import { isSupabaseConfigured } from '@/integrations/supabase/client';
+import type { SpendWindow } from './metaAdSpend';
+import { ALL_DATES } from './metaAdSpend';
 
-export type SourceKey = 'windsor' | 'airtable' | 'callCenter';
+export type SourceKey = 'meta' | 'airtable';
 
-export const SOURCE_KEYS: SourceKey[] = ['windsor', 'airtable', 'callCenter'];
+export const SOURCE_KEYS: SourceKey[] = ['meta', 'airtable'];
 
 /**
  * Andrew's six states, verbatim from the brief. All six are expressible on purpose,
@@ -58,10 +61,22 @@ export interface SourceStatus {
 
 /** Settings each source genuinely needs, mirrored from what each fetcher actually checks. */
 const REQUIREMENTS: Record<SourceKey, { label: string; fields: { key: keyof AppSettings; label: string }[] }> = {
-  // fetchGoogleSheetData reads only settings.googleSheetUrl.
-  windsor: {
-    label: 'Ad spend (Google Sheet)',
-    fields: [{ key: 'googleSheetUrl', label: 'Google Sheet URL' }],
+  /**
+   * ⭐ AD SPEND NEEDS NO USER SETTING AT ALL — that is the point of the Supabase cutover.
+   *
+   * It used to require `googleSheetUrl`. `ad_insights` is read with the app's own Supabase
+   * connection, and the Meta credentials live in the meta-pull Edge Function, server-side.
+   * There is nothing for a user to type, so there is no field to be missing and no
+   * "Missing: ..." message that could point at a control that does not exist.
+   *
+   * ⚠️ AN EMPTY `fields` LIST IS NOT "ALWAYS CONFIGURED" BY ACCIDENT — see
+   * `isSourceConfigured`, which keeps a FALSIFIABLE configured axis for this source by
+   * asking whether Supabase itself is configured. A source that can never report itself
+   * unconfigured is a signal that cannot fail, which is no signal at all.
+   */
+  meta: {
+    label: 'Ad spend',
+    fields: [],
   },
   // fetchAirtableData refuses on !airtableBaseId. The token is no longer a client field
   // at all — it is a server-side secret (order ②), so it cannot be a missing-setting the
@@ -69,12 +84,6 @@ const REQUIREMENTS: Record<SourceKey, { label: string; fields: { key: keyof AppS
   airtable: {
     label: 'Appointments (Airtable)',
     fields: [{ key: 'airtableBaseId', label: 'Airtable base ID' }],
-  },
-  // fetchCallCenterData now THROWS on an unusable URL or a non-OK response, so a dead
-  // call centre reaches this as `failed` rather than as an empty success.
-  callCenter: {
-    label: 'Calls (call-centre sheet)',
-    fields: [{ key: 'callCenterSheetUrl', label: 'Call centre sheet URL' }],
   },
 };
 
@@ -87,6 +96,18 @@ export function sourceLabel(key: SourceKey): string {
  * Empty array = configured.
  */
 export function missingSettingsFor(key: SourceKey, settings: AppSettings | null | undefined): string[] {
+  /**
+   * ⚠️ ENUMERATED, NEVER COUNTED — and that rule is exactly why this branch exists. `meta`
+   * has no user-facing fields, so without it an unconfigured ad-spend source would render
+   * "not configured" followed by an EMPTY list of what to fix: a state with no remedy named.
+   * The missing thing is real and it has a name; it just lives in the build's environment
+   * rather than in the Settings screen, so that is what it says.
+   */
+  if (key === 'meta') {
+    return isSupabaseConfigured
+      ? []
+      : ['Supabase connection (VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY)'];
+  }
   if (!settings) return REQUIREMENTS[key].fields.map(f => f.label);
   return REQUIREMENTS[key].fields
     .filter(f => {
@@ -96,6 +117,15 @@ export function missingSettingsFor(key: SourceKey, settings: AppSettings | null 
     .map(f => f.label);
 }
 
+/**
+ * ⭐ THE CONFIGURED AXIS MUST STAY FALSIFIABLE.
+ *
+ * `meta` requires no user-supplied settings, so `missingSettingsFor` is always empty for it
+ * and a naive implementation would return a constant `true`. A predicate that cannot return
+ * false is not a check — the suite's own sabotage harness rejects `always true` as a
+ * poison — and the state it would erase is real: with no Supabase connection the fetcher
+ * cannot read `ad_insights`, and the honest word for that is `not-configured`, not `failed`.
+ */
 export function isSourceConfigured(key: SourceKey, settings: AppSettings | null | undefined): boolean {
   return missingSettingsFor(key, settings).length === 0;
 }
@@ -137,9 +167,8 @@ export function initialStatus(key: SourceKey, settings: AppSettings | null | und
 
 export function initialStatuses(settings: AppSettings | null | undefined): Record<SourceKey, SourceStatus> {
   return {
-    windsor: initialStatus('windsor', settings),
+    meta: initialStatus('meta', settings),
     airtable: initialStatus('airtable', settings),
-    callCenter: initialStatus('callCenter', settings),
   };
 }
 
@@ -148,7 +177,6 @@ export interface SourceData {
   adSpend: AdSpendRow[];
   appointments: AppointmentRow[];
   airtableFields: string[];
-  callData: CallRow[];
   /**
    * A — appointments whose CLIENT could not be resolved because the Airtable field is a
    * LINKED RECORD and returned a record id. @bird measured 99 of 100 records in that state,
@@ -162,14 +190,17 @@ export const EMPTY_SOURCE_DATA: SourceData = {
   adSpend: [],
   appointments: [],
   airtableFields: [],
-  callData: [],
   unresolvedClients: 0,
 };
 
 export interface SourceFetchers {
-  fetchWindsor: (s: AppSettings) => Promise<AdSpendRow[]>;
+  /**
+   * ⭐ TAKES THE DATE WINDOW, so the filter runs IN SQL rather than over 48,000 rows in the
+   * browser. The window reaches here from the page's date picker; `ALL_DATES` means the
+   * user genuinely asked for everything, and the fetcher pages rather than truncating.
+   */
+  fetchAdSpend: (s: AppSettings, window: SpendWindow) => Promise<AdSpendRow[]>;
   fetchAirtable: (s: AppSettings) => Promise<{ records: AppointmentRow[]; fields: string[] }>;
-  fetchCallCenter: (s: AppSettings) => Promise<CallRow[]>;
 }
 
 export interface RefreshResult {
@@ -232,13 +263,6 @@ function messageOf(e: unknown, fallback: string): string {
  *    message. It does not throw, and it never reports an empty array as a success for a
  *    source it did not fetch.
  *
- * ⚠️ KNOWN GAP, NOT MINE TO CLOSE HERE: `fetchCallCenterData` in dataService.ts never
- * throws — it returns [] for a 403, a 404, a network error and an unparseable URL alike.
- * So a call-centre FAILURE still arrives here as an empty success and will read `valid`
- * with zero rows. This function separates NOT-CONFIGURED from empty (which is most of the
- * confusion) but it cannot separate empty-because-broken from genuinely-empty until that
- * fetcher throws. Patch proposed to @anvil, who owns that file. When it throws, this code
- * needs no change.
  */
 export async function refreshSources(
   settings: AppSettings,
@@ -246,14 +270,14 @@ export async function refreshSources(
   previous?: Partial<Record<SourceKey, SourceStatus>>,
   previousData: SourceData = EMPTY_SOURCE_DATA,
   now: Date = new Date(),
+  window: SpendWindow = ALL_DATES,
 ): Promise<RefreshResult> {
   const statuses = {} as Record<SourceKey, SourceStatus>;
   const data: SourceData = { ...previousData };
 
   const configured: Record<SourceKey, boolean> = {
-    windsor: isSourceConfigured('windsor', settings),
+    meta: isSourceConfigured('meta', settings),
     airtable: isSourceConfigured('airtable', settings),
-    callCenter: isSourceConfigured('callCenter', settings),
   };
 
   for (const key of SOURCE_KEYS) {
@@ -270,22 +294,21 @@ export async function refreshSources(
     }
   }
 
-  const [windsor, airtable, callCenter] = await Promise.allSettled([
-    configured.windsor ? fetchers.fetchWindsor(settings) : Promise.resolve(null),
+  const [meta, airtable] = await Promise.allSettled([
+    configured.meta ? fetchers.fetchAdSpend(settings, window) : Promise.resolve(null),
     configured.airtable ? fetchers.fetchAirtable(settings) : Promise.resolve(null),
-    configured.callCenter ? fetchers.fetchCallCenter(settings) : Promise.resolve(null),
   ]);
 
-  if (configured.windsor) {
-    if (windsor.status === 'fulfilled' && windsor.value) {
-      data.adSpend = windsor.value;
-      statuses.windsor = settle('windsor', null, previous && previous.windsor, now);
+  if (configured.meta) {
+    if (meta.status === 'fulfilled' && meta.value) {
+      data.adSpend = meta.value;
+      statuses.meta = settle('meta', null, previous && previous.meta, now);
     } else {
-      const reason = windsor.status === 'rejected' ? windsor.reason : null;
-      statuses.windsor = settle(
-        'windsor',
+      const reason = meta.status === 'rejected' ? meta.reason : null;
+      statuses.meta = settle(
+        'meta',
         messageOf(reason, 'Could not load ad spend'),
-        previous && previous.windsor,
+        previous && previous.meta,
         now,
       );
     }
@@ -303,21 +326,6 @@ export async function refreshSources(
         'airtable',
         messageOf(reason, 'Could not load appointments'),
         previous && previous.airtable,
-        now,
-      );
-    }
-  }
-
-  if (configured.callCenter) {
-    if (callCenter.status === 'fulfilled' && callCenter.value) {
-      data.callData = callCenter.value;
-      statuses.callCenter = settle('callCenter', null, previous && previous.callCenter, now);
-    } else {
-      const reason = callCenter.status === 'rejected' ? callCenter.reason : null;
-      statuses.callCenter = settle(
-        'callCenter',
-        messageOf(reason, 'Could not load calls'),
-        previous && previous.callCenter,
         now,
       );
     }

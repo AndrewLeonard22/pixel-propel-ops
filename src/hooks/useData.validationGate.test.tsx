@@ -24,21 +24,23 @@ vi.mock('@/lib/dataService', async () => {
   const actual = await vi.importActual<typeof import('@/lib/dataService')>('@/lib/dataService');
   return {
     ...actual,
-    fetchGoogleSheetData: async () => feed.rows,
     fetchAirtableData: async () => ({ records: [], fields: [] }),
-    fetchCallCenterData: async () => [],
   };
 });
 
-vi.mock('@/lib/sheetCompleteness', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/sheetCompleteness')>('@/lib/sheetCompleteness');
+// ⚠️ THE AD-SPEND FETCHER MOVED MODULES with the Supabase cutover. The mock moved with it;
+// every assertion below is unchanged, which is the point — this file tests the validation
+// GATE, not where the rows came from.
+vi.mock('@/lib/metaAdSpend', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/metaAdSpend')>('@/lib/metaAdSpend');
   return {
     ...actual,
-    checkSheetCompleteness: async () => ({ state: 'complete' as const, rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null }),
+    fetchMetaAdSpend: async () => feed.rows,
+    checkMetaCompleteness: async () => ({ state: 'complete' as const, rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null }),
   };
 });
 
-const SETTINGS = makeSettings({ googleSheetUrl: 'https://docs.google.com/spreadsheets/d/S/edit' });
+const SETTINGS = makeSettings();
 vi.mock('@/lib/config', async () => {
   const actual = await vi.importActual<typeof import('@/lib/config')>('@/lib/config');
   return {

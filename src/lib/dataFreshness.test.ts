@@ -12,7 +12,7 @@ import {
  * "Fetched less than a minute ago" — with ZERO source dates rendered anywhere. That
  * sentence is TRUE and it is about the WRONG CLOCK: it describes the FETCH, not the DATA.
  *
- * On the day the array formula runs out, the fetch returns 200, the parse is clean, every
+ * On the day the upstream pull stops, the fetch returns 200, the parse is clean, every
  * source is connected, `needsAttention` is false for all three, and the screen still says
  * "Fetched less than a minute ago" over data that stopped moving.
  * ⇒ 🔑 THE FREEZE HAD NO SYMPTOM, and every honest-state shipped tonight stayed silent
@@ -81,14 +81,21 @@ describe('describeFreshness — the states', () => {
     expect(freshnessWarning(r)).toMatch(/not yet unusual/i);
   });
 
-  it(`🔴 STALE at ${STALE_AFTER_DAYS} days — THE FREEZE, and it names the array formula`, () => {
+  it(`🔴 STALE at ${STALE_AFTER_DAYS} days — THE FREEZE, and it names the Meta pull`, () => {
     const r = describeFreshness([row('2026-08-01')], '2026-08-05');
     expect(r.state).toBe('stale');
     expect(r.daysBehind).toBe(4);
 
     const w = freshnessWarning(r) ?? '';
     expect(w).toMatch(/no new ad spend rows for 4 days/);
-    expect(w).toMatch(/array formula/);           // points at the actual cause
+    /**
+     * ⚠️ THE CAUSE IT NAMES CHANGED WITH THE SOURCE, and this arm is what forces the copy
+     * to keep up. It used to require /array formula/. After the Supabase cutover there is
+     * no tab and no formula, so that sentence would send a reader to fix something that
+     * does not exist — a stale instruction makes the WRONG move look like compliance.
+     */
+    expect(w).toMatch(/Meta pull/);               // points at the actual cause
+    expect(w).toMatch(/ad_pull_runs/);            // and at where to look
     expect(w).toMatch(/NOT up to date/);          // and at what it means for the numbers
   });
 

@@ -13,16 +13,14 @@ import type {
   AppSettings,
   AdSpendRow,
   AppointmentRow,
-  CallRow,
 } from '@/lib/types';
 
 /** A fully-configured settings object. Override any field to test a partial config. */
 export function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
-    googleSheetUrl: 'https://docs.google.com/spreadsheets/d/TESTSHEETID/edit',
-    googleSheetTab: 'Ads Data',
-    callCenterSheetUrl: 'https://docs.google.com/spreadsheets/d/TESTCALLID/edit',
-    callCenterSheetTab: 'RAW DATA',
+    // ⛔ `googleSheetUrl` / `googleSheetTab` were here. Ad spend comes from `ad_insights`
+    // via Supabase since 2026-08-11 and needs NO user-supplied setting, so — exactly as
+    // with `airtableToken` above — a fixture cannot set what the type does not have.
     airtableBaseId: 'appTEST123',
     airtableTableName: 'Appointments',
     // ⛔ `airtableToken` was here. It is no longer a field on AppSettings — credentials
@@ -86,17 +84,6 @@ export function makeAppointmentRow(
     projectValue: 0,
     ...overrides,
   } as AppointmentRow;
-}
-
-export function makeCallRow(overrides: Partial<CallRow> = {}): CallRow {
-  return {
-    timestamp: '8/4/2026',
-    ghlLocationName: 'Test Account',
-    agentName: 'Agent A',
-    callDuration: 60,
-    callDisposition: 'answered',
-    ...overrides,
-  } as CallRow;
 }
 
 /**

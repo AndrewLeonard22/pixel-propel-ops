@@ -25,33 +25,39 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import type { AppSettings, AdSpendRow, CallRow, AppointmentRow } from '@/lib/types';
+import type { AppSettings, AdSpendRow, AppointmentRow } from '@/lib/types';
 
 // vi.mock factories are hoisted above every top-level binding, so anything they close over
 // must be created inside vi.hoisted or it is a ReferenceError at load time.
 const h = vi.hoisted(() => ({
   CONFIGURED: {
-    googleSheetUrl: 'https://docs.google.com/spreadsheets/d/SHEET/edit',
-    callCenterSheetUrl: 'https://docs.google.com/spreadsheets/d/CALLS/edit',
     airtableBaseId: 'appBASE',
     airtableToken: 'tok',
   },
   // The only things standing in for the outside world.
-  windsorImpl: vi.fn(),
+  adSpendImpl: vi.fn(),
   airtableImpl: vi.fn(),
-  callsImpl: vi.fn(),
-  /** Overridable so one test can run with the call-centre source unconfigured. */
+  /** Overridable so one test can run with a source unconfigured. */
   settingsOverride: {} as Record<string, string>,
 }));
-const { windsorImpl, airtableImpl, callsImpl } = h;
+const { adSpendImpl, airtableImpl } = h;
 
 vi.mock('@/lib/dataService', async () => {
   const actual = await vi.importActual<typeof import('@/lib/dataService')>('@/lib/dataService');
   return {
     ...actual, // real buildAccountSummaries + real formatters — the maths is not under test here
-    fetchGoogleSheetData: (s: unknown) => h.windsorImpl(s),
     fetchAirtableData: (s: unknown) => h.airtableImpl(s),
-    fetchCallCenterData: (s: unknown) => h.callsImpl(s),
+  };
+});
+
+// ⚠️ RE-POINTED, NOT REWRITTEN. The ad-spend fetcher lives in metaAdSpend since the
+// Supabase cutover; every assertion in this file survived the move untouched.
+vi.mock('@/lib/metaAdSpend', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/metaAdSpend')>('@/lib/metaAdSpend');
+  return {
+    ...actual,
+    fetchMetaAdSpend: (s: unknown) => h.adSpendImpl(s),
+    checkMetaCompleteness: async () => ({ state: 'complete' as const, rawRows: 1, derivedRows: 1, droppedRows: 0, reason: null }),
   };
 });
 
@@ -84,7 +90,6 @@ const spendRow: AdSpendRow = {
   adsetName: 'AS', adsetId: '211', adName: 'Ad', adId: '311',
   spent: 5000, leads: 100, accountName: 'Testerman Pro Wash',
 };
-const callRow = { timestamp: '8/4/2026 10:00am', ghlLocationName: 'Testerman Pro Wash', agentName: 'Jordan', callDuration: 90, callDisposition: 'answered' } as CallRow;
 
 beforeAll(() => {
   if (!('ResizeObserver' in globalThis)) {
@@ -96,9 +101,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  windsorImpl.mockResolvedValue([spendRow]);
+  adSpendImpl.mockResolvedValue([spendRow]);
   airtableImpl.mockResolvedValue({ records: [], fields: [] });
-  callsImpl.mockResolvedValue([callRow]);
 });
 
 const paint = () => render(<MemoryRouter><DataProvider><Dashboard /></DataProvider></MemoryRouter>);
@@ -113,38 +117,36 @@ const kpi = (label: string) => screen.getByText(label).parentElement!.textConten
 const waitForSpendCard = () => waitFor(() => expect(kpi('Total Spend')).toContain('$5,000.00'));
 
 describe('a failing source must not take the working ones down', () => {
-  it('Airtable failing still shows Windsor spend, and says which source broke', async () => {
+  it('Airtable failing still shows ad spend spend, and says which source broke', async () => {
     airtableImpl.mockRejectedValue(new Error('Airtable error: 401'));
     paint();
 
-    // Windsor delivered, so its number is on screen. Under Promise.all this was discarded
+    // ad spend delivered, so its number is on screen. Under Promise.all this was discarded
     // and the whole dashboard rendered zeros.
     await waitForSpendCard();
 
     // CONTROL: the fetchers that did not need the Airtable token WERE called. This is the
     // wire signature @bird measured as 0/0 during the outage; if it regresses to 0 this
     // assertion fails rather than silently passing on cached state.
-    expect(windsorImpl).toHaveBeenCalledTimes(1);
-    expect(callsImpl).toHaveBeenCalledTimes(1);
+    expect(adSpendImpl).toHaveBeenCalledTimes(1);
 
     // And the failure is NAMED, on screen, rather than being an absence.
     expect(await screen.findByText(/Appointments \(Airtable\)/)).toBeInTheDocument();
     expect(screen.getByText(/Airtable error: 401/)).toBeInTheDocument();
   });
 
-  it('Windsor failing still shows the call-centre dial count', async () => {
-    windsorImpl.mockRejectedValue(new Error('Failed to fetch Google Sheet: 403'));
+  it('ad spend failing still fetches Airtable and names its own failure', async () => {
+    adSpendImpl.mockRejectedValue(new Error('Could not load ad spend from Supabase (ad_insights_resolved): 403'));
     paint();
-    await waitFor(() => expect(screen.getByText(/Failed to fetch Google Sheet: 403/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Could not load ad spend from Supabase/)).toBeInTheDocument());
     expect(airtableImpl).toHaveBeenCalledTimes(1);
-    expect(callsImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('THE PRODUCTION INCIDENT: an empty Airtable token still fetches Windsor and calls', async () => {
-    // 2026-08-05: isConfigured required all three fields, so one empty credential produced
-    // ZERO requests to two sources that never needed it, and no error on screen.
+  it('THE PRODUCTION INCIDENT: an empty Airtable token still fetches ad spend', async () => {
+    // 2026-08-05: isConfigured required every field, so one empty credential produced
+    // ZERO requests to a source that never needed it, and no error on screen.
     const { rerender } = render(<MemoryRouter><DataProvider><Dashboard /></DataProvider></MemoryRouter>);
-    await waitFor(() => expect(windsorImpl).toHaveBeenCalled());
+    await waitFor(() => expect(adSpendImpl).toHaveBeenCalled());
     rerender(<MemoryRouter><DataProvider><Dashboard /></DataProvider></MemoryRouter>);
     expect(airtableImpl).toHaveBeenCalled();
   });
@@ -166,38 +168,38 @@ describe('a dead source renders an em dash, never a zero', () => {
       expect(text).not.toMatch(/\b0\b/);
     }
 
-    // CONTROL: the Windsor-fed cards DO print numbers in the same render, so the em dashes
+    // CONTROL: the ad spend-fed cards DO print numbers in the same render, so the em dashes
     // above mean "this source is dead" and not "this test renders em dashes everywhere".
     expect(kpi('Total Spend')).toContain('$5,000.00');
     expect(kpi('Total Leads')).toContain('100');
   });
 
-  it('a call-centre source that was never configured is NOT FETCHED — the dials tile is gone, the fetch discipline is not', async () => {
-    // ⛔ REWRITTEN 2026-08-05, dials removed from the DASHBOARD by @andrew ("we store them
-    // on relay instead"). The old arm asserted `kpi('Total Dials')` reads '—' and that tile
-    // no longer exists, so the assertion was deleted rather than the TEST.
+  it('a source that was never configured is NOT FETCHED — configured-and-empty is a different fact', async () => {
+    // ⛔ REWRITTEN TWICE. It first asserted `kpi('Total Dials')` reads '—'; that tile was
+    // removed 2026-08-05. It then guarded the call-centre fetch discipline; that source was
+    // deleted outright on 2026-08-11.
     //
-    // ⭐ WHAT SURVIVES IS THE HALF THAT WAS NEVER ABOUT DIALS: configured-and-empty and
-    // never-connected are different facts, and an unconfigured source must not be FETCHED.
-    // That discipline still guards /call-center and /targets, which both still consume
-    // dials — so deleting this test outright would have removed live coverage along with a
-    // dead assertion.
-    h.settingsOverride = { callCenterSheetUrl: '' };
+    // ⭐ WHAT SURVIVES IS THE LAW, WHICH WAS NEVER ABOUT ANY ONE SOURCE: configured-and-empty
+    // and never-connected are different facts, and an unconfigured source must not be
+    // FETCHED. Re-pointed at Airtable rather than deleted, because the law still binds.
+    h.settingsOverride = { airtableBaseId: '' };
     try {
       paint();
       await waitForSpendCard();
 
-      // CONTROL: the unconfigured source was never fetched, and the configured ones were.
+      // CONTROL: the unconfigured source was never fetched, and the configured one was.
       // Without this pair, "not called" could just mean the whole provider never ran.
-      expect(callsImpl).not.toHaveBeenCalled();
-      expect(windsorImpl).toHaveBeenCalled();
+      expect(airtableImpl).not.toHaveBeenCalled();
+      expect(adSpendImpl).toHaveBeenCalled();
     } finally {
       h.settingsOverride = {};
     }
   });
 
   it('the DIALS tile is gone from the dashboard — @andrew: dials live on Relay now', () => {
-    // Anti-regression: a future change that re-adds the tile should go RED, not slip in.
+    // Anti-regression, and it outlived its own subject: the call-centre source is deleted,
+    // so there is no longer any path that could feed a dials tile. It stays because a
+    // re-add would now be a re-add of the whole dead feed, which must go RED, not slip in.
     paint();
     expect(document.body.textContent).not.toMatch(/Total Dials/i);
   });
@@ -209,7 +211,7 @@ describe('the Retry button actually retries', () => {
     paint();
     await waitFor(() => expect(screen.getByText(/Airtable error: 401/)).toBeInTheDocument());
 
-    const before = windsorImpl.mock.calls.length;
+    const before = adSpendImpl.mock.calls.length;
     expect(before).toBe(1); // CONTROL: the first load happened, so a later 2 means the click did it
 
     // `onRetry={refresh}` handed refresh the CLICK EVENT as its first argument; refresh
@@ -219,6 +221,6 @@ describe('the Retry button actually retries', () => {
     // which IS the mechanism this test exists to catch.
     fireEvent.click(screen.getAllByRole('button', { name: /retry|try again/i })[0]);
 
-    await waitFor(() => expect(windsorImpl.mock.calls.length).toBe(before + 1));
+    await waitFor(() => expect(adSpendImpl.mock.calls.length).toBe(before + 1));
   });
 });

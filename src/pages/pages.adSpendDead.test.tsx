@@ -48,11 +48,14 @@ function setup(windsorState: SourceStatus["state"]) {
     exclusions: { state: "active", configuredCount: 1, matchedCount: 1, unfilteredSpend: 0, affectedAccounts: [] },
     honestNumbers: { hasWarnings: false, messages: [], exclusion: {}, fabricatedRateCount: 0, allRatesFabricated: false },
     sources: {
-      windsor: status({ label: "Ad spend (Windsor)", state: windsorState }),
+      meta: status({ label: "Ad spend (Windsor)", state: windsorState }),
       airtable: status({ label: "Appointments (Airtable)" }),
       callCenter: status({ label: "Calls (call-centre sheet)" }),
     } as Record<SourceKey, SourceStatus>,
     refresh: async () => {},
+    // The Dashboard pushes its date range into the SQL query through this. A mock without
+    // it throws on mount — the page genuinely depends on it now.
+    setSpendWindow: () => {},
     setSettings: () => {},
   });
 }

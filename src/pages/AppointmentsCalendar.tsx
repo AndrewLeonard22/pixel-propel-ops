@@ -31,12 +31,12 @@ function parseDateSafe(dateStr: string): Date | null {
 
 function StatusBadge({ status }: { status: string }) {
   const s = (status || '').toLowerCase();
-  let cls = 'bg-gray-100 text-gray-500';
-  if (s === 'showed' || s === 'show')                cls = 'bg-green-50 text-green-700';
-  else if (s === 'no show' || s === 'noshow' || s === 'no-show') cls = 'bg-red-50 text-red-600';
-  else if (s === 'cancelled' || s === 'canceled')    cls = 'bg-orange-50 text-orange-600';
-  else if (s === 'rescheduled')                      cls = 'bg-blue-50 text-blue-600';
-  else if (s === 'pending' || s === 'scheduled')     cls = 'bg-blue-50 text-blue-600';
+  let cls = 'bg-muted text-muted-foreground';
+  if (s === 'showed' || s === 'show')                cls = 'bg-success/10 text-success';
+  else if (s === 'no show' || s === 'noshow' || s === 'no-show') cls = 'bg-destructive/10 text-destructive';
+  else if (s === 'cancelled' || s === 'canceled')    cls = 'bg-warning/10 text-warning-strong';
+  else if (s === 'rescheduled')                      cls = 'bg-accent text-primary';
+  else if (s === 'pending' || s === 'scheduled')     cls = 'bg-accent text-primary';
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
       {status || 'Pending'}
@@ -161,7 +161,7 @@ export default function AppointmentsCalendar() {
           <div className="relative" ref={filterRef}>
             <button
               onClick={() => setFilterOpen(o => !o)}
-              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-border bg-white hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-md border border-input bg-background hover:bg-row-hover transition-colors focus:outline-none focus-visible:border-ring"
             >
               <Users size={13} className="text-muted-foreground" />
               <span className="font-medium">
@@ -180,10 +180,10 @@ export default function AppointmentsCalendar() {
             </button>
 
             {filterOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-64 bg-white border border-border rounded-xl shadow-lg z-30 overflow-hidden">
+              <div className="absolute right-0 top-full mt-1.5 w-64 bg-popover text-popover-foreground border border-border rounded-xl shadow-lg z-30 overflow-hidden">
                 <button
                   onClick={toggleAll}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors border-b border-border"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted transition-colors border-b border-border"
                 >
                   <span className={`w-4 h-4 rounded flex items-center justify-center border flex-shrink-0 transition-colors ${allSelected ? 'bg-primary border-primary' : 'border-border'}`}>
                     {allSelected && <Check size={10} className="text-white" strokeWidth={3} />}
@@ -199,7 +199,7 @@ export default function AppointmentsCalendar() {
                       <button
                         key={name}
                         onClick={() => toggleClient(name)}
-                        className="w-full flex items-center gap-3 px-4 py-2 hover:bg-slate-50 transition-colors"
+                        className="w-full flex items-center gap-3 px-4 py-2 hover:bg-muted transition-colors"
                       >
                         <span className={`w-4 h-4 rounded flex items-center justify-center border flex-shrink-0 transition-colors ${checked ? 'bg-primary border-primary' : 'border-border'}`}>
                           {checked && <Check size={10} className="text-white" strokeWidth={3} />}
@@ -217,7 +217,7 @@ export default function AppointmentsCalendar() {
           <button
             onClick={() => refresh()}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-border bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border border-input bg-background hover:bg-row-hover transition-colors disabled:opacity-50"
           >
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             Refresh
@@ -231,7 +231,7 @@ export default function AppointmentsCalendar() {
           { label: 'This Month', value: stats.total,    icon: CalendarDays, color: 'text-foreground' },
           { label: 'Upcoming',   value: stats.upcoming, icon: Clock,        color: 'text-primary' },
           { label: 'Past',       value: stats.past,     icon: Users,        color: 'text-muted-foreground' },
-          { label: 'Showed Up',  value: stats.showed,   icon: TrendingUp,   color: 'text-green-600' },
+          { label: 'Showed Up',  value: stats.showed,   icon: TrendingUp,   color: 'text-success' },
         ].map(s => (
           <div key={s.label} className="card-elevated px-4 py-4 sm:px-5 sm:py-5">
             <s.icon size={15} className="text-muted-foreground mb-3" strokeWidth={1.5} />
@@ -256,7 +256,7 @@ export default function AppointmentsCalendar() {
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <button
               onClick={() => { setCurrentMonth(m => subMonths(m, 1)); setSelectedDay(null); }}
-              className="p-1.5 rounded-lg hover:bg-slate-50 transition-colors text-muted-foreground hover:text-foreground"
+              className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             >
               <ChevronLeft size={16} />
             </button>
@@ -271,14 +271,14 @@ export default function AppointmentsCalendar() {
             </div>
             <button
               onClick={() => { setCurrentMonth(m => addMonths(m, 1)); setSelectedDay(null); }}
-              className="p-1.5 rounded-lg hover:bg-slate-50 transition-colors text-muted-foreground hover:text-foreground"
+              className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             >
               <ChevronRight size={16} />
             </button>
           </div>
 
           {/* Day-of-week headers */}
-          <div className="grid grid-cols-7 border-b border-border bg-slate-50/60">
+          <div className="grid grid-cols-7 border-b border-border bg-muted/60">
             {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
               <div key={d} className="py-2.5 text-center text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">
                 {d}
@@ -313,7 +313,7 @@ export default function AppointmentsCalendar() {
                       borderR ? 'border-r border-border/50' : '',
                       borderB ? 'border-b border-border/50' : '',
                       isSel   ? 'bg-primary/[0.06]' : '',
-                      count > 0 && !isSel ? 'hover:bg-slate-50 cursor-pointer' : '',
+                      count > 0 && !isSel ? 'hover:bg-muted cursor-pointer' : '',
                       count === 0 ? 'cursor-default' : '',
                       !inMonth ? 'opacity-25' : '',
                     ].join(' ')}
@@ -331,9 +331,9 @@ export default function AppointmentsCalendar() {
                       <div className="mt-1 flex items-center gap-0.5 flex-wrap">
                         {count <= 4
                           ? Array.from({ length: count }).map((_, i) => (
-                              <span key={i} className={`w-1.5 h-1.5 rounded-full ${past ? 'bg-slate-300' : 'bg-primary/60'}`} />
+                              <span key={i} className={`w-1.5 h-1.5 rounded-full ${past ? 'bg-border' : 'bg-primary/60'}`} />
                             ))
-                          : <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${past ? 'bg-slate-100 text-slate-400' : 'bg-primary/10 text-primary'}`}>{count}</span>
+                          : <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${past ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>{count}</span>
                         }
                       </div>
                     )}
@@ -360,7 +360,7 @@ export default function AppointmentsCalendar() {
                 {selectedAppts.map((appt, i) => {
                   const d = parseDateSafe(appt.appointmentDate || appt.dateAdded);
                   return (
-                    <div key={i} className="px-5 py-3.5 hover:bg-slate-50/60 transition-colors">
+                    <div key={i} className="px-5 py-3.5 hover:bg-muted/60 transition-colors">
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <div>
                           <p className="text-sm font-semibold text-foreground leading-tight">{appt.client || '—'}</p>
@@ -377,7 +377,7 @@ export default function AppointmentsCalendar() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <StatusBadge status={appt.showStatus} />
                         {(appt.closedRevenue || 0) > 0 && (
-                          <span className="text-xs font-semibold text-green-600 tabular-nums">
+                          <span className="text-xs font-semibold text-success tabular-nums">
                             ${appt.closedRevenue.toLocaleString()}
                           </span>
                         )}
@@ -389,7 +389,7 @@ export default function AppointmentsCalendar() {
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 text-center">
-              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
                 <CalendarDays size={20} className="text-muted-foreground/50" />
               </div>
               <p className="text-sm font-medium text-foreground">
@@ -436,7 +436,7 @@ function UpcomingList({ appointments }: { appointments: AppointmentRow[] }) {
       <div className="overflow-x-auto">
         <table className="w-full min-w-[500px]">
           <thead>
-            <tr className="border-b border-border bg-slate-50">
+            <tr className="border-b border-border bg-muted">
               {['Date & Time', 'Account', 'Setter', 'Status'].map(h => (
                 <th key={h} className="text-left text-[11px] font-semibold text-muted-foreground/70 px-5 py-3 uppercase tracking-wide">{h}</th>
               ))}
@@ -444,7 +444,7 @@ function UpcomingList({ appointments }: { appointments: AppointmentRow[] }) {
           </thead>
           <tbody>
             {upcoming.map(({ appt, date }, i) => (
-              <tr key={i} className="border-b border-border/60 hover:bg-slate-50/60 transition-colors">
+              <tr key={i} className="border-b border-border/60 hover:bg-muted/60 transition-colors">
                 <td className="px-5 py-3 text-sm text-foreground whitespace-nowrap tabular-nums">
                   {date && format(date, 'MMM d, yyyy')}
                   {date && (

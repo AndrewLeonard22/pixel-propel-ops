@@ -21,8 +21,7 @@ import type { AppSettings } from './types';
 
 /** The production config as it was at 21:46:49Z, when @bird screenshotted it healthy. */
 const POPULATED: AppSettings = makeSettings({
-  googleSheetUrl: 'https://docs.google.com/spreadsheets/d/REAL/edit',
-  callCenterSheetUrl: 'https://docs.google.com/spreadsheets/d/CALLS/edit',
+  airtableTableName: 'Appointments',
   airtableBaseId: 'appREAL123',
   excludedCampaigns: Array.from({ length: 32 }, (_, i) => `campaign-${i}`),
   inactiveSetters: ['A', 'B', 'C', 'D'],
@@ -38,8 +37,7 @@ const POPULATED: AppSettings = makeSettings({
 
 /** What the autosave actually wrote: defaults, with aliases surviving from the DB fetch. */
 const THE_WIPE: AppSettings = makeSettings({
-  googleSheetUrl: '',
-  callCenterSheetUrl: '',
+  airtableTableName: '',
   airtableBaseId: '',
   excludedCampaigns: [],
   inactiveSetters: [],
@@ -55,9 +53,8 @@ describe('🔴 the write that destroyed production', () => {
     expect(v.blankedFields.sort()).toEqual(
       [
         'airtableBaseId',
-        'callCenterSheetUrl',
         'excludedCampaigns',
-        'googleSheetUrl',
+        'airtableTableName',
         'inactiveSetters',
         'setterBonusRates',
       ].sort(),
@@ -73,9 +70,9 @@ describe('🔴 the write that destroyed production', () => {
       real: checkSettingsWrite,
       poisons: {
         'always safe (a guard that never refuses)': (() => ({ safe: true, reason: '', blankedFields: [] })) as typeof checkSettingsWrite,
-        'checks only googleSheetUrl, missing the curated lists': ((c, s) => {
-          if (s && s.googleSheetUrl && !c?.googleSheetUrl)
-            return { safe: false, reason: 'x', blankedFields: ['googleSheetUrl' as const] };
+        'checks only airtableTableName, missing the curated lists': ((c, s) => {
+          if (s && s.airtableTableName && !c?.airtableTableName)
+            return { safe: false, reason: 'x', blankedFields: ['airtableTableName' as const] };
           return { safe: true, reason: '', blankedFields: [] };
         }) as typeof checkSettingsWrite,
         'treats an empty ARRAY as populated, so 32->0 passes': ((c, s) => {
@@ -100,7 +97,7 @@ describe('🔴 the write that destroyed production', () => {
         // a legitimate edit must pass
         expect(
           impl(
-            { ...POPULATED, googleSheetUrl: 'https://docs.google.com/spreadsheets/d/NEW/edit' },
+            { ...POPULATED, airtableTableName: 'Appointments V2' },
             POPULATED,
           ).safe,
         ).toBe(true);
@@ -152,8 +149,8 @@ describe('isEmptyValue semantics — zero and false are VALUES, not absence', ()
   });
 
   it('treats a whitespace-only string as empty', () => {
-    const stored = makeSettings({ googleSheetUrl: 'https://real' });
-    expect(checkSettingsWrite({ ...stored, googleSheetUrl: '   ' }, stored).safe).toBe(
+    const stored = makeSettings({ airtableTableName: 'Appointments' });
+    expect(checkSettingsWrite({ ...stored, airtableTableName: '   ' }, stored).safe).toBe(
       false,
     );
   });
@@ -196,8 +193,7 @@ describe('🔴 the gaps @apprentice found by diffing against his database guard'
 
   it('every documented PROTECTED_FIELD is still caught', () => {
     const stored = makeSettings({
-      googleSheetUrl: 'https://real',
-      callCenterSheetUrl: 'https://real2',
+      airtableTableName: 'Appointments',
       airtableBaseId: 'appX',
       excludedCampaigns: ['a'],
       setterBonusRates: [{ setterName: 'A', rate: 1 }],

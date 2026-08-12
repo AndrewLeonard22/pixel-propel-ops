@@ -9,7 +9,7 @@ import type { AdSpendRow } from './types';
  *
  * with ZERO source dates rendered anywhere. ⭐ THAT SENTENCE IS TRUE AND IT IS ABOUT THE
  * WRONG CLOCK — it is a BROWSER fact about the FETCH, not a fact about the DATA. On the day
- * the array formula runs out, the fetch still returns 200, the parse is still clean, every
+ * the upstream pull stops, the fetch still returns 200, the parse is still clean, every
  * source is still connected, and the screen still says "Fetched less than a minute ago"
  * over data that stopped moving. ⇒ 🔑 THE FREEZE HAS NO SYMPTOM.
  *
@@ -17,13 +17,12 @@ import type { AdSpendRow } from './types';
  * is "absence rendered as a plausible fact" at the DATA-AGE layer — the one layer the eight
  * surfaces never covered.
  *
- * ⭐ AND IT IS CHEAPER AND STRICTLY MORE AVAILABLE THAN THE ROW-COUNT DETECTOR:
- *   sheetCompleteness.ts  needs a raw-tab gid that AppSettings does not have, plus two
- *                         network probes, and must defeat gviz's silent tab fallback
- *   this                  needs NOTHING — `dateISO` is already parsed on every row
- * ⇒ they answer different questions and the cheap one covers the symptom. The row-count
- *   detector says HOW MANY ROWS were dropped; this says THE DATA STOPPED. Only the second
- *   is reachable today, so it is the one that ships the guarantee.
+ * ⭐ IT ANSWERS A DIFFERENT QUESTION FROM THE ROW-COUNT DETECTOR, and both still ship:
+ *   metaAdSpend.checkMetaCompleteness  says HOW MANY ROWS of the window we failed to load
+ *   this                               says THE DATA STOPPED MOVING
+ * A complete read of a frozen feed passes the first and fails the second, which is exactly
+ * the state that had no symptom. This one needs no probe at all — `dateISO` is already
+ * parsed on every row.
  *
  * ⚠️ THE THRESHOLD IS AN ASSUMPTION AND IS TREATED AS ONE. The DATE is a measurement and is
  * always rendered; the WARNING is a judgement about how many days of lag is normal, and the
@@ -154,9 +153,17 @@ export function freshnessLabel(r: FreshnessReport): string {
 export function freshnessWarning(r: FreshnessReport): string | null {
   if (r.state === 'stale') {
     return (
+      /**
+       * ⚠️ THE REMEDY CHANGED WITH THE SOURCE, AND LEAVING IT WOULD BE WORSE THAN VAGUE.
+       * This used to say "check that the derived tab's array formula range still covers the
+       * raw tab". After the cutover there is no tab and no formula, so that sentence sends
+       * a reader to fix something that does not exist while the real cause — the meta-pull
+       * Edge Function having stopped — goes unlooked-at. A stale instruction does not just
+       * fail to help; it makes the WRONG move look like compliance.
+       */
       `${freshnessLabel(r)} — no new ad spend rows for ${r.daysBehind} days. ` +
-      `The sheet may have stopped appending: check that the derived tab's array formula ` +
-      `range still covers the raw tab. Totals below are NOT up to date.`
+      `The Meta pull may have stopped: check the pull status in Settings (it runs every ` +
+      `3 hours and writes to ad_pull_runs). Totals below are NOT up to date.`
     );
   }
   if (r.state === 'lagging') {

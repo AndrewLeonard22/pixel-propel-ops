@@ -17,7 +17,7 @@ import type { AppSettings } from "./types";
  *
  * WHY THIS EXISTS — MEASURED, NOT IMAGINED
  *   At 2026-08-05T22:18:48Z one write replaced the shared settings row with values
- *   indistinguishable from DEFAULT_SETTINGS: googleSheetUrl, callCenterSheetUrl and
+ *   indistinguishable from DEFAULT_SETTINGS: airtableTableName and
  *   airtableBaseId blanked, 32 excluded campaigns / 4 inactive setters / 6 setter bonus
  *   rates emptied — no error, no warning. saveSettings is a FULL-OBJECT REPLACE and
  *   component state is stale for the window between useData's synchronous localStorage
@@ -88,8 +88,7 @@ const {
 
 /** The row as it stood before the incident: every protected field carrying real content. */
 const POPULATED = makeSettings({
-  googleSheetUrl: "https://docs.google.com/spreadsheets/d/S/edit",
-  callCenterSheetUrl: "https://docs.google.com/spreadsheets/d/C/edit",
+  airtableTableName: "Appointments",
   airtableBaseId: "appREAL",
   excludedCampaigns: ["c1", "c2", "c3"],
   inactiveSetters: ["Bob"],
@@ -124,11 +123,18 @@ describe("detectClobber — names WHAT would be lost, never just how much", () =
   it("THE INCIDENT: a DEFAULT_SETTINGS write over a populated row is a clobber", () => {
     const r = detectClobber(POPULATED, { ...DEFAULT_SETTINGS });
 
-    expect(r.blankedScalars).toEqual([
-      "googleSheetUrl",
-      "callCenterSheetUrl",
-      "airtableBaseId",
-    ]);
+    /**
+     * ⚠️ ONE SCALAR, NOT TWO, AND THAT IS A REAL PROPERTY RATHER THAN A WEAKENED
+     * ASSERTION. `airtableTableName` has a NON-EMPTY default ('Appointments'), so a
+     * DEFAULT_SETTINGS write cannot blank it — only `airtableBaseId` defaults to ''.
+     * (It was two while `googleSheetUrl`, also '' by default, held the first slot; that
+     * key retired with the Google Sheet feed on 2026-08-11.)
+     *
+     * ⭐ THE INCIDENT IS STILL DETECTED, and by more than a hair: `isClobber` needs two
+     * losses and the four emptied lists supply them. The scalar count is not what makes
+     * this a clobber.
+     */
+    expect(r.blankedScalars).toEqual(["airtableBaseId"]);
     expect(r.emptiedLists).toEqual([
       "excludedCampaigns",
       "setterBonusRates",
@@ -139,9 +145,9 @@ describe("detectClobber — names WHAT would be lost, never just how much", () =
   });
 
   it("ALLOWS a single deliberate clear — an edit is not an accident", () => {
-    const r = detectClobber(POPULATED, makeSettings({ ...POPULATED, callCenterSheetUrl: "" }));
+    const r = detectClobber(POPULATED, makeSettings({ ...POPULATED, airtableTableName: "" }));
 
-    expect(r.blankedScalars).toEqual(["callCenterSheetUrl"]);
+    expect(r.blankedScalars).toEqual(["airtableTableName"]);
     expect(isClobber(r)).toBe(false); // one loss is an edit; two is the signature of a clobber
   });
 
@@ -157,7 +163,7 @@ describe("detectClobber — names WHAT would be lost, never just how much", () =
       POPULATED,
       makeSettings({
         ...POPULATED,
-        googleSheetUrl: "https://docs.google.com/spreadsheets/d/NEW/edit",
+        airtableTableName: "Appointments V2",
         excludedCampaigns: ["c1", "c2", "c3", "c4"],
       }),
     );
@@ -184,10 +190,10 @@ describe("detectClobber — names WHAT would be lost, never just how much", () =
   it("treats whitespace-only as blank — '   ' is not a configured sheet URL", () => {
     const r = detectClobber(
       POPULATED,
-      makeSettings({ ...POPULATED, googleSheetUrl: "   ", airtableBaseId: "" }),
+      makeSettings({ ...POPULATED, airtableTableName: "   ", airtableBaseId: "" }),
     );
 
-    expect(r.blankedScalars).toEqual(["googleSheetUrl", "airtableBaseId"]);
+    expect(r.blankedScalars).toEqual(["airtableBaseId", "airtableTableName"]);
     expect(isClobber(r)).toBe(true);
   });
 
@@ -215,14 +221,14 @@ describe("saveSettings — the guard is WIRED IN, not merely defined", () => {
     await expect(saveSettings({ ...DEFAULT_SETTINGS })).rejects.toThrow();
 
     const local = JSON.parse(localStorage.getItem("socialworks_settings") ?? "{}");
-    expect(local.googleSheetUrl).toBe(POPULATED.googleSheetUrl);
+    expect(local.airtableTableName).toBe(POPULATED.airtableTableName);
   });
 
   it("the refusal NAMES the fields at risk — a human has to be able to judge it", async () => {
     db.current = POPULATED;
 
     await expect(saveSettings({ ...DEFAULT_SETTINGS })).rejects.toThrow(
-      /googleSheetUrl.*callCenterSheetUrl.*airtableBaseId.*excludedCampaigns/s,
+      /airtableBaseId.*excludedCampaigns/s,
     );
   });
 
@@ -235,7 +241,7 @@ describe("saveSettings — the guard is WIRED IN, not merely defined", () => {
     expect(db.upserts).toHaveLength(1);
     expect(db.upserts[0].key).toBe("app_settings");
     expect((db.upserts[0].value as AppSettings).pausedThresholdDays).toBe(7);
-    expect((db.upserts[0].value as AppSettings).googleSheetUrl).toBe(POPULATED.googleSheetUrl);
+    expect((db.upserts[0].value as AppSettings).airtableTableName).toBe(POPULATED.airtableTableName);
   });
 
   it("ANTI-VACUITY CONTROL: a first-time save on an empty row still reaches the database", async () => {
@@ -249,10 +255,10 @@ describe("saveSettings — the guard is WIRED IN, not merely defined", () => {
   it("a single deliberate clear is SAVED, not refused — the guard must not block real edits", async () => {
     db.current = POPULATED;
 
-    await saveSettings(makeSettings({ ...POPULATED, callCenterSheetUrl: "" }));
+    await saveSettings(makeSettings({ ...POPULATED, airtableTableName: "" }));
 
     expect(db.upserts).toHaveLength(1);
-    expect((db.upserts[0].value as AppSettings).callCenterSheetUrl).toBe("");
+    expect((db.upserts[0].value as AppSettings).airtableTableName).toBe("");
   });
 });
 

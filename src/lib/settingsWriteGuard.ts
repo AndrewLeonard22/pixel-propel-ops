@@ -27,8 +27,13 @@ import type { AppSettings } from './types';
 
 /** Fields whose loss is destructive and not self-healing. */
 export const PROTECTED_FIELDS = [
-  'googleSheetUrl',
-  'callCenterSheetUrl',
+  /**
+   * ⚠️ `googleSheetUrl` STOOD HERE UNTIL 2026-08-11 and was REPLACED, not dropped. It went
+   * out with the Google Sheet feed; `airtableTableName` takes its slot so the guard keeps
+   * covering TWO connection scalars rather than one. Shrinking this list quietly weakens
+   * every arm that iterates it, which is the one way this file can rot without going red.
+   */
+  'airtableTableName',
   'airtableBaseId',
   'excludedCampaigns',
   'setterBonusRates',

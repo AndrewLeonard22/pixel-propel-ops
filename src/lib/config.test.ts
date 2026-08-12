@@ -1,7 +1,7 @@
 /**
  * Tests for the configuration gate — item ① THE SITE IS BLANK.
  *
- * POPULATION: all 8 combinations of (googleSheetUrl, airtable creds, callCenterUrl)
+ * POPULATION: all combinations of (Supabase connection, airtable creds)
  * present/absent, enumerated rather than sampled. Plus the exact production state
  * @bird observed: config rows exist, app renders "Configure your data sources",
  * zero requests, no error.
@@ -21,68 +21,60 @@ describe('isSourceConfigured — each source depends only on its OWN fields', ()
   it(`is sabotage-proven across all 8 presence combinations ${population('2^3 = 8 combinations, enumerated')}`, () => {
     proveDetects({
       subject: 'isSourceConfigured',
-      // ⚠️ AMENDED BY @apprentice (order ②): the airtable operand was
-      // `airtableBaseId && airtableToken`. The token is no longer a field on
-      // AppSettings — credentials are server-side — so this now covers 2^2
-      // per-source presence combinations, not 2^3. @raccoon's poison "airtable
-      // ignores the token, checks only the base id" IS the real implementation
-      // now, so it was removed rather than left to fail as a poison, and a
-      // cross-vendor poison in the opposite direction replaces it.
+      // ⚠️ AMENDED 2026-08-11 for the Supabase cutover. `googleSheet` became `adSpend`,
+      // and its operand is no longer a settings field at all: ad spend is configured when
+      // SUPABASE is, because the Meta credentials live server-side in the Edge Function.
+      //
+      // ⭐ THE LAW UNDER TEST IS UNCHANGED AND IS THE WHOLE POINT: one vendor's missing
+      // credentials must not suppress another vendor's fetchable feed. That is the
+      // production incident of 2026-08-05, where an empty Airtable token produced ZERO
+      // requests to a source that never needed it.
+      //
+      // ⚠️ WHY 'always configured' IS STILL CAUGHT even though `adSpend` answers `true`
+      // throughout this suite (the harness stubs a valid Supabase env): the AIRTABLE
+      // assertions below are what falsify it. A poison only has to be caught by ONE arm.
       population:
-        'per-source presence: googleSheetUrl / airtableBaseId / callCenterSheetUrl, all combinations',
+        'per-source presence: Supabase connection / airtableBaseId, all combinations',
       real: isSourceConfigured,
       poisons: {
-        'ANDs across vendors (the current isConfigured bug): googleSheet also requires airtable creds':
+        'ANDs across vendors (the current isConfigured bug): adSpend also requires airtable creds':
           ((s, src) =>
-            src === 'googleSheet'
-              ? !!(s.googleSheetUrl && s.airtableBaseId)
+            src === 'adSpend'
+              ? !!(isSourceConfigured(s, 'adSpend') && s.airtableBaseId)
               : isSourceConfigured(s, src)) as typeof isSourceConfigured,
-        'ANDs across vendors the other way: airtable also requires the google sheet url':
-          ((s, src) =>
-            src === 'airtable'
-              ? !!(s.airtableBaseId && s.googleSheetUrl)
-              : isSourceConfigured(s, src)) as typeof isSourceConfigured,
+        'collapses the two sources into one verdict: every source reports what airtable reports':
+          ((s) => !!s.airtableBaseId) as typeof isSourceConfigured,
         'always configured': (() => true) as typeof isSourceConfigured,
         'never configured': (() => false) as typeof isSourceConfigured,
       },
       assertions: impl => {
-        // googleSheet depends ONLY on googleSheetUrl
-        expect(impl(makeSettings({ googleSheetUrl: '' }), 'googleSheet')).toBe(false);
-        expect(
-          impl(makeSettings({ airtableBaseId: '' }), 'googleSheet'),
-        ).toBe(true); // <- the line that would have caught the blank site
+        // ⬅ THE LINE THAT WOULD HAVE CAUGHT THE BLANK SITE. Ad spend does not care what
+        // Airtable is missing.
+        expect(impl(makeSettings({ airtableBaseId: '' }), 'adSpend')).toBe(true);
+        expect(impl(makeSettings(), 'adSpend')).toBe(true);
         // airtable depends ONLY on its own base id
         expect(impl(makeSettings({ airtableBaseId: '' }), 'airtable')).toBe(false);
-        expect(impl(makeSettings({ googleSheetUrl: '' }), 'airtable')).toBe(true);
         expect(impl(makeSettings(), 'airtable')).toBe(true);
-        // callCenter depends ONLY on its url
-        expect(impl(makeSettings({ callCenterSheetUrl: '' }), 'callCenter')).toBe(false);
-        expect(
-          impl(makeSettings({ googleSheetUrl: '' }), 'callCenter'),
-        ).toBe(true);
       },
     });
   });
 
-  it('enumerates all 8 combinations and no source leaks into another', () => {
+  it('enumerates every combination and no source leaks into another', () => {
+    /**
+     * ⚠️ `adSpend` IS ALWAYS PRESENT IN THIS TABLE, and that is a statement about the
+     * HARNESS, not a weakening of the test. Ad spend is configured when Supabase is, and
+     * src/test/setup.ts stubs a valid Supabase env for the whole suite — so within these
+     * tests it cannot be absent. What is still enumerated, and what the leak law is
+     * actually about, is that varying AIRTABLE never changes ad spend's answer.
+     */
     const table: { present: DataSource[]; settings: ReturnType<typeof makeSettings> }[] = [];
-    for (const gs of [true, false]) {
-      for (const at of [true, false]) {
-        for (const cc of [true, false]) {
-          const settings = makeSettings({
-            googleSheetUrl: gs ? 'https://docs.google.com/spreadsheets/d/X/edit' : '',
-            airtableBaseId: at ? 'appTEST123' : '',
-            callCenterSheetUrl: cc ? 'https://docs.google.com/spreadsheets/d/Y/edit' : '',
-          });
-          const present: DataSource[] = [];
-          if (gs) present.push('googleSheet');
-          if (at) present.push('airtable');
-          if (cc) present.push('callCenter');
-          table.push({ present, settings });
-        }
-      }
+    for (const at of [true, false]) {
+      const settings = makeSettings({ airtableBaseId: at ? 'appTEST123' : '' });
+      const present: DataSource[] = ['adSpend'];
+      if (at) present.push('airtable');
+      table.push({ present, settings });
     }
-    expect(table).toHaveLength(8); // population is non-empty and complete
+    expect(table).toHaveLength(2); // population is non-empty and complete
     for (const { present, settings } of table) {
       expect(configuredSources(settings)).toEqual(present);
       for (const src of DATA_SOURCES) {
@@ -99,24 +91,24 @@ describe('🔴 item ① — the production blank-site state, pinned', () => {
    * The mechanism: isConfigured ANDs across two vendors, and useData.tsx:63
    * returns early and silently when it is false.
    */
-  const windsorOnly = makeSettings({ airtableBaseId: '' });
+  const adSpendOnly = makeSettings({ airtableBaseId: '' });
 
-  it('REPRODUCES the bug: a fetchable Windsor feed is suppressed by absent Airtable creds', () => {
-    expect(isSourceConfigured(windsorOnly, 'googleSheet')).toBe(true); // data IS fetchable
-    expect(isConfigured(windsorOnly)).toBe(false); // ...and the app refuses to fetch it
+  it('REPRODUCES the bug: a fetchable ad-spend feed is suppressed by absent Airtable creds', () => {
+    expect(isSourceConfigured(adSpendOnly, 'adSpend')).toBe(true); // data IS fetchable
+    expect(isConfigured(adSpendOnly)).toBe(false); // ...and the app refuses to fetch it
   });
 
   it('names the sources that SHOULD load in that state', () => {
-    expect(configuredSources(windsorOnly)).toEqual(['googleSheet', 'callCenter']);
+    expect(configuredSources(adSpendOnly)).toEqual(['adSpend']);
   });
 
   it('⚠️ GUARDS THE SEQUENCING CONSTRAINT: relaxing the gate alone is not the fix', () => {
-    // fetchAirtableData THROWS when the token is absent, and refresh() wraps all three
+    // fetchAirtableData THROWS when the token is absent, and refresh() wraps both
     // fetches in a single Promise.all — so an ANY-source gate without per-source fetch
     // isolation converts a blank page into a red error with still-zero data.
     // This test exists to make that coupling visible if someone relaxes isConfigured:
     // it will need updating IN THE SAME CHANGE as useData.tsx's fetch isolation.
-    expect(isConfigured(windsorOnly)).toBe(false);
-    expect(configuredSources(windsorOnly).length).toBeGreaterThan(0);
+    expect(isConfigured(adSpendOnly)).toBe(false);
+    expect(configuredSources(adSpendOnly).length).toBeGreaterThan(0);
   });
 });

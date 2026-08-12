@@ -20,6 +20,44 @@
 --   at a different sheet or rewrite the account mappings. The guard below stops
 --   BLANKING a connection field; it does not stop CHANGING one. Closing that
 --   requires authentication, which this app does not have.
+--
+-- ============================================================================
+-- 🔴 AMENDED 2026-08-12 — THIS FILE WAS A LANDMINE AND AMENDING IT IS THE FIX.
+--
+-- ⛔ IT HAS NEVER RUN AGAINST THE LIVE DATABASE. It was applied to project
+-- `tclghhfozyfsdkqyaftc`; every row this product reads lives in `mlwoztsytapxjgfldyzv`,
+-- which has neither this trigger nor its function (measured, and it is why
+-- 20260812000200_public_write_surface.sql exists). So this is not a rewrite of history —
+-- it is a correction to an instruction that has not been carried out yet, made before the
+-- next `supabase db push` carries it out wrongly.
+--
+-- 🔴 WHAT IT WOULD HAVE DONE, VERBATIM, ON THE NEXT PUSH: `protected_keys` named
+-- `googleSheetUrl` and `callCenterSheetUrl`. Guard (c) refuses any UPDATE that blanks a
+-- protected key the stored row still holds — and the live row DOES hold
+-- `googleSheetUrl` (non-empty, measured 2026-08-12), inert since the ad-spend cutover,
+-- while `sanitizeSettings` now STRIPS it from every write. Old non-empty, new absent, on
+-- every single save.
+--   ⇒ EVERY SETTINGS AUTOSAVE IN PRODUCTION WOULD REFUSE ITSELF. That is the exact
+--     failure mode this file's own commentary says took production down once, re-armed by
+--     a guard that was correct when it was written and was never amended when the feature
+--     it protected was deleted. A stale law does not merely stop helping; it instructs the
+--     re-break, and compliance looks like the right move.
+--
+-- ⭐ THE AMENDMENT: the retired keys are gone from `protected_keys`, and
+-- `src/lib/config.credentials.test.ts` now MECHANISES the rule — no key in
+-- `DELETED_FEATURE_KEYS` may appear in `protected_keys` or `protected_collections`. The
+-- allowlist half of this drift was already locked; the protected half was not, and the
+-- protected half is the one that refuses writes.
+--
+-- ⛔ STILL A BLOCKER ON APPLYING THIS FILE — NOT MINE TO DECIDE, AND NOT SILENT:
+-- `airtableToken` is on the CLIENT allowlist by a standing owner order («JUST PUT THE
+-- ACCESS TOKEN BACK IN PIXEL»), and this guard refuses it twice over — it is absent from
+-- `allowed_config_keys`, and the credential-SHAPE check (b) matches a real Airtable PAT on
+-- every row regardless of any allowlist. Applying this as written takes appointments dark
+-- again, which is the incident that produced the order. It is pinned as a declared
+-- exception in `config.credentials.test.ts` so it cannot be forgotten, and it is resolved
+-- by deploying `airtable-proxy` and removing the client exception — NOT by quietly
+-- loosening this guard.
 -- ============================================================================
 
 -- 1. ── strip the credentials out of the stored row ──────────────────────────
@@ -113,8 +151,24 @@ DECLARE
   -- in the wrong order; I proved that on myself by telling Andrew to apply this FIRST,
   -- ten times, which would have frozen every save on the page mid-restore.
   retired_credential_keys text[] := ARRAY['airtableToken', 'anthropicApiKey'];
-  -- scalar fields whose loss takes the product down
-  protected_keys text[] := ARRAY['googleSheetUrl', 'callCenterSheetUrl', 'airtableBaseId'];
+  -- Scalar fields whose loss takes the product down.
+  --
+  -- 🔴 AMENDED 2026-08-12 — `googleSheetUrl` and `callCenterSheetUrl` WERE HERE, and they
+  -- are the landmine described at the top of this file. Both belong to DELETED features:
+  -- the call-centre screen is gone, and ad spend moved to `ad_insights` on 2026-08-11.
+  -- `sanitizeSettings` strips both from every write, the live row still holds a non-empty
+  -- `googleSheetUrl`, and guard (c) below refuses exactly that transition — so this array
+  -- would have refused EVERY save the deployed app makes.
+  --
+  -- ⛔ THE RULE THAT REPLACES REMEMBERING: a key listed in `DELETED_FEATURE_KEYS`
+  -- (src/lib/config.ts) may never appear here or in `protected_collections`. Protecting a
+  -- field nobody sends any more does not protect anything — it BANS the write. That rule is
+  -- now asserted in `src/lib/config.credentials.test.ts`, so the next retirement cannot
+  -- leave this array behind the way this one did.
+  --
+  -- `airtableBaseId` stays: it is live, it is still sent on every save, and blanking it
+  -- really does take appointments down.
+  protected_keys text[] := ARRAY['airtableBaseId'];
   -- COLLECTIONS whose loss silently changes every number without breaking anything.
   -- @raccoon reproduced the mechanism (raccoon/stab ce0f31b): useData seeds `settings`
   -- from SYNCHRONOUS localStorage, the DB row replaces it LATER in a useEffect, and

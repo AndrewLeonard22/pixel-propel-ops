@@ -61,10 +61,12 @@ export function ConfigBanner({ origin, detail }: { origin: SettingsOrigin; detai
 
   return (
     <div className="border border-warning/30 bg-warning/5 rounded-xl p-6 flex flex-col items-center gap-3 text-center">
-      <Settings className="w-8 h-8 text-warning" />
+      <Settings className="w-8 h-8 text-warning-strong" />
       <h3 className="font-semibold text-foreground">Configure your data sources</h3>
       <p className="text-sm text-muted-foreground max-w-md">
-        Connect your Google Sheet and Airtable in Settings to get started with your analytics dashboard.
+        {/* @andrew: the Google Sheets connection is gone from Settings. A banner that
+            still tells him to connect one points at a control that no longer exists. */}
+        Connect your data sources in Settings to get started with your analytics dashboard.
       </p>
       <Link
         to="/settings"
@@ -106,7 +108,7 @@ export function HonestNumbersBanner({ messages }: { messages: string[] }) {
       role="status"
       className="border border-warning/40 bg-warning/5 rounded-xl p-4 flex items-start gap-3"
     >
-      <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+      <AlertTriangle className="w-5 h-5 text-warning-strong shrink-0 mt-0.5" />
       <div className="flex-1 space-y-1">
         <p className="text-sm font-semibold text-foreground">
           Some numbers on this page are not what they appear

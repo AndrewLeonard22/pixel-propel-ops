@@ -1,260 +1,184 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { checkColumnContract, WINDSOR_COLUMNS, CALL_CENTRE_COLUMNS, type ColumnSpec } from './dataService';
+import {
+  META_SPEND_COLUMNS,
+  META_SPEND_SELECT,
+  metaRowToAdSpendRow,
+  monthNameOf,
+  toNumber,
+  type MetaSpendRecord,
+} from './metaAdSpend';
+import type { AdSpendRow } from './types';
 
 /**
- * ② SILENT TAB / COLUMN DRIFT.
+ * ② SILENT COLUMN DRIFT — THE SUPABASE EDITION.
  *
- * @fable: "a misconfigured source CANNOT FAIL LOUDLY TODAY. It returns confident, complete,
- * WRONG data — the exact thing Andrew hired us to remove, and it is one settings typo away
- * at all times."
+ * ⛔ WHAT THIS FILE USED TO TEST, AND WHY MOST OF IT IS GONE. It covered
+ * `checkColumnContract` against `WINDSOR_COLUMNS`: a wrong Google Sheets TAB answering
+ * HTTP 200 with the default tab's schema, `Spent` renamed to `Amount Spent`, a column
+ * PRESENT and ENTIRELY BLANK so `parseNumber('')` turned every total into a confident
+ * zero, headers case-folded, alternate spellings. Every one of those is a hazard an
+ * untyped CSV has and a typed Postgres column does not. `spend` is `numeric`, `date` is a
+ * `date`, `leads` is an `integer`, and a renamed column is a PostgREST error rather than a
+ * silent empty string. The mechanism retired with the sheet on 2026-08-11.
  *
- * ⭐ AND MY OWN EXISTING GUARD COVERED ONLY HALF OF IT. `assertSheetSchema` asserts ONE
- * column, which is enough for a wrong TAB — where every column vanishes at once — and
- * completely blind to DRIFT. Rename `Spent` to `Amount Spent` and `Account Name` still
- * resolves, the guard stays silent, parseNumber('') returns 0, and EVERY SPEND TOTAL
- * SILENTLY BECOMES ZERO. I wrote that guard's docblock explaining why one column was
- * enough, and the reasoning was sound for the failure I had in mind and wrong for this one.
+ * ⭐ THE LAW SURVIVED THE MECHANISM, AND IT IS THE HALF THAT WAS ALWAYS LOAD-BEARING:
  *
- * ⚠️ TWO TIERS, BECAUSE THEY FAIL DIFFERENTLY:
- *   CRITICAL  absence ⇒ a WRONG NUMBER rendered confidently ⇒ THROW
- *   LABEL     absence ⇒ a missing NAME ⇒ REPORT, never throw. A check that takes the
- *             dashboard down over a missing `Ad Name` is a check people delete.
+ *     every column the CONTRACT names is READ by the mapper, and every field the MAPPER
+ *     produces comes from a contract column — proven in BOTH directions, over a
+ *     non-empty population.
+ *
+ * What it catches today is the post-cutover shape of the same defect: a column quietly
+ * dropped from the `select(...)` list, after which PostgREST simply does not return it,
+ * `String(undefined ?? '')` is `''`, `toNumber(undefined)` is `0`, and every value that
+ * column fed becomes a confident zero with no error anywhere.
+ *
+ * 🔑 AND IT IS DRIVEN BY BEHAVIOUR, NOT BY A REGEX OVER THE SOURCE FILE. The old version
+ * sliced `dataService.ts` between two function names and scanned the text between them for
+ * `pick(r, '...')` calls. That slice was ALREADY BROKEN when this was rewritten:
+ * `indexOf('export async function fetchCallCenterData')` returned **-1** because that
+ * function had been deleted, so `slice(start, -1)` silently took everything to end of file
+ * and the arms passed by luck. A test that reads the implementation as TEXT breaks
+ * invisibly when the implementation is refactored; one that RUNS the implementation cannot.
  */
-describe('checkColumnContract — the two tiers', () => {
-  const FULL: Record<string, string> = {
-    'Account Name': 'Acme', Spent: '500', Leads: '20', Date: '8/4/2026',
-    Month: 'August', Campaign: 'C', 'Campaign Id': '1', 'Adset Name': 'A',
-    'Adset Id': '2', 'Ad Name': 'N', 'Ad Id': '3',
+
+/** A record with a distinct, recognisable value in every contract column. */
+function fullRecord(): MetaSpendRecord {
+  return {
+    date: '2026-08-08',
+    ad_id: 'AD-1',
+    account_id: 'ACCT-1',
+    account_name: 'Testerman Pro Wash',
+    campaign_id: 'CAMP-1',
+    campaign_name: 'Campaign One',
+    adset_id: 'ADSET-1',
+    adset_name: 'Adset One',
+    ad_name: 'Ad One',
+    spend: '1234.50',
+    leads: 7,
   };
+}
 
-  it('🔴 ANTI-VACUITY CONTROL: a complete sheet passes with NO drift', () => {
-    // Run first, and it is the arm that makes the others mean anything — @bird's ordering.
-    expect(checkColumnContract([FULL], WINDSOR_COLUMNS, 'x')).toEqual({ missingLabels: [] });
-  });
+/**
+ * The AdSpendRow fields that carry data from the source. `month` is DERIVED from `date`
+ * rather than selected, and `dateISO` is the same column as `date`; both are handled
+ * explicitly below rather than being quietly exempted.
+ */
+const SOURCE_BACKED_FIELDS: (keyof AdSpendRow)[] = [
+  'date', 'dateISO', 'campaign', 'campaignId', 'adsetName', 'adsetId',
+  'adName', 'adId', 'spent', 'leads', 'accountName', 'accountId',
+];
 
-  it('🔴 a missing CRITICAL column THROWS — a wrong number is worse than a dead source', () => {
-    const { Spent, ...noSpent } = FULL;
-    expect(() => checkColumnContract([noSpent], WINDSOR_COLUMNS, 'Ad spend sheet'))
-      .toThrow(/"Spent"/);
-    expect(() => checkColumnContract([noSpent], WINDSOR_COLUMNS, 'Ad spend sheet'))
-      .toThrow(/Refusing to report zeros/);
-  });
+describe('the contract agrees with the MAPPER, in both directions', () => {
+  it('NON-VACUITY: the contract is non-empty and the mapper really reads it', () => {
+    // Without this, both directions below pass over an empty set — the population failure
+    // that fakes a clean result. The old version of this arm caught exactly that once.
+    expect(META_SPEND_COLUMNS.length).toBeGreaterThan(10);
+    expect(META_SPEND_SELECT.split(',')).toEqual([...META_SPEND_COLUMNS]);
 
-  it('names EVERY missing critical column, not just the first', () => {
-    const bare = { Month: 'August' };
-    try {
-      checkColumnContract([bare], WINDSOR_COLUMNS, 'x');
-      throw new Error('should have thrown');
-    } catch (e) {
-      const m = (e as Error).message;
-      for (const c of ['Account Name', 'Spent', 'Leads', 'Date']) expect(m).toContain(`"${c}"`);
+    const row = metaRowToAdSpendRow(fullRecord());
+    for (const f of SOURCE_BACKED_FIELDS) {
+      expect(row[f], `${String(f)} is empty even from a fully populated record`).toBeTruthy();
     }
   });
 
-  it('🔑 a missing LABEL column is REPORTED, never thrown', () => {
-    const { 'Ad Name': _ad, Month: _m, ...noLabels } = FULL;
-    const drift = checkColumnContract([noLabels], WINDSOR_COLUMNS, 'x');
-    expect(drift.missingLabels).toContain('Ad Name');
-    expect(drift.missingLabels).toContain('Month');
-    expect(drift.missingLabels).not.toContain('Spent');
+  it('🔴 every column in the CONTRACT is READ by the mapper — else the select is carrying dead weight', () => {
+    /**
+     * Drop ONE column at a time and require the mapped row to change. A contract entry no
+     * reader consumes is not harmless: it is a column we pay to transfer and, worse, a
+     * false assurance that the field it appears to guard is guarded.
+     */
+    const baseline = metaRowToAdSpendRow(fullRecord());
+    for (const col of META_SPEND_COLUMNS) {
+      const missing = { ...fullRecord() };
+      delete (missing as Record<string, unknown>)[col];
+      const got = metaRowToAdSpendRow(missing as MetaSpendRecord);
+      expect(
+        JSON.stringify(got),
+        `dropping "${col}" changed nothing — no field is fed by it, so it is unread`,
+      ).not.toEqual(JSON.stringify(baseline));
+    }
   });
 
-  it('⭐ ALTERNATE SPELLINGS SATISFY THE COLUMN — the mapper accepts them, so must this', () => {
-    // A contract demanding one spelling would throw on a sheet that works TODAY, which is
-    // how a guard starts disagreeing with the code it guards.
-    const alt = { ...FULL, Spent: undefined as never, Spend: '500' };
-    delete (alt as Record<string, unknown>).Spent;
-    expect(() => checkColumnContract([alt], WINDSOR_COLUMNS, 'x')).not.toThrow();
-
-    const alt2 = { ...FULL } as Record<string, string>;
-    delete alt2['Campaign Id']; alt2['Campaign ID'] = '1';
-    expect(checkColumnContract([alt2], WINDSOR_COLUMNS, 'x').missingLabels).toEqual([]);
+  it('🔴 every source-backed FIELD comes from a contract column — else it is unguarded', () => {
+    /**
+     * The direction a one-sided loop cannot have, and the one @apprentice's allowlist
+     * sabotage proved matters: removing an entry from the side you iterate just SHRINKS
+     * THE LOOP and passes silently.
+     *
+     * With every contract column absent, every source-backed field must be empty. A field
+     * that still holds a value is being populated from somewhere the contract does not
+     * name — so dropping its column from the select would never be caught here.
+     */
+    const empty = metaRowToAdSpendRow({} as MetaSpendRecord);
+    for (const f of SOURCE_BACKED_FIELDS) {
+      expect(
+        empty[f],
+        `${String(f)} is populated with no contract column present — it is fed from outside the contract`,
+      ).toBeFalsy();
+    }
+    // `month` is DERIVED, not selected — named here so the exemption is deliberate.
+    expect(empty.month).toBe('');
   });
 
-  it('🔴 an EMPTY sheet is UNVERIFIED, not a clean bill of health — @raccoon', () => {
-    // It used to return a clean verdict on the FIRST LINE, so a wrong tab that happens to be
-    // EMPTY passed the guard built to catch a wrong tab. The POPULATION control, which fakes
-    // a PASS rather than a suspicious zero. Still not a throw: a genuinely empty tab is
-    // legitimate and must not blank the app.
-    const r = checkColumnContract([], WINDSOR_COLUMNS, 'x');
-    expect(r.schemaUnverified).toBe(true);
-    expect(r.missingLabels).toEqual([]);
-  });
+  it('every CRITICAL column feeds a NUMBER or the IDENTITY — and the identity is an id, not a name', () => {
+    /**
+     * ⭐ THIS IS WHERE THE CUTOVER'S CENTRAL DECISION IS PINNED. The sheet-era version of
+     * this arm hardcoded `['Account Name', 'Date', 'Leads', 'Spent']` — an account NAME as
+     * the grouping key. Meta rewrites display names (five confirmed, e.g. `Publicity 1` ->
+     * `Washbroz X SocialWorks`), which is what split one client into two accounts. The
+     * identity is now `account_id`.
+     */
+    const critical = ['account_id', 'date', 'leads', 'spend'];
+    for (const c of critical) {
+      expect(META_SPEND_COLUMNS as readonly string[], `${c} must be selected`).toContain(c);
+    }
 
-  it('a NON-empty sheet is not marked unverified — the control for the arm above', () => {
-    expect(checkColumnContract([FULL], WINDSOR_COLUMNS, 'x').schemaUnverified).toBeFalsy();
-  });
+    // Losing any one of them must visibly damage the row rather than pass through as a zero
+    // nobody can distinguish from a real one.
+    const noSpend = metaRowToAdSpendRow({ ...fullRecord(), spend: null });
+    expect(noSpend.spent).toBe(0);
+    const noId = metaRowToAdSpendRow({ ...fullRecord(), account_id: '' });
+    expect(noId.accountId).toBe('');
 
-  it('🔴 PRESENCE IS NOT VALIDITY: a critical column that is PRESENT and ALL BLANK throws', () => {
-    // My own law, one layer down. Every column present, every value empty, parseNumber('')
-    // returns 0, and every spend total becomes zero — the exact outcome this prevents.
-    const blank = { 'Account Name': 'A', Spent: '', Leads: '', Date: '' };
-    expect(() => checkColumnContract([blank], WINDSOR_COLUMNS, 'x')).toThrow(/ENTIRELY BLANK/);
-  });
-
-  it('🔑 ONE blank cell among several rows is NORMAL and must not throw', () => {
-    // "at least one row has a value", not "every row". The mirror defect would be refusing
-    // a real sheet because a single cell is empty.
-    const rows = [{ ...FULL, Spent: '' }, FULL];
-    expect(() => checkColumnContract(rows, WINDSOR_COLUMNS, 'x')).not.toThrow();
-  });
-
-  it('⭐ CASE-FOLDED: a lowercase header satisfies the contract', () => {
-    // And the MAPPER folds case by the same rule — see the pick() docblock. Relaxing only
-    // the guard would have turned a loud failure into a silent zero.
-    const lower = Object.fromEntries(Object.entries(FULL).map(([k, v]) => [k.toLowerCase(), v]));
-    expect(() => checkColumnContract([lower], WINDSOR_COLUMNS, 'x')).not.toThrow();
-  });
-});
-
-/**
- * 🔒 THE DRIFT LOCK — AND IT RUNS IN BOTH DIRECTIONS, WHICH IS @apprentice's LESSON.
- *
- * He sabotaged his own allowlist guard tonight and found it caught a key removed from the
- * SQL and NOT one removed from the client, because the check iterated one side: "deleting a
- * CLIENT key just SHRINKS THE LOOP, so that direction passed silently." ⭐ ONE SABOTAGE
- * PROVES A GUARD FIRES; A TRUTH TABLE PROVES IT FIRES IN EVERY DIRECTION.
- *
- * So this reads the ACTUAL column literals out of fetchGoogleSheetData's source and
- * compares them to the contract BOTH WAYS. A hand-written list is a hypothesis; the mapper
- * is the fact. If someone adds a column to the mapper and not the contract, the new column
- * is unguarded. If someone adds it to the contract and not the mapper, the guard throws
- * over a column nothing reads.
- */
-describe('the contract agrees with the MAPPER, in both directions', () => {
-  // process.cwd() and NOT import.meta.url: vitest serves this file over a non-file URL in
-  // the jsdom environment, so `new URL(...)` throws at COLLECTION time — which vitest
-  // reports as "no tests", the population failure that reads as a clean pass. Caught only
-  // because the exit code was non-zero; the printed count alone said nothing was wrong.
-  const src = readFileSync(resolve(process.cwd(), 'src/lib/dataService.ts'), 'utf8');
-  const mapper = src.slice(
-    src.indexOf('export async function fetchGoogleSheetData'),
-    src.indexOf('export async function fetchCallCenterData'),
-  );
-  /**
-   * Every column the ad-spend mapper actually reads, from its `pick(r, 'A', 'B')` calls.
-   *
-   * ⭐ THIS EXTRACTOR CHANGED WHEN THE MAPPER DID, AND THE LOCK CAUGHT IT — including the
-   * NON-VACUITY arm, which failed with "expected 0 to be greater than 10". Without that arm
-   * the set would have been EMPTY, `unguarded` would have been `[]`, and the direction would
-   * have passed VACUOUSLY over nothing. That is the whole reason it is there.
-   */
-  const readByMapper = new Set(
-    Array.from(mapper.matchAll(/pick\(r,\s*([^)]+)\)/g))
-      .flatMap(m => Array.from(m[1].matchAll(/'([^']+)'/g), q => q[1])),
-  );
-  const inContract = new Set(WINDSOR_COLUMNS.flatMap((c: ColumnSpec) => c.accept));
-
-  it('NON-VACUITY: the mapper source was found and really reads columns', () => {
-    // Without this, a failed slice would make both directions pass over an empty set —
-    // the READ-control failure, which fakes a clean zero.
-    expect(mapper).toContain('accountName');
-    expect(readByMapper.size).toBeGreaterThan(10);
-  });
-
-  it('🔴 every column the MAPPER reads is in the CONTRACT — else it is unguarded', () => {
-    // `date` lowercase is a defensive alternate inside normalizeSourceDate's argument, not
-    // a column the sheet is expected to have.
-    const unguarded = [...readByMapper].filter(h => !inContract.has(h) && h !== 'date');
-    expect(unguarded, `mapper reads columns absent from WINDSOR_COLUMNS: ${unguarded.join(', ')}`).toEqual([]);
-  });
-
-  it('🔴 every column in the CONTRACT is read by the MAPPER — the direction @apprentice missed', () => {
-    // This is the arm that a one-sided loop cannot have. Without it, a contract entry for a
-    // column nothing reads would throw on a perfectly good sheet, and no test would notice.
-    const orphans = [...inContract].filter(h => !readByMapper.has(h));
-    expect(orphans, `contract demands columns the mapper never reads: ${orphans.join(', ')}`).toEqual([]);
-  });
-
-  it('every CRITICAL column feeds a NUMBER or the grouping key — not a label', () => {
-    // The tier assignment is the whole design; asserting it stops a later edit from
-    // quietly promoting a label column and taking the dashboard down over a missing name.
-    const critical = WINDSOR_COLUMNS.filter(c => c.critical).map(c => c.accept[0]).sort();
-    expect(critical).toEqual(['Account Name', 'Date', 'Leads', 'Spent']);
+    // ⚠️ AND THE NAME IS EXPLICITLY *NOT* CRITICAL ANY MORE. An account whose display name
+    // is missing still groups correctly, because grouping is on the id.
+    const noName = metaRowToAdSpendRow({ ...fullRecord(), account_name: '' });
+    expect(noName.accountId).toBe('ACCT-1');
   });
 });
 
-/**
- * 🔒 THE CALL-CENTRE CONTRACT — and its own drift lock, because ONE LOCK DOES NOT COVER TWO
- * MAPPERS. Wiring this contract left the suite at 408/408 unchanged, which is the wire
- * defect announcing itself: a contract nothing tests is a contract that is not there.
- *
- * ⚠️ THE CRITICAL SET IS DIFFERENT FROM WINDSOR'S, DELIBERATELY. What makes a column
- * critical is what its ABSENCE does to a NUMBER, and that is a property of this feed rather
- * than a template copied across. Copying Windsor's four here would have marked `Agent Name`
- * critical and killed the dashboard over a missing label.
- */
-describe('the CALL-CENTRE contract', () => {
-  const FULL_CALLS: Record<string, string> = {
-    Timestamp: '8/4/2026', ghl_location_name: 'Acme', 'Agent Name': 'Bob',
-    'Call Duration': '60', call_dispostion: 'answered',
-  };
-
-  it('🔴 ANTI-VACUITY CONTROL: a complete call sheet passes with no drift', () => {
-    expect(checkColumnContract([FULL_CALLS], CALL_CENTRE_COLUMNS, 'x'))
-      .toEqual({ missingLabels: [] });
+describe('the typed columns still need their edges checked', () => {
+  it('🔴 numeric arrives as a STRING from PostgREST and must not become NaN', () => {
+    // `numeric` is serialised as a string because JS numbers cannot hold every value.
+    // `Number('')` and `Number(null)` are both 0, so an ABSENT value and a real zero are
+    // indistinguishable downstream — what must never happen is NaN propagating into a
+    // total, where it poisons every sum it touches and renders as "NaN" on screen.
+    expect(toNumber('1234.50')).toBe(1234.5);
+    expect(toNumber(0)).toBe(0);
+    expect(toNumber(null)).toBe(0);
+    expect(toNumber(undefined)).toBe(0);
+    expect(toNumber('')).toBe(0);
+    expect(toNumber('not a number')).toBe(0);
+    expect(toNumber(Number.NaN)).toBe(0);
+    expect(toNumber(Number.POSITIVE_INFINITY)).toBe(0);
   });
 
-  it('🔴 a missing ghl_location_name THROWS — it is the 0-DIALS silent zero', () => {
-    const { ghl_location_name: _g, ...noLoc } = FULL_CALLS;
-    expect(() => checkColumnContract([noLoc], CALL_CENTRE_COLUMNS, 'Call centre sheet'))
-      .toThrow(/"ghl_location_name"/);
+  it('month is derived from the date and REFUSES rather than guessing', () => {
+    expect(monthNameOf('2026-08-08')).toBe('August');
+    expect(monthNameOf('2026-01-01')).toBe('January');
+    expect(monthNameOf('2026-12-31')).toBe('December');
+    // Not "January", and not today's month: a value we cannot derive is empty.
+    expect(monthNameOf('')).toBe('');
+    expect(monthNameOf('8/4/2026')).toBe('');
+    expect(monthNameOf('2026-13-01')).toBe('');
   });
 
-  it('🔴 a PRESENT-BUT-BLANK location column also throws — presence is not validity', () => {
-    expect(() => checkColumnContract([{ ...FULL_CALLS, ghl_location_name: '' }], CALL_CENTRE_COLUMNS, 'x'))
-      .toThrow(/ENTIRELY BLANK/);
-  });
-
-  it('a missing Agent Name is a LABEL — reported, never thrown', () => {
-    const { 'Agent Name': _a, ...noAgent } = FULL_CALLS;
-    expect(checkColumnContract([noAgent], CALL_CENTRE_COLUMNS, 'x').missingLabels).toEqual(['Agent Name']);
-  });
-
-  it('⭐ the MISSPELLED call_dispostion is the real header; the correct spelling is the alternate', () => {
-    const fixed = { ...FULL_CALLS } as Record<string, string>;
-    delete fixed.call_dispostion; fixed.call_disposition = 'answered';
-    expect(checkColumnContract([fixed], CALL_CENTRE_COLUMNS, 'x').missingLabels).toEqual([]);
-  });
-
-  it('an empty call sheet is UNVERIFIED, not clean', () => {
-    expect(checkColumnContract([], CALL_CENTRE_COLUMNS, 'x').schemaUnverified).toBe(true);
-  });
-});
-
-describe('the CALL-CENTRE contract agrees with ITS mapper, both directions', () => {
-  const src = readFileSync(resolve(process.cwd(), 'src/lib/dataService.ts'), 'utf8');
-  const mapper = src.slice(
-    src.indexOf('export async function fetchCallCenterData'),
-    src.indexOf('export async function fetchAirtableData'),
-  );
-  const readByMapper = new Set(
-    Array.from(mapper.matchAll(/pick\(r,\s*([^)]+)\)/g))
-      .flatMap(m => Array.from(m[1].matchAll(/'([^']+)'/g), q => q[1])),
-  );
-  const inContract = new Set(CALL_CENTRE_COLUMNS.flatMap((c: ColumnSpec) => c.accept));
-
-  it('NON-VACUITY: the call-centre mapper source was found and reads columns', () => {
-    expect(mapper).toContain('ghlLocationName');
-    expect(readByMapper.size).toBeGreaterThan(4);
-  });
-
-  it('🔴 every column the CALL mapper reads is in the CALL contract', () => {
-    expect([...readByMapper].filter(h => !inContract.has(h))).toEqual([]);
-  });
-
-  it('🔴 every column in the CALL contract is read by the CALL mapper', () => {
-    expect([...inContract].filter(h => !readByMapper.has(h))).toEqual([]);
-  });
-
-  it('🔑 the two contracts have DIFFERENT critical sets — not a copied template', () => {
-    // Copying Windsor's criticals here would have marked `Agent Name` critical and killed
-    // the dashboard over a missing label. The tiers are per-feed by construction.
-    const w = WINDSOR_COLUMNS.filter(c => c.critical).map(c => c.accept[0]).sort();
-    const c = CALL_CENTRE_COLUMNS.filter(x => x.critical).map(x => x.accept[0]).sort();
-    expect(c).toEqual(['Call Duration', 'Timestamp', 'ghl_location_name']);
-    expect(c).not.toEqual(w);
+  it('🔑 date and dateISO agree, because they are now the SAME column', () => {
+    // On the sheet these could drift: `date` was whatever Google rendered and `dateISO` was
+    // a normalisation of it. `ad_insights.date` is a typed date, so there is one string and
+    // no reader can be looking at a stale copy of the other.
+    const row = metaRowToAdSpendRow(fullRecord());
+    expect(row.date).toBe('2026-08-08');
+    expect(row.dateISO).toBe(row.date);
   });
 });

@@ -5,6 +5,7 @@ import { useData } from '@/hooks/useData';
 import { describeFreshness, freshnessLabel, freshnessWarning } from '@/lib/dataFreshness';
 import AIChatPanel from '@/components/AIChatPanel';
 import SourceStatusBanner from '@/components/common/SourceStatusBanner';
+import { HeaderFreshness } from '@/components/settings/FreshnessIndicator';
 
 /**
  * How long ago the app last pulled data, as a string that actually advances.
@@ -51,34 +52,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="hidden lg:block" />
           <div className="flex items-center gap-3">
             {/**
-              * TWO CLOCKS, SIDE BY SIDE, AND THE SECOND ONE IS NEW.
+              * ⭐ THE PIPELINE CLOCK, NOT THE BROWSER CLOCK.
               *
-              * "Fetched" is a BROWSER fact about the FETCH. @bird measured that it was the
-              * ONLY freshness signal on the entire dashboard, with zero source dates
-              * rendered anywhere — so on the day the sheet's array formula runs out, the
-              * fetch still returns 200, the parse is still clean, and the screen still says
-              * "Fetched less than a minute ago" over data that stopped moving. THE FREEZE
-              * HAD NO SYMPTOM, and every honest-state we shipped stayed silent because
-              * nothing FAILED.
+              * There used to be TWO clocks here and the second one answered a question
+              * nobody asked: "Fetched N ago" was `new Date()` set when the browser's fetch
+              * RESOLVED, so it always read "less than a minute ago" — a browser fact
+              * masquerading as data freshness, on the one element whose entire job is to
+              * report staleness. It failed in the flattering direction by construction.
               *
-              * ⭐ THE COMMENT THAT USED TO BE HERE SAID THE SOURCE-DATE NORMALISATION "IS
-              * NOT BUILT YET". IT IS — `normalizeSourceDate` populates `dateISO` on every
-              * ad spend row, and has for a while. A true note went stale and then read as a
-              * reason not to build the thing it was describing.
+              * @andrew asked for "the last time the ad spend was updated". That is a fact
+              * about the META PULL, and it lives in `ad_pull_runs`. See src/lib/adFreshness.ts
+              * for why the two obvious alternatives (max(fetched_at), cron.job_run_details)
+              * both read FRESH over a dead pipeline.
+              *
+              * The source-date label stays beside it: they answer different questions
+              * ("how new is the newest ROW" vs "when did we last SUCCEED"), and a frozen
+              * feed moves one and not the other. The browser clock survives only as a
+              * tooltip on the source-date label.
               */}
             {freshness.latestDate && (
               <span
                 className={`text-xs ${freshness.state === 'stale' ? 'text-destructive font-medium' : 'text-muted-foreground'}`}
-                title="The newest date present in the ad spend data itself. This is the clock that matters."
+                title={`The newest date present in the ad spend data itself.${timeAgo ? ` This browser last pulled ${timeAgo}.` : ''}`}
               >
                 {freshnessLabel(freshness)}
               </span>
             )}
-            {timeAgo && (
-              <span className="text-xs text-muted-foreground" title="When this browser last pulled data. Not the age of the data in the source.">
-                Fetched {timeAgo}
-              </span>
-            )}
+            {/* The separator belongs to the badge, not to the header: `HeaderFreshness`
+                returns null while its query is in flight, so a middot rendered here was
+                shown alone on every page load. See FreshnessIndicator. */}
+            <HeaderFreshness separator={!!freshness.latestDate} />
             <button
               onClick={() => refresh()}
               disabled={loading}
@@ -89,7 +92,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 fade-in space-y-4">
+        {/* ⚠️ `pb-24` IS LOAD-BEARING, NOT WHITESPACE. `AIChatPanel`'s collapsed pill is
+            `fixed bottom-5 right-5` and about 120x40px, so it sits over the last ~60px of
+            the scroll content at the right edge — which on the accounts table is exactly
+            where the last row's Edit button lives (`justify-self-end`). Scrolled to the
+            bottom of 52 rows, the only pointer affordance on that row was underneath it. */}
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-24 sm:pb-24 fade-in space-y-4">
           {/* Global, because four of the seven pages never read the error state and a
               source failure was invisible on all of them. Silent when everything is valid. */}
           <SourceStatusBanner />

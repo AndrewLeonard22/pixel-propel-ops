@@ -2,7 +2,7 @@ import type { PerformanceLevel } from '@/lib/types';
 
 const styles: Record<PerformanceLevel, string> = {
   good: 'bg-success/10 text-success',
-  fair: 'bg-warning/10 text-warning',
+  fair: 'bg-warning/10 text-warning-strong',
   poor: 'bg-destructive/10 text-destructive',
 };
 

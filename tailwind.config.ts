@@ -12,11 +12,19 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Geist", "system-ui", "sans-serif"],
-        mono: ["Geist Mono", "monospace"],
+        // "Geist Variable" is the family name @fontsource-variable/geist registers; it is
+        // imported in src/main.tsx. The plain "Geist" entry keeps a locally installed copy
+        // working, and the tail is a real system stack rather than the bare `sans-serif`
+        // that used to be the only thing this app ever actually rendered.
+        sans: ["Geist Variable", "Geist", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+        mono: ["Geist Mono Variable", "Geist Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",
+        // Hairline rule BETWEEN rows. Deliberately lighter than `border` — see index.css.
+        divider: "hsl(var(--divider))",
+        "surface-raised": "hsl(var(--surface-raised))",
+        "row-hover": "hsl(var(--row-hover))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
@@ -40,6 +48,9 @@ export default {
         warning: {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
+          // The INK version. `bg-warning` / `bg-warning/10` stay on DEFAULT; anything that
+          // is read as text uses `text-warning-strong`. See index.css.
+          strong: "hsl(var(--warning-strong))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",

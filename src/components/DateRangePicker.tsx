@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Calendar, ChevronDown, X } from 'lucide-react';
+import { Calendar, Check, ChevronDown, X } from 'lucide-react';
 import {
   startOfDay, endOfDay,
   startOfWeek, endOfWeek,
@@ -71,6 +71,22 @@ interface Props {
   includeAllTime?: boolean;
 }
 
+/** One menu row, shaped exactly like `ui/combobox`'s `CommandItem`. */
+function MenuRow({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? 'true' : undefined}
+      className={`flex h-8 w-full cursor-pointer items-center rounded-md px-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus-visible:bg-accent focus-visible:text-accent-foreground ${
+        active ? 'font-medium text-foreground' : 'text-foreground'
+      }`}
+    >
+      <span className="flex-1 truncate text-left">{label}</span>
+      {active && <Check className="ml-2 h-3.5 w-3.5 shrink-0" />}
+    </button>
+  );
+}
+
 export default function DateRangePicker({ value, onChange, includeAllTime = true }: Props) {
   const [open, setOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState('');
@@ -114,93 +130,98 @@ export default function DateRangePicker({ value, onChange, includeAllTime = true
     setOpen(false);
   };
 
+  /**
+   * ⛔ THE CLEAR CONTROL IS A SIBLING, NOT A CHILD, and that is a correctness fix rather
+   * than a layout one. It was a `<button>` nested INSIDE the trigger `<button>`, which no
+   * HTML parser permits: the browser closes the outer button at the inner one's start tag,
+   * so the DOM the user actually gets is not the DOM this file describes — the chevron ends
+   * up outside the trigger, and hit-testing, focus order and `:hover` all follow the parsed
+   * tree, not the source. It only ever "worked" because `stopPropagation` masked it.
+   *
+   * ⚠️ THE GEOMETRY IS `ui/combobox`'s, DELIBERATELY. Measured in one Dashboard toolbar row:
+   * this control was 32px tall / 8px radius / `shadow-sm`, sitting beside three comboboxes
+   * at 36px / 6px / no shadow — four sibling controls, three heights, two radii. Same
+   * height, same radius, same border tokens, same focus treatment, no shadow. @andrew:
+   * "the dropdowns on here look horrendous, look what modern software does", and modern
+   * software's answer is that a toolbar's controls are one control repeated.
+   */
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative flex items-center gap-1">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 text-sm bg-card border border-border rounded-lg hover:bg-accent/30 transition-colors font-medium shadow-sm"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Date range: ${value.label}`}
+        className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-sm font-medium transition-colors hover:border-border focus:outline-none focus-visible:border-ring data-[state=open]:border-ring"
+        data-state={open ? 'open' : 'closed'}
       >
         <Calendar size={14} className="text-muted-foreground flex-shrink-0" />
         <span className={`truncate max-w-[160px] ${isAllTime ? 'text-muted-foreground' : 'text-foreground'}`}>
           {value.label}
         </span>
-        {!isAllTime && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (includeAllTime) selectAllTime();
-            }}
-            className="text-muted-foreground hover:text-foreground ml-0.5"
-          >
-            <X size={12} />
-          </button>
-        )}
         <ChevronDown
           size={13}
           className={`text-muted-foreground transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`}
         />
       </button>
+      {!isAllTime && includeAllTime && (
+        <button
+          onClick={selectAllTime}
+          // 28px, over the 24px WCAG 2.5.8 floor. It was a bare 12px glyph.
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-row-hover hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          aria-label="Clear date range"
+        >
+          <X size={13} />
+        </button>
+      )}
 
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 z-50 bg-card border border-border rounded-xl shadow-lg p-3 w-60 overflow-y-auto max-h-[80vh]">
+        <div className="absolute right-0 top-full mt-1 z-50 w-60 max-h-[80vh] overflow-y-auto rounded-lg border border-border/70 bg-popover p-1 shadow-lg">
+          {/* Rows are `ui/combobox`'s menu rows: 32px, 6px radius, label flush left, a
+              check on the right marking the current value. The old rows carried the
+              selection in a `bg-primary/10` FILL, which is the same paint the app uses for
+              a pressed toolbar chip — one colour meaning two things. */}
           {includeAllTime && (
             <>
-              <button
-                onClick={selectAllTime}
-                className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                  isAllTime
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-foreground hover:bg-accent/30'
-                }`}
-              >
-                All Time
-              </button>
-              <div className="my-2 border-t border-border" />
+              <MenuRow label="All Time" active={isAllTime} onClick={selectAllTime} />
+              <div className="my-1 -mx-1 border-t border-divider" />
             </>
           )}
 
           <div className="space-y-0.5">
-            {presets.map((p) => {
-              const active = value.label === p.label;
-              return (
-                <button
-                  key={p.key}
-                  onClick={() => selectPreset(p)}
-                  className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                    active
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'text-foreground hover:bg-accent/30'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
+            {presets.map((p) => (
+              <MenuRow key={p.key} label={p.label} active={value.label === p.label} onClick={() => selectPreset(p)} />
+            ))}
           </div>
 
-          <div className="my-2 border-t border-border" />
+          <div className="my-1 -mx-1 border-t border-divider" />
 
-          <div className="px-1">
-            <p className="text-xs font-medium text-muted-foreground mb-2">Custom Range</p>
+          <div className="p-1">
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Custom range</p>
             <div className="space-y-1.5">
+              <label htmlFor="date-range-from" className="sr-only">Custom range start date</label>
               <input
+                id="date-range-from"
                 type="date"
                 value={customFrom}
                 onChange={(e) => setCustomFrom(e.target.value)}
-                placeholder="From"
-                className="w-full px-2.5 py-1.5 text-xs border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs transition-colors hover:border-border focus:outline-none focus-visible:border-ring"
               />
+              <label htmlFor="date-range-to" className="sr-only">Custom range end date</label>
               <input
+                id="date-range-to"
                 type="date"
                 value={customTo}
                 onChange={(e) => setCustomTo(e.target.value)}
-                placeholder="To"
-                className="w-full px-2.5 py-1.5 text-xs border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs transition-colors hover:border-border focus:outline-none focus-visible:border-ring"
               />
               <button
                 onClick={applyCustom}
                 disabled={!customFrom && !customTo}
-                className="w-full px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
+                // `disabled:bg-muted` and not `disabled:opacity-40`: #1a6eff at 40% under
+                // white text measures ~1.7:1. A disabled control should read as a different
+                // control, not as an unreadable one. Same rule as the panel's Save button.
+                className="h-8 w-full rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-[filter,colors] hover:brightness-95 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 Apply
               </button>

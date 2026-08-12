@@ -134,7 +134,6 @@ describe('the downstream consequence — an id must not buy an ATTRIBUTION', () 
       [makeAdSpendRow({ accountName: 'Acme', spent: 500, leads: 20 })],
       records,
       makeSettings(),
-      [],
     );
 
     expect(unmatchedAppointments).toHaveLength(1);
@@ -151,7 +150,6 @@ describe('the downstream consequence — an id must not buy an ATTRIBUTION', () 
       [makeAdSpendRow({ accountName: 'Acme', spent: 500, leads: 20 })],
       records,
       makeSettings(),
-      [],
     );
 
     expect(unmatchedAppointments).toHaveLength(0);
@@ -208,7 +206,7 @@ describe('an unresolved appointment SURVIVES — it is counted, listed and dated
     // The conservation check. Whatever the attribution decides, no appointment may vanish.
     const { records } = mapAirtableRecords(raw, {});
     const { accounts, unmatchedAppointments } = buildAccountSummaries(
-      [makeAdSpendRow({ accountName: 'Acme', spent: 500, leads: 20 })], records, makeSettings(), [],
+      [makeAdSpendRow({ accountName: 'Acme', spent: 500, leads: 20 })], records, makeSettings(),
     );
     const attributed = accounts.reduce((n, a) => n + a.appointments, 0);
 
@@ -222,7 +220,7 @@ describe('an unresolved appointment SURVIVES — it is counted, listed and dated
     // fake account, which is worse than the record id it replaced.
     const { records } = mapAirtableRecords(raw, {});
     const { accounts } = buildAccountSummaries(
-      [makeAdSpendRow({ accountName: UNRESOLVED_CLIENT, spent: 1, leads: 1 })], records, makeSettings(), [],
+      [makeAdSpendRow({ accountName: UNRESOLVED_CLIENT, spent: 1, leads: 1 })], records, makeSettings(),
     );
     const pseudo = accounts.find(a => a.accountName === UNRESOLVED_CLIENT);
     expect(pseudo?.appointments ?? 0).toBe(0);
@@ -234,7 +232,7 @@ describe('an unresolved appointment SURVIVES — it is counted, listed and dated
     );
     const { accounts, unmatchedAppointments } = buildAccountSummaries(
       [makeAdSpendRow({ accountName: 'Acme', campaignId: '111', spent: 500, leads: 20 })],
-      withCampaign.records, makeSettings(), [],
+      withCampaign.records, makeSettings(),
     );
     expect(accounts[0].appointments).toBe(1);
     expect(unmatchedAppointments).toHaveLength(0);

@@ -10,10 +10,13 @@ import type { AppSettings } from "./types";
 
 /**
  * POPULATION UNDER TEST
- *   Every reachable combination of the four settings fields that decide whether a source
- *   can be fetched: googleSheetUrl, airtableBaseId, callCenterSheetUrl.
- *   Enumerated from DEFAULT_SETTINGS rather than hand-listed, so a field added to the
- *   contract later shows up here as an unhandled case rather than silently passing.
+ *   Every reachable combination of the inputs that decide whether a source can be fetched:
+ *   the Supabase connection (ad spend) and airtableBaseId (appointments).
+ *
+ * ⚠️ AMENDED 2026-08-11: `googleSheetUrl` was the ad-spend operand until the Supabase
+ *   cutover. Ad spend now reads `ad_insights` with the app's own Supabase connection and
+ *   needs NO user-supplied setting, so its configured axis moved out of AppSettings — see
+ *   isSourceConfigured in config.ts for why it is still falsifiable rather than a constant.
  *
  * WHY THESE SHAPES
  *   The empty-string cases are not hypothetical. A settings row wiped in place stores ''
@@ -25,19 +28,12 @@ const settings = (over: Partial<AppSettings> = {}): AppSettings => ({
   ...over,
 });
 
-const SHEET = "https://docs.google.com/spreadsheets/d/abc123/edit";
-const CALLS = "https://docs.google.com/spreadsheets/d/def456/edit";
 const BASE = "appXXXXXXXX";
 
 describe("configuredSources — sources are judged independently", () => {
-  it("reports Windsor configured from the sheet URL alone, with no Airtable credential", () => {
-    const s = configuredSources(settings({ googleSheetUrl: SHEET }));
-    expect(s).toEqual(["googleSheet"]);
-  });
-
-  it("reports the call centre configured from its URL alone", () => {
-    const s = configuredSources(settings({ callCenterSheetUrl: CALLS }));
-    expect(s).toEqual(["callCenter"]);
+  it("reports ad spend configured with no Airtable credential at all", () => {
+    const s = configuredSources(settings({ airtableBaseId: "" }));
+    expect(s).toEqual(["adSpend"]);
   });
 
   it("keys Airtable on the base id ALONE — the token is server-side now (order 2)", () => {
@@ -47,26 +43,25 @@ describe("configuredSources — sources are judged independently", () => {
   });
 
   it("treats present-but-EMPTY as not configured — the wiped-row shape", () => {
-    const wiped = settings({
-      googleSheetUrl: "",
-      callCenterSheetUrl: "",
-      airtableBaseId: "",
-    });
-    expect(configuredSources(wiped)).toEqual([]);
-    expect(anySourceConfigured(wiped)).toBe(false);
+    /**
+     * ⚠️ THE WIPED ROW NO LONGER SILENCES EVERYTHING, and that is an improvement rather
+     * than a weakened assertion. Every connection string in the row can be blanked and ad
+     * spend still loads, because its credentials were never in the row — they are in the
+     * Edge Function. The 2026-08-05 wipe took the whole dashboard dark; the same wipe today
+     * costs appointments only.
+     */
+    const wiped = settings({ airtableBaseId: "" });
+    expect(isSourceConfigured(wiped, "airtable")).toBe(false);
+    expect(configuredSources(wiped)).toEqual(["adSpend"]);
+    expect(anySourceConfigured(wiped)).toBe(true);
   });
 
-  it("THE REGRESSION THIS EXISTS FOR: losing the Airtable token must NOT hide Windsor", () => {
-    // The exact state the security fix produces: token relocated server-side, sheet intact.
-    // Post-relocation shape: sheets configured, Airtable base present, credential
-    // server-side. The sheets must render regardless of Airtable's fate.
-    const tokenRelocated = settings({
-      googleSheetUrl: SHEET,
-      callCenterSheetUrl: CALLS,
-      airtableBaseId: "",
-    });
+  it("THE REGRESSION THIS EXISTS FOR: losing the Airtable token must NOT hide ad spend", () => {
+    // The exact state the security fix produces: token relocated server-side.
+    // Ad spend must render regardless of Airtable's fate.
+    const tokenRelocated = settings({ airtableBaseId: "" });
 
-    expect(configuredSources(tokenRelocated)).toEqual(["googleSheet", "callCenter"]);
+    expect(configuredSources(tokenRelocated)).toEqual(["adSpend"]);
     expect(isSourceConfigured(tokenRelocated, "airtable")).toBe(false);
     expect(anySourceConfigured(tokenRelocated)).toBe(true);
 
@@ -77,34 +72,34 @@ describe("configuredSources — sources are judged independently", () => {
 });
 
 describe("anySourceConfigured", () => {
-  it("is false only when NO source can be fetched", () => {
-    expect(anySourceConfigured(settings())).toBe(false);
-    expect(anySourceConfigured(settings({ googleSheetUrl: SHEET }))).toBe(true);
-    expect(anySourceConfigured(settings({ callCenterSheetUrl: CALLS }))).toBe(true);
-    expect(
-      anySourceConfigured(settings({ airtableBaseId: BASE })),
-    ).toBe(true);
+  it("is true whenever ANY source can be fetched", () => {
+    // ⚠️ DEFAULT_SETTINGS carries no airtableBaseId, yet ad spend is fetchable — so unlike
+    // before the cutover there is no all-empty settings shape that reaches false here.
+    expect(anySourceConfigured(settings())).toBe(true);
+    expect(anySourceConfigured(settings({ airtableBaseId: BASE }))).toBe(true);
   });
 });
 
 describe("isConfigured — legacy gate, behaviour deliberately unchanged", () => {
-  it("still requires all three, because four routed pages branch on it", () => {
-    expect(isConfigured(settings({ googleSheetUrl: SHEET }))).toBe(false);
-    expect(
-      isConfigured(settings({ googleSheetUrl: SHEET, airtableBaseId: BASE })),
-    ).toBe(true);
+  it("still requires BOTH, because four routed pages branch on it", () => {
+    expect(isConfigured(settings({ airtableBaseId: "" }))).toBe(false);
+    expect(isConfigured(settings({ airtableBaseId: BASE }))).toBe(true);
   });
 });
 
 describe("contract completeness", () => {
   it("every settings field this module gates on is present in DEFAULT_SETTINGS", () => {
-    // If someone adds a fourth source, this fails until configuredSources knows about it.
-    for (const field of [
-      "googleSheetUrl",
-      "callCenterSheetUrl",
-      "airtableBaseId",
-    ] as const) {
+    // If someone adds a third source, this fails until configuredSources knows about it.
+    for (const field of ["airtableBaseId"] as const) {
       expect(DEFAULT_SETTINGS).toHaveProperty(field);
+    }
+    /**
+     * ⛔ AND THE RETIRED KEYS MUST BE GONE FROM THE DEFAULTS, not merely unused. A key
+     * dropped from ALLOWED_CONFIG_KEYS but left in DEFAULT_SETTINGS is re-sent on the next
+     * save and quietly re-admitted — the anti-vacuity half of the allowlist lock.
+     */
+    for (const retired of ["googleSheetUrl", "googleSheetTab", "adsRawTabName"] as const) {
+      expect(DEFAULT_SETTINGS).not.toHaveProperty(retired);
     }
   });
 });

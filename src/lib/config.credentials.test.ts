@@ -21,15 +21,18 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { sanitizeSettings, ALLOWED_CONFIG_KEYS } from './config';
+import { sanitizeSettings, ALLOWED_CONFIG_KEYS, DELETED_FEATURE_KEYS } from './config';
 import { proveDetects, population } from '@/test/sabotage';
 
 type Bag = Record<string, unknown>;
 
 /** Settings-shaped, carrying both known credentials AND one nobody has registered. */
 const withCredentials = (): Bag => ({
-  googleSheetUrl: 'https://docs.google.com/spreadsheets/d/X/edit',
+  airtableTableName: 'Appointments',
   airtableBaseId: 'appTEST123',
+  // ⛔ A RETIRED key, carried deliberately: a browser holding a stale localStorage copy
+  // still sends it, and the allowlist must strip it exactly as it strips a credential.
+  googleSheetUrl: 'https://docs.google.com/spreadsheets/d/X/edit',
   excludedCampaigns: ['c1', 'c2'],
   pausedThresholdDays: 1,
   airtableToken: 'pat_PLACEHOLDER_NOT_A_REAL_TOKEN',
@@ -89,6 +92,14 @@ describe('sanitizeSettings — only DECLARED config can be persisted', () => {
         for (const key of ['anthropicApiKey', 'metaAccessToken']) {
           expect(key in cleaned, `undeclared key ${key} must not survive`).toBe(false);
         }
+        /**
+         * ⭐ AND A RETIRED FEATURE KEY IS REFUSED BY THE SAME MECHANISM, with no extra
+         * code — because the guard is an ALLOWLIST. `googleSheetUrl` was declared config
+         * until 2026-08-11; a browser with a stale localStorage copy still sends it, and
+         * it must not be written back into the row it was retired from. A blocklist design
+         * would have needed a new entry here and would not have got one.
+         */
+        expect('googleSheetUrl' in cleaned, 'a retired key must not be re-persisted').toBe(false);
         expect(
           cleaned.airtableToken,
           'airtableToken is a declared exception and must survive until airtable-proxy ships',
@@ -101,7 +112,7 @@ describe('sanitizeSettings — only DECLARED config can be persisted', () => {
         }
 
         // ③ declared configuration is UNTOUCHED — the guard must not be a wipe.
-        expect(cleaned.googleSheetUrl).toBe('https://docs.google.com/spreadsheets/d/X/edit');
+        expect(cleaned.airtableTableName).toBe('Appointments');
         expect(cleaned.airtableBaseId).toBe('appTEST123');
         expect(cleaned.excludedCampaigns).toEqual(['c1', 'c2']);
         expect(cleaned.pausedThresholdDays).toBe(1);
@@ -178,11 +189,56 @@ describe('the app_settings lockdown migration', () => {
     ].map((m) => m[1]);
     expect(sqlKeys.length, 'the SQL allowlist must be parseable — an empty parse would make this vacuous').toBeGreaterThan(5);
     for (const key of sqlKeys) {
+      if ((DELETED_FEATURE_KEYS as readonly string[]).includes(key)) continue;
       expect(
         ALLOWED_CONFIG_KEYS as readonly string[],
         `CLIENT allowlist is missing ${key} — sanitizeSettings will STRIP it on every save ` +
           `and the setting will silently never persist`,
       ).toContain(key);
+    }
+  });
+
+  /**
+   * ⛔ KEYS WHOSE FEATURE WAS DELETED, 2026-08-11 — declared rather than dropped from the
+   * guard, so the drift lock still covers every other key.
+   *
+   * The call-centre feature was removed entirely: its sheet had never been connected in
+   * production (`callCenterSheetUrl` was `''`), so every dial figure the app rendered was a
+   * confident zero standing in for data that never existed.
+   *
+   * `googleSheetUrl` / `googleSheetTab` / `adsRawTabName` joined the list on 2026-08-11 when
+   * ad spend moved to `ad_insights`. The sheet had been silently short $166,895 of spend —
+   * 27.6%, including the whole of July 2026.
+   *
+   * ⭐ THE LIST NOW LIVES IN config.ts AND IS IMPORTED HERE, rather than being restated in
+   * this file. A retirement declared only in a test is a retirement the production code
+   * cannot be checked against — and this arm's entire job is to check them against each
+   * other.
+   *
+   * ⭐ NO MIGRATION IS REQUIRED, AND THAT IS THE WHOLE REASON THIS EXEMPTION IS SAFE:
+   * `allowed_config_keys` is a PERMIT list, not a REQUIRE list. Sending fewer keys is always
+   * legal, so a key the SQL still permits and the client no longer sends is inert.
+   *
+   * ⚠️ THE HALF THAT WOULD HAVE BROKEN PRODUCTION, and it is the reason the removal had to
+   * be atomic: `settingsWriteGuard` computes blanked fields from `Object.keys(stored)` —
+   * EVERY key, not just PROTECTED_FIELDS. The live row holds `callCenterSheetTab: "RAW DATA"`,
+   * populated. Had the field been dropped from `AppSettings` while staying in
+   * `ALLOWED_CONFIG_KEYS`, `sanitizeSettings` would have kept loading it into `settings`
+   * while `form` (seeded from DEFAULT_SETTINGS on a cold browser) lacked it, the guard would
+   * have read that as a blanking, and EVERY settings autosave would have been refused.
+   * ⇒ `ALLOWED_CONFIG_KEYS` and `AppSettings`/`DEFAULT_SETTINGS` must change together.
+   */
+  it('the retired keys are gone from the CLIENT allowlist, atomically with their type', async () => {
+    // ⚠️ NON-EMPTY, or every loop below passes over nothing.
+    expect(DELETED_FEATURE_KEYS.length).toBeGreaterThan(0);
+    for (const key of DELETED_FEATURE_KEYS) {
+      expect(ALLOWED_CONFIG_KEYS as readonly string[], `${key} must no longer be sent`).not.toContain(key);
+    }
+    // ANTI-VACUITY: the exemption above must not be able to hide a key the client still
+    // models. If AppSettings ever regains one of these, the pair has drifted apart again.
+    const defaults = (await import('./config')).DEFAULT_SETTINGS as unknown as Record<string, unknown>;
+    for (const key of DELETED_FEATURE_KEYS) {
+      expect(defaults, `${key} is still in DEFAULT_SETTINGS`).not.toHaveProperty(key);
     }
   });
 
@@ -275,6 +331,109 @@ describe('the app_settings lockdown migration', () => {
     // ⇒ so an undeclared key IS still rejected: the fix did not open the door,
     //   it only stopped the door falling on the two fields we are retiring.
     expect(sql).toContain('rejects undeclared key');
+  });
+
+  /**
+   * ⑪ A RETIRED KEY MUST LEAVE THE **PROTECTED** LISTS TOO, AND THAT HALF WAS UNGUARDED.
+   *
+   * 🔴 THE LANDMINE THIS CLOSES. `protected_keys` named `googleSheetUrl` and
+   * `callCenterSheetUrl` — both retired with their features, both now STRIPPED from every
+   * write by `sanitizeSettings`, and `googleSheetUrl` still sitting non-empty in the live
+   * row (measured 2026-08-12). Guard (c) refuses exactly "old non-empty, new blank", so
+   * applying this migration would have refused EVERY SETTINGS AUTOSAVE IN PRODUCTION — the
+   * same outage this file's own commentary was written about, re-armed by a guard that was
+   * correct when written and never amended when the feature it protected was deleted.
+   *
+   * ⭐ THE ASYMMETRY THAT MADE IT INVISIBLE, and it is the whole reason this arm exists
+   * beside the allowlist arms above. `allowed_config_keys` is a PERMIT list: a retired key
+   * left in it is INERT, which is why leaving one there is explicitly exempted a few tests
+   * up. `protected_keys` is a REQUIRE list: a retired key left in it BANS THE WRITE. Two
+   * arrays, one file, opposite consequences for the identical mistake — and only one of them
+   * was locked. The exemption granted to the harmless list had quietly been read as covering
+   * the dangerous one.
+   *
+   * ⛔ NOT A RESTATEMENT OF `DELETED_FEATURE_KEYS`. It is imported from config.ts, so a
+   * retirement declared in the production code is what drives this, rather than a second
+   * list in a test that can agree with nothing.
+   */
+  const arrayIn = (name: string): string[] => {
+    const block = sql.split(`${name} text[] := ARRAY[`)[1];
+    expect(block, `migration must declare ${name}`).toBeTruthy();
+    return [...block.split('];')[0].matchAll(/'([A-Za-z]+)'/g)].map(m => m[1]);
+  };
+
+  it('🔴 no RETIRED key may sit in protected_keys or protected_collections — that BANS the write', () => {
+    const protectedKeys = arrayIn('protected_keys');
+    const protectedCollections = arrayIn('protected_collections');
+    // ⚠️ ANTI-VACUITY FIRST. An unparseable array yields [] and every loop below passes over
+    // nothing — the READ failure mode, which fakes a zero and reads as a clean gate.
+    expect(protectedKeys.length, 'protected_keys must parse').toBeGreaterThan(0);
+    expect(protectedCollections.length, 'protected_collections must parse').toBeGreaterThan(0);
+    expect(DELETED_FEATURE_KEYS.length).toBeGreaterThan(0);
+
+    for (const key of DELETED_FEATURE_KEYS) {
+      expect(
+        protectedKeys,
+        `${key} is RETIRED but still in protected_keys — sanitizeSettings strips it from ` +
+          `every write, so guard (c) would refuse every settings autosave`,
+      ).not.toContain(key);
+      expect(
+        protectedCollections,
+        `${key} is RETIRED but still in protected_collections — guard (d) would refuse ` +
+          `every settings autosave`,
+      ).not.toContain(key);
+    }
+  });
+
+  it('🔑 and every PROTECTED key is one the client still sends — protecting a ghost is banning a save', () => {
+    /**
+     * The positive half, and it catches the same defect one move earlier: a key can be
+     * dropped from `AppSettings` without anyone remembering to add it to
+     * `DELETED_FEATURE_KEYS`, and then the arm above passes over an empty exemption while
+     * the guard still refuses the write. This asks the question from the other end — is
+     * every protected field actually still sent? — so both spellings of the mistake are red.
+     */
+    for (const key of arrayIn('protected_keys')) {
+      expect(
+        ALLOWED_CONFIG_KEYS as readonly string[],
+        `protected_keys names "${key}", which sanitizeSettings does not send. Guard (c) ` +
+          `refuses "was populated, now blank", so this refuses every save.`,
+      ).toContain(key);
+    }
+    for (const key of arrayIn('protected_collections')) {
+      expect(
+        ALLOWED_CONFIG_KEYS as readonly string[],
+        `protected_collections names "${key}", which sanitizeSettings does not send.`,
+      ).toContain(key);
+    }
+  });
+
+  it('🔴 THE CLIENT→SQL ALLOWLIST CHECK READS THE ARRAY, not the whole file', () => {
+    /**
+     * ⛔ THE VACUITY THIS CLOSES, and it is live rather than hypothetical. The arm above
+     * asserts `expect(sql).toContain(`'${key}'`)` — the whole FILE. `airtableToken` appears
+     * in this file, in `retired_credential_keys`, i.e. in the list of keys the guard
+     * REJECTS. So a key that the database actively refuses satisfied a test whose stated
+     * job is "the two allowlists agree". A membership test against the wrong set is the
+     * PATTERN failure: it matched, and it meant nothing.
+     *
+     * Read against the parsed array instead, `airtableToken` is correctly NOT there — which
+     * is why it is carried as a declared `OWNER_ORDERED_EXCEPTIONS` entry and not as a
+     * silent pass. That exception is a real, standing blocker on applying this migration,
+     * and it is now the only thing standing between these two lists.
+     */
+    const sqlAllowlist = arrayIn('allowed_config_keys');
+    expect(sqlAllowlist.length).toBeGreaterThan(5);
+    for (const key of ALLOWED_CONFIG_KEYS) {
+      if (OWNER_ORDERED_EXCEPTIONS.includes(key)) continue;
+      expect(
+        sqlAllowlist,
+        `${key} is on the CLIENT allowlist but not the SQL one — applying this migration ` +
+          `would reject every save that carries it`,
+      ).toContain(key);
+    }
+    // CONTROL: the check can fail. A key on neither list must not be found.
+    expect(sqlAllowlist).not.toContain('metaAccessToken');
   });
 
   it('🔴 the guard covers EVERY ROW, not just app_settings', () => {

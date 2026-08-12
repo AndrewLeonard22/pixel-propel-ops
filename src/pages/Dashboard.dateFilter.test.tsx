@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import { makeSettings, makeAdSpendRow, makeAppointmentRow, makeCallRow } from "@/test/factories";
+import { makeSettings, makeAdSpendRow, makeAppointmentRow } from "@/test/factories";
 import type { SourceKey, SourceStatus } from "@/lib/sourceStatus";
 import { buildAccountSummaries } from "@/lib/dataService";
 
@@ -9,19 +9,19 @@ import { buildAccountSummaries } from "@/lib/dataService";
  *
  * `useData` stamps the honest-state flags onto each account summary:
  *
- *   useData.tsx:203  buildAccountSummaries(adSpend, appts, s, calls, {
- *                      spend: hasUsableData(windsor), appts: …, calls: … })
+ *   useData.tsx  buildAccountSummaries(adSpend, appts, s, {
+ *                  spend: hasUsableData(windsor), appts: hasUsableData(airtable) })
  *
  * and its own comment says why — "passed down so the per-account rows cannot disagree with
  * the tiles above them". But THREE pages RECOMPUTE the summaries when a date range is
  * selected, and all three call the SAME function with only FOUR arguments:
  *
- *   Dashboard.tsx:681        buildAccountSummaries(fSpend, fAppts, settings, fCalls)
- *   Targets.tsx:110          buildAccountSummaries(fSpend, fAppts, settings, fCalls)
- *   TeamPerformance.tsx:82   buildAccountSummaries(fSpend, fAppts, settings, fCalls)
+ *   Dashboard.tsx        buildAccountSummaries(fSpend, fAppts, settings)
+ *   Targets.tsx          buildAccountSummaries(fSpend, fAppts, settings)
+ *   TeamPerformance.tsx  buildAccountSummaries(fSpend, fAppts, settings)
  *
- * The 5th parameter is optional and defaults `?? true`, so the recompute asserts that every
- * source is ALIVE. A dead Airtable's em dashes turn back into numbers the moment a user
+ * The `known` parameter is optional and defaults `?? true`, so the recompute asserts that
+ * every source is ALIVE. A dead Airtable's em dashes turn back into numbers the moment a user
  * clicks "This Week".
  *
  * ⭐ THIS IS THE CALL-SITE CLASS, AND NO TEST OF THE PURE FUNCTION CAN SEE IT.
@@ -55,16 +55,14 @@ const us = `${TODAY.getMonth() + 1}/${TODAY.getDate()}/${TODAY.getFullYear()}`;
 
 const SPEND = [makeAdSpendRow({ accountName: "Acme", spent: 500, leads: 20, date: us, dateISO: iso })];
 const APPTS = [makeAppointmentRow({ client: "Acme", appointmentDate: us, dateAdded: us })];
-const CALLS = [makeCallRow({ ghlLocationName: "Acme", timestamp: us })];
 
 /** Mount with Airtable dead — appointments are UNKNOWN, and must stay unknown. */
 function mountAirtableDead() {
-  const known = { spend: true, appts: false, calls: true };
+  const known = { spend: true, appts: false };
   useDataMock.mockReturnValue({
-    accounts: buildAccountSummaries(SPEND, APPTS, SETTINGS, CALLS, known).accounts,
+    accounts: buildAccountSummaries(SPEND, APPTS, SETTINGS, known).accounts,
     adSpend: SPEND,
     appointments: APPTS,
-    callData: CALLS,
     unmatchedAppointments: [],
     settings: SETTINGS,
     loading: false,
@@ -77,11 +75,13 @@ function mountAirtableDead() {
     exclusions: { state: "active", configuredCount: 1, matchedCount: 1, unfilteredSpend: 0, affectedAccounts: [] },
     honestNumbers: { hasWarnings: false, messages: [], exclusion: {}, fabricatedRateCount: 0, allRatesFabricated: false },
     sources: {
-      windsor: status({ label: "Ad spend (Windsor)" }),
+      meta: status({ label: "Ad spend" }),
       airtable: status({ label: "Appointments (Airtable)", state: "failed", error: "Failed to fetch" }),
-      callCenter: status({ label: "Calls (call-centre sheet)" }),
     } as Record<SourceKey, SourceStatus>,
     refresh: async () => {},
+    // The Dashboard pushes its date range into the SQL query through this. A mock without
+    // it throws on mount — the page genuinely depends on it now.
+    setSpendWindow: () => {},
     setSettings: () => {},
   });
   return render(<Dashboard />);
@@ -138,20 +138,19 @@ describe("Dashboard date filter — a recompute must not resurrect a dead source
 
   it("ANTI-VACUITY CONTROL: with every source ALIVE, a date range prints real numbers", () => {
     // Without this the fix is satisfiable by blanking the table whenever a range is picked.
-    const known = { spend: true, appts: true, calls: true };
+    const known = { spend: true, appts: true };
     useDataMock.mockReturnValue({
-      accounts: buildAccountSummaries(SPEND, APPTS, SETTINGS, CALLS, known).accounts,
-      adSpend: SPEND, appointments: APPTS, callData: CALLS, unmatchedAppointments: [],
+      accounts: buildAccountSummaries(SPEND, APPTS, SETTINGS, known).accounts,
+      adSpend: SPEND, appointments: APPTS, unmatchedAppointments: [],
       settings: SETTINGS, loading: false, error: null, lastUpdated: null,
       configured: true, settingsLoaded: true, settingsOrigin: "database" as const, settingsDetail: null,
       exclusions: { state: "active", configuredCount: 1, matchedCount: 1, unfilteredSpend: 0, affectedAccounts: [] },
       honestNumbers: { hasWarnings: false, messages: [], exclusion: {}, fabricatedRateCount: 0, allRatesFabricated: false },
       sources: {
-        windsor: status({ label: "Ad spend (Windsor)" }),
+        meta: status({ label: "Ad spend" }),
         airtable: status({ label: "Appointments (Airtable)" }),
-        callCenter: status({ label: "Calls (call-centre sheet)" }),
-      } as Record<SourceKey, SourceStatus>,
-      refresh: async () => {}, setSettings: () => {},
+        } as Record<SourceKey, SourceStatus>,
+      refresh: async () => {}, setSettings: () => {}, setSpendWindow: () => {},
     });
     render(<Dashboard />);
 

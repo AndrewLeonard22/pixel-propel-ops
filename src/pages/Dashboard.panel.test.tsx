@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { AccountDetailPanel } from "./Dashboard";
 import { buildAccountSummaries } from "@/lib/dataService";
-import { makeAdSpendRow, makeAppointmentRow, makeCallRow, makeSettings } from "@/test/factories";
+import { makeAdSpendRow, makeAppointmentRow, makeSettings } from "@/test/factories";
 
 /**
  * THE FOURTH SURFACE.
@@ -23,7 +23,7 @@ import { makeAdSpendRow, makeAppointmentRow, makeCallRow, makeSettings } from "@
  */
 const SETTINGS = makeSettings();
 
-function buildAccount(known?: Parameters<typeof buildAccountSummaries>[4]) {
+function buildAccount(known?: Parameters<typeof buildAccountSummaries>[3]) {
   // ⚠️ THE FIXTURE MUST MATCH THE REAL FAILURE, OR THE TEST CANNOT SEE THE BUG.
   // A dead source does not deliver rows AND a false flag — it delivers `[]`, and the
   // flag records why. My first version passed a populated appointment list alongside
@@ -32,18 +32,16 @@ function buildAccount(known?: Parameters<typeof buildAccountSummaries>[4]) {
   // defect — and ZERO tests failed. The unrealistic combination made the test blind to
   // the only thing it existed to catch.
   const apptsDead = known?.appts === false;
-  const callsDead = known?.calls === false;
   const { accounts } = buildAccountSummaries(
     [makeAdSpendRow({ accountName: "Acme", spent: 500, leads: 20 })],
     apptsDead ? [] : [makeAppointmentRow({ client: "Acme", showStatus: "Showed", closedRevenue: 900 })],
     SETTINGS,
-    callsDead ? [] : [makeCallRow({ ghlLocationName: "Acme" })],
     known,
   );
   return accounts[0];
 }
 
-function mount(known?: Parameters<typeof buildAccountSummaries>[4]) {
+function mount(known?: Parameters<typeof buildAccountSummaries>[3]) {
   return render(
     <AccountDetailPanel
       account={buildAccount(known)}
@@ -58,7 +56,7 @@ beforeEach(() => localStorage.clear());
 
 describe("AccountDetailPanel — the expanded view must not fabricate what the row refuses", () => {
   it("🔴 APPOINTMENTS UNAVAILABLE: no money figure is fabricated anywhere in the panel", () => {
-    const { container } = mount({ spend: true, appts: false, calls: true });
+    const { container } = mount({ spend: true, appts: false });
     const text = container.textContent ?? "";
 
     // The exact defect @raccoon measured: $0.00 revenue beside a correctly-refusing card.
@@ -69,20 +67,10 @@ describe("AccountDetailPanel — the expanded view must not fabricate what the r
   });
 
   it("SPEND SURVIVES a dead appointments source — only the affected cards blank", () => {
-    const { container } = mount({ spend: true, appts: false, calls: true });
+    const { container } = mount({ spend: true, appts: false });
 
     // Windsor answered. Blanking the whole panel would be the mirror defect.
     expect(container.textContent).toMatch(/\$500\.00/);
-  });
-
-  it("CALL-CENTRE DEAD: the dials figure and the booking rate both refuse", () => {
-    const { container } = mount({ spend: true, appts: true, calls: false });
-    const text = container.textContent ?? "";
-
-    // booking rate = appointments / dials — mixes two sources, so a dead call centre
-    // makes it unknowable, not zero. The old form only checked the denominator.
-    expect(text).not.toMatch(/\b0\.0%\s*booking/);
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
   it("🔴 CONTROL — A FULLY HEALTHY ACCOUNT PRINTS REAL NUMBERS AND NO EM DASH CARDS", () => {
@@ -100,8 +88,7 @@ describe("AccountDetailPanel — the expanded view must not fabricate what the r
       [makeAdSpendRow({ accountName: "Acme", spent: 500, leads: 20 })],
       [makeAppointmentRow({ client: "Acme", closedRevenue: 0 })], // real, and really zero
       SETTINGS,
-      [makeCallRow({ ghlLocationName: "Acme" })],
-      { spend: true, appts: true, calls: true },
+      { spend: true, appts: true },
     );
     const { container } = render(
       <AccountDetailPanel

@@ -19,7 +19,19 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
     className={cn(
-      "fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      /**
+       * ⛔ `bg-black/80` DEFEATED THE REASON THE SHEET WAS CHOSEN. AccountEditPanel argues
+       * a side sheet beats a modal because "the table stays visible" and the naming
+       * decision is COMPARATIVE — you work out what to type by reading the rows around the
+       * one you opened. You cannot read anything through 80% black; that is a modal
+       * wearing a sheet's animation. 20% dims the page enough to say "this is the focused
+       * surface" and leaves the neighbouring rows legible.
+       *
+       * `bg-foreground/20` rather than `bg-black/20`: on the navy dark theme a black scrim
+       * over a near-black page is invisible, so the overlay would stop reading as an
+       * overlay in exactly one of the two themes.
+       */
+      "fixed inset-0 z-50 bg-foreground/20 backdrop-blur-[1px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className,
     )}
     {...props}
@@ -49,18 +61,37 @@ const sheetVariants = cva(
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
-    VariantProps<typeof sheetVariants> {}
+    VariantProps<typeof sheetVariants> {
+  /**
+   * ⛔ THE BUILT-IN CLOSE WAS UNCONDITIONAL, AND THAT SHIPPED A DOUBLED X.
+   * AccountEditPanel draws its own close button inside its own header rail (it has to: the
+   * header is a bordered strip with its own padding, and a floating `absolute right-4
+   * top-4` icon sits in the wrong place on it). The primitive drew a second one on top:
+   * measured spans of 16-32px and 22-38px from the right edge, vertical centres 24px and
+   * 26px. Two overlapping X glyphs on every open.
+   *
+   * A consumer that draws its own close passes `showClose={false}`. Default stays true so
+   * every other Sheet in the app is unchanged.
+   */
+  showClose?: boolean;
+}
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Content>, SheetContentProps>(
-  ({ side = "right", className, children, ...props }, ref) => (
+  ({ side = "right", className, children, showClose = true, ...props }, ref) => (
     <SheetPortal>
       <SheetOverlay />
       <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
         {children}
-        <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity data-[state=open]:bg-secondary hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </SheetPrimitive.Close>
+        {showClose && (
+          // One focus idiom across the app: a 1px ring INSIDE the control's own box, not
+          // `ring-2 ring-offset-2`, which is 4px of blue bloom outside it — the exact thing
+          // ui/combobox.tsx rejects in its own comment, previously still shipping on the
+          // close button inside that same panel.
+          <SheetPrimitive.Close className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground opacity-70 transition-colors hover:opacity-100 hover:text-foreground hover:bg-row-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </SheetPrimitive.Close>
+        )}
       </SheetPrimitive.Content>
     </SheetPortal>
   ),

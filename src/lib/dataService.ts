@@ -1,51 +1,18 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, AdSummary, TeamMember, PerformanceLevel, CallRow } from './types';
-import { convertSheetUrlToCsv, isSourceConfigured } from './config';
+import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CampaignSummary, AdSetSummary, AdSummary, TeamMember, PerformanceLevel } from './types';
+import { isSourceConfigured } from './config';
 import { resolveRecordId, resolveLinkedClientNames } from './airtableLinks';
+import {
+  emptyAccountRegistry, resolveMediaBuyer, resolveProgram, resolveStatus,
+  type AccountRegistry,
+} from './accountRegistry';
 
-// Parse CSV text into rows
-function parseCsv(text: string): Record<string, string>[] {
-  const lines = text.split('\n').filter(l => l.trim());
-  if (lines.length < 2) return [];
-  
-  const headers = parseCSVLine(lines[0]);
-  const rows: Record<string, string>[] = [];
-  
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i]);
-    const row: Record<string, string> = {};
-    headers.forEach((h, idx) => {
-      row[h.trim()] = (values[idx] || '').trim();
-    });
-    rows.push(row);
-  }
-  return rows;
-}
-
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === ',' && !inQuotes) {
-      result.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  result.push(current);
-  return result;
-}
+/**
+ * ⛔ `parseCsv` / `parseCSVLine` DELETED 2026-08-11 with the Google Sheet feed. They were
+ * the last of the CSV path: quote handling, embedded commas, header folding — an entire
+ * class of parsing hazard that exists because a spreadsheet export is untyped text. Nothing
+ * in the app parses CSV any more; `ad_insights_resolved` returns typed JSON over PostgREST.
+ */
 
 function parseNumber(val: string | undefined): number {
   if (!val) return 0;
@@ -110,90 +77,6 @@ function isRealDate(y: number, m: number, d: number): boolean {
 
 // resolveAccountName removed — matching now uses settings.accountAliases directly
 
-/**
- * 🔴 A SHEET THAT ANSWERS WITH THE WRONG TAB IS A SUCCESSFUL FETCH THAT FABRICATES ZEROS.
- *
- * @apprentice measured this from the server side at ~22:00: an INVALID `sheet=` name
- * returns HTTP 200 CARRYING THE DEFAULT TAB'S SCHEMA. @fable measured the same mechanism by
- * content — `sheet=RAW DATA` and `sheet=Ads Data` return BYTE-IDENTICAL bodies. His words,
- * and they are the whole design of this function:
- *
- *   "ASSERT THE HEADER SET, NOT THE ROW COUNT. A fallback tab has the wrong headers and
- *    the right shape — every count-based check passes on it."
- *
- * ⭐ AND THE REASON IT IS BYTE-IDENTICAL IS IN OUR CODE, NOT GOOGLE'S: config.ts:609
- * `convertSheetUrlToCsv(url, tab)` ACCEPTS `tab` AND NEVER READS IT, falling back to
- * `gid=0` — the FIRST tab — whenever the URL carries no gid. The configured tab name has
- * never selected anything. That dead control is filed separately (CallCenter.tsx:698);
- * this function's job is to make its consequence LOUD instead of silent.
- *
- * ⚠️ WHY ONE COLUMN AND NOT THE WHOLE SET. The predicate must be the column whose absence
- * SILENTLY PRODUCES A ZERO, because that is the failure being prevented — not a schema
- * checksum, which would throw on a legitimately renamed spare column and teach everyone to
- * delete this check. For calls that column is `ghl_location_name`: without it every row
- * keys to '' , the dial map skips it, and the app reports 0 DIALS FROM A HEALTHY SOURCE.
- *
- * An EMPTY sheet is exempt on purpose: with no rows there are no fabricated numbers, and a
- * genuinely empty tab is a legitimate state this must not turn into an error.
- */
-/**
- * ② THE COLUMN CONTRACT — item ②, and it is the half `assertSheetSchema` does NOT cover.
- *
- * @fable: "a misconfigured source CANNOT FAIL LOUDLY TODAY. It returns confident, complete,
- * WRONG data — one settings typo away at all times."
- *
- * ⭐ MY EXISTING GUARD COVERS THE *TAB* HALF AND MISSES THE *COLUMN* HALF, AND I SAID SO IN
- * ITS OWN DOCBLOCK WITHOUT NOTICING THE GAP. It asserts ONE column — enough to catch a
- * wrong tab, where ALL columns vanish at once. It is blind to DRIFT: if Windsor renames
- * `Spent` to `Amount Spent`, `Account Name` still resolves, the guard stays silent,
- * parseNumber('') returns 0, and EVERY SPEND TOTAL SILENTLY BECOMES ZERO.
- *
- * ⚠️ TWO TIERS, BECAUSE THEY FAIL DIFFERENTLY AND MUST BE TREATED DIFFERENTLY:
- *   CRITICAL  absence produces a WRONG NUMBER that renders confidently ⇒ THROW.
- *             A dead source is honest; a source reporting £0 spend is not.
- *   LABEL     absence loses a NAME, not a number ⇒ REPORT, never throw. Throwing here
- *             would take the dashboard down over a missing `Ad Name`, and a check that
- *             costs more than the defect is a check people delete.
- *
- * ⭐ THE ALTERNATES ARE NOT STYLE — THEY ARE READ OFF THE MAPPER. `campaignId` accepts
- * 'Campaign Id' OR 'Campaign ID'; a contract that demanded one spelling would throw on a
- * sheet that works today. Retyping the list from memory is how a guard starts disagreeing
- * with the code it guards, so every entry below mirrors a line in the map above it.
- */
-/**
- * ③ CASE-FOLDED LOOKUP, AND IT HAD TO BE FIXED ON **BOTH** SIDES OR NOT AT ALL.
- *
- * @raccoon: "a capitalisation change from Windsor kills the dashboard on a sheet whose data
- * is intact." I measured it before agreeing, and the sheet is NOT intact:
- *
- *     r['Spent'] on { spent: '500' }  ->  undefined  ->  parseNumber -> 0
- *
- * ⇒ every spend total would be ZERO. The guard throwing was CORRECT — it converted a silent
- *   £0 into a named failure, which is its whole job.
- *
- * ⭐ SO THE FIX HE PROPOSED, APPLIED TO THE GUARD ALONE, WOULD HAVE BEEN STRICTLY WORSE: the
- * guard would pass, the mapper would still read `undefined`, and every total would be zero
- * SILENTLY. A guard and its mapper must share one matching rule; relaxing only the guard
- * converts a loud failure into a quiet wrong number.
- *
- * ⇒ Both sides fold case now, so a capitalisation change genuinely WORKS rather than merely
- *   passing the check — which is the outcome his framing assumed and the code did not have.
- */
-function foldKeys(row: Record<string, string>): Map<string, string> {
-  const m = new Map<string, string>();
-  for (const k of Object.keys(row)) m.set(k.trim().toLowerCase(), row[k]);
-  return m;
-}
-
-/** Case-insensitive column read. The mapper's counterpart to the guard's matcher. */
-function pick(folded: Map<string, string>, ...names: string[]): string {
-  for (const n of names) {
-    const v = folded.get(n.trim().toLowerCase());
-    if (v !== undefined) return v;
-  }
-  return '';
-}
-
 export interface ColumnSpec {
   /** Any one of these headers satisfies the column. Mirrors the mapper's `||` chain. */
   accept: string[];
@@ -201,20 +84,6 @@ export interface ColumnSpec {
   critical: boolean;
 }
 
-/**
- * ② THE CALL-CENTRE CONTRACT. Same two tiers, same reasoning, DIFFERENT critical set —
- * because what makes a column critical is what its absence does to a NUMBER, and that is a
- * property of this feed, not a template copied across.
- *
- *   ghl_location_name  absent ⇒ every row keys to '' ⇒ the dial map skips it ⇒ 0 DIALS
- *                      from a source in state 'valid'. This is the exact silent zero
- *                      @apprentice's wrong-tab finding was about.
- *   Call Duration      absent ⇒ parseNumber('') ⇒ 0 ⇒ total talk time reads zero
- *   Timestamp          absent ⇒ parseDateSafe fails ⇒ EVERY call is dropped by any date
- *                      filter, so the calls silently vanish from a filtered view
- *   Agent Name /       absent ⇒ a missing LABEL. Nothing numeric moves.
- *   call_dispostion
- */
 /**
  * ② EXTENDED TO AIRTABLE — @andrew asked what happens if he renames a column header, and
  * until now the answer was NOTHING STOPS IT.
@@ -292,192 +161,20 @@ export function checkAirtableSchema(
   };
 }
 
-export const CALL_CENTRE_COLUMNS: ColumnSpec[] = [
-  { accept: ['ghl_location_name'], critical: true },
-  { accept: ['Call Duration'], critical: true },
-  { accept: ['Timestamp'], critical: true },
-  { accept: ['Agent Name'], critical: false },
-  // The misspelling is the REAL header in @andrew's sheet; the corrected spelling is the
-  // alternate. Ordering matters only for which name the error message prints.
-  { accept: ['call_dispostion', 'call_disposition'], critical: false },
-];
-
-export const WINDSOR_COLUMNS: ColumnSpec[] = [
-  { accept: ['Account Name'], critical: true },              // absent ⇒ ONE fake account
-  { accept: ['Spent', 'Spend'], critical: true },            // absent ⇒ every total £0
-  { accept: ['Leads'], critical: true },                     // absent ⇒ CPL divides by zero
-  { accept: ['Date'], critical: true },                      // absent ⇒ freshness blind
-  { accept: ['Month'], critical: false },
-  { accept: ['Campaign'], critical: false },
-  { accept: ['Campaign Id', 'Campaign ID'], critical: false },
-  { accept: ['Adset Name', 'Ad Set Name'], critical: false },
-  { accept: ['Adset Id', 'Ad Set ID'], critical: false },
-  { accept: ['Ad Name'], critical: false },
-  { accept: ['Ad Id', 'Ad ID'], critical: false },
-];
-
-export interface SchemaDrift {
-  /** LABEL columns that are absent. The feed still works; something is unnamed. */
-  missingLabels: string[];
-  /** True when there were no rows to check. NOT a clean bill of health. */
-  schemaUnverified?: boolean;
-}
-
 /**
- * Check a parsed sheet against a column contract.
- * THROWS when a CRITICAL column is missing; RETURNS the drift for the rest.
+ * ⛔ THE SHEET'S COLUMN CONTRACT (`WINDSOR_COLUMNS`, `checkColumnContract`, `assertSheetSchema`)
+ * WAS DELETED WITH THE SHEET, 2026-08-11 — not abandoned. Its whole subject was hazards a
+ * CSV has and a typed Postgres column does not: a wrong tab answering HTTP 200 with the
+ * default tab's schema, a header renamed from `Spent` to `Amount Spent`, a column that is
+ * present and entirely blank so `parseNumber('')` turns every total into a confident zero.
+ *
+ * ⭐ THE LAW SURVIVED THE MECHANISM. "Every column the contract names is read by the mapper,
+ * and every field the mapper reads is in the contract, proven in BOTH directions" now lives
+ * in src/lib/metaAdSpend.ts as `META_SPEND_COLUMNS` beside `metaRowToAdSpendRow`, and is
+ * tested there. What it catches today is a column dropped from the `select(...)` list and
+ * every value it fed silently becoming zero.
  */
-export function checkColumnContract(
-  rows: Record<string, string>[],
-  columns: ColumnSpec[],
-  label: string,
-): SchemaDrift {
-  /**
-   * ① AN EMPTY SHEET NO LONGER READS AS "SCHEMA FINE" — @raccoon found this on the FIRST
-   * LINE of the function. Zero rows returned a clean verdict, so a wrong tab that happens
-   * to be EMPTY passed the guard built to catch a wrong tab. That is the POPULATION control
-   * my own gates docblock documents, and it fakes a PASS rather than a suspicious zero.
-   * ⚖️ Still not a THROW — a genuinely empty tab is legitimate and must not blank the app —
-   * but the verdict now says UNVERIFIED, because "we could not look" is not "we looked and
-   * it was fine", and the verdict is what a reader trusts.
-   */
-  if (rows.length === 0) return { missingLabels: [], schemaUnverified: true };
 
-  const folded = foldKeys(rows[0]);
-  const satisfied = (c: ColumnSpec) => c.accept.some(h => folded.has(h.trim().toLowerCase()));
-
-  /**
-   * ② PRESENCE IS NOT VALIDITY — my own law, one layer down, and @raccoon caught me with it.
-   * { 'Account Name': 'A', Spent: '', Leads: '', Date: '' } passed: every column PRESENT,
-   * every value EMPTY, parseNumber('') -> 0, and every spend total becomes zero — the exact
-   * outcome this contract exists to prevent. A CRITICAL column must carry a real value in at
-   * least ONE row; a column of nothing is the same as a column that is not there.
-   * (At least one, not all: a legitimately blank cell in one row is normal.)
-   */
-  const hasAnyValue = (c: ColumnSpec) =>
-    rows.some(r => c.accept.some(h => (foldKeys(r).get(h.trim().toLowerCase()) ?? '').trim() !== ''));
-
-  const missingCritical = columns.filter(c => c.critical && (!satisfied(c) || !hasAnyValue(c)));
-  if (missingCritical.length > 0) {
-    const names = missingCritical.map(c => `"${c.accept[0]}"`).join(', ');
-    throw new Error(
-      `${label}: the sheet is missing the column${missingCritical.length > 1 ? 's' : ''} ${names}, ` +
-        `which every total is computed from, or the column is present and ENTIRELY BLANK. ` +
-        `This is either the WRONG TAB or a renamed column — ` +
-        `the tab name in Settings does not select a tab, only the gid= in the sheet URL does. ` +
-        `Columns found: ${Object.keys(rows[0]).slice(0, 10).join(', ')}. ` +
-        `Refusing to report zeros drawn from columns that are not there.`,
-    );
-  }
-
-  return { missingLabels: columns.filter(c => !c.critical && !satisfied(c)).map(c => c.accept[0]) };
-}
-
-export function assertSheetSchema(
-  rows: Record<string, string>[],
-  required: string[],
-  label: string,
-): void {
-  if (rows.length === 0) return;
-  const present = new Set(Object.keys(rows[0]));
-  const missing = required.filter(h => !present.has(h));
-  if (missing.length === 0) return;
-
-  const found = Object.keys(rows[0]).slice(0, 8).join(', ');
-  throw new Error(
-    `${label}: the sheet returned ${rows.length} rows but is missing the column${missing.length > 1 ? 's' : ''} ` +
-      `${missing.map(m => `"${m}"`).join(', ')}. This is almost certainly the WRONG TAB — ` +
-      `the tab name in Settings does not select a tab, only the gid= in the sheet URL does. ` +
-      `Columns found: ${found}. Reporting this rather than counting every row as zero.`,
-  );
-}
-
-export async function fetchGoogleSheetData(settings: AppSettings): Promise<AdSpendRow[]> {
-  const csvUrl = convertSheetUrlToCsv(settings.googleSheetUrl, settings.googleSheetTab);
-  if (!csvUrl) throw new Error('Invalid Google Sheet URL');
-  
-  const response = await fetch(csvUrl);
-  if (!response.ok) throw new Error(`Failed to fetch Google Sheet: ${response.status}`);
-  
-  const text = await response.text();
-  const rows = parseCsv(text);
-  // ② FULL COLUMN CONTRACT, not just one column. A wrong TAB loses every column at once
-  // and the old single-column check caught that; COLUMN DRIFT loses one, keeps the rest,
-  // and was completely invisible.
-  const drift = checkColumnContract(rows, WINDSOR_COLUMNS, 'Ad spend sheet');
-  if (drift.missingLabels.length > 0) {
-    // Reported, not thrown: these lose a NAME, not a number. Taking the dashboard down over
-    // a missing `Ad Name` is a check that costs more than the defect it prevents.
-    console.warn(`Ad spend sheet: missing label columns ${drift.missingLabels.join(', ')}`);
-  }
-
-  return rows.map(row => {
-    // Case-folded ONCE per row, and the guard above matches by exactly the same rule.
-    const r = foldKeys(row);
-    return {
-      month: pick(r, 'Month'),
-      date: pick(r, 'Date'),
-      dateISO: normalizeSourceDate(pick(r, 'Date')),
-      campaign: pick(r, 'Campaign'),
-      campaignId: pick(r, 'Campaign Id', 'Campaign ID'),
-      adsetName: pick(r, 'Adset Name', 'Ad Set Name'),
-      adsetId: pick(r, 'Adset Id', 'Ad Set ID'),
-      adName: pick(r, 'Ad Name'),
-      adId: pick(r, 'Ad Id', 'Ad ID'),
-      spent: parseNumber(pick(r, 'Spent', 'Spend')),
-      leads: parseNumber(pick(r, 'Leads')),
-      accountName: pick(r, 'Account Name'),
-    };
-  });
-}
-
-/**
- * A DEAD CALL-CENTRE SOURCE MUST NOT RENDER AS "no calls were made".
- *
- * This used to swallow FOUR distinct failures into the same empty array — never
- * configured, unparseable URL, HTTP error, and any network throw — so a 403 was
- * indistinguishable from a quiet day. @bird drove it on production: total dials went
- * 15,302 -> 0 with no error, no banner, and "Updated" still advancing.
- *
- * It now THROWS, which is safe because fetchAllSources() settles each source
- * independently and turns a throw into { status: 'failed' } for that source alone.
- * Before that isolation existed, throwing here would have taken the other two down.
- *
- * `not configured` stays a RETURN rather than a throw: it is a legitimate state, not a
- * failure, and fetchAllSources reports it as such before this function is ever called.
- */
-export async function fetchCallCenterData(settings: AppSettings): Promise<CallRow[]> {
-  if (!settings.callCenterSheetUrl) return [];
-
-  const csvUrl = convertSheetUrlToCsv(settings.callCenterSheetUrl, settings.callCenterSheetTab);
-  if (!csvUrl) throw new Error('Call centre sheet URL is not a valid Google Sheets link');
-
-  const response = await fetch(csvUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch call centre sheet: ${response.status}`);
-  }
-
-  const text = await response.text();
-  const rows = parseCsv(text);
-  // ② FULL CONTRACT, replacing the one-column check. That check caught a wrong TAB and was
-  // blind to DRIFT, to a PRESENT-BUT-BLANK column, and to case — all three of @raccoon's
-  // holes, which were in this fetcher too and not only in the spend one.
-  const callDrift = checkColumnContract(rows, CALL_CENTRE_COLUMNS, 'Call centre sheet');
-  if (callDrift.missingLabels.length > 0) {
-    console.warn(`Call centre sheet: missing label columns ${callDrift.missingLabels.join(', ')}`);
-  }
-
-  return rows.map(row => {
-    const r = foldKeys(row);
-    return {
-      timestamp: pick(r, 'Timestamp'),
-      ghlLocationName: pick(r, 'ghl_location_name'),
-      agentName: pick(r, 'Agent Name'),
-      callDuration: parseNumber(pick(r, 'Call Duration')),
-      callDisposition: pick(r, 'call_dispostion', 'call_disposition'),
-    };
-  });
-}
 
 /**
  * Turn a critical schema miss into a FAILED SOURCE, named. Called on both Airtable paths.
@@ -1077,57 +774,6 @@ export function dedupeAdSpendRows(rows: AdSpendRow[]): DedupeResult {
   return { rows: out, removed };
 }
 
-/**
- * ONE OUTCOME PER SOURCE — the seam that stops a single failure taking the others down.
- *
- * `refresh()` currently awaits all three fetches inside a single Promise.all, which REJECTS
- * on the first rejection and therefore DISCARDS payloads that already arrived. Measured on
- * production: with a real sheet URL restored and Airtable unavailable, Windsor is fetched
- * successfully — one request — and the screen still renders $0.00 and an Airtable error.
- * A partial restore reads as total failure.
- *
- * This returns a SETTLED result per source, and distinguishes three states the old shape
- * could not tell apart:
- *   ok             we asked and got an answer
- *   not-configured we never asked, and that is a legitimate state, not a failure
- *   failed         we asked and it broke — carries the reason
- *
- * "not-configured" and "failed" being separate is Andrew's requirement that a dead source
- * must not render as a zero: an empty list is only honest when the status is `ok`.
- */
-export type SourceOutcome<T> =
-  | { status: 'ok'; data: T }
-  | { status: 'not-configured' }
-  | { status: 'failed'; error: string };
-
-export interface AllSourcesResult {
-  googleSheet: SourceOutcome<AdSpendRow[]>;
-  airtable: SourceOutcome<{ records: AppointmentRow[]; fields: string[] }>;
-  callCenter: SourceOutcome<CallRow[]>;
-}
-
-async function settle<T>(
-  configured: boolean,
-  fetcher: () => Promise<T>,
-): Promise<SourceOutcome<T>> {
-  if (!configured) return { status: 'not-configured' };
-  try {
-    return { status: 'ok', data: await fetcher() };
-  } catch (e) {
-    return { status: 'failed', error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-export async function fetchAllSources(settings: AppSettings): Promise<AllSourcesResult> {
-  // allSettled, never all — one rejection must not discard the others' payloads.
-  const [googleSheet, airtable, callCenter] = await Promise.all([
-    settle(isSourceConfigured(settings, 'googleSheet'), () => fetchGoogleSheetData(settings)),
-    settle(isSourceConfigured(settings, 'airtable'), () => fetchAirtableData(settings)),
-    settle(isSourceConfigured(settings, 'callCenter'), () => fetchCallCenterData(settings)),
-  ]);
-  return { googleSheet, airtable, callCenter };
-}
-
 function isBlank(val: string | null | undefined): boolean {
   return val == null || val.trim() === '';
 }
@@ -1206,7 +852,6 @@ export function normalizeName(s: string): string {
 export interface SourceKnown {
   spend?: boolean;
   appts?: boolean;
-  calls?: boolean;
 }
 
 /**
@@ -1337,28 +982,64 @@ export function exclusionsAreLying(r: ExclusionReport): boolean {
   return r.state !== 'active';
 }
 
+/**
+ * ⭐ THE ACCOUNT IDENTITY KEY — one definition, so nothing can disagree about it.
+ *
+ * `accountId` when the source supplies one (Supabase always does), the normalised display
+ * name otherwise (hand-built fixtures, and the shape every pre-cutover test uses). Exported
+ * because the appointment matcher and the alias maps must key on EXACTLY this and not on a
+ * second, slightly different copy of the rule — a name-keyed lookup left behind beside an
+ * id-keyed one is how Targets would silently reclassify accounts that Dashboard resolved
+ * correctly.
+ */
+export function accountIdentityKey(row: Pick<AdSpendRow, 'accountId' | 'accountName'>): string {
+  const id = (row.accountId || '').trim();
+  if (id) return id;
+  return (row.accountName || 'Unknown').trim().toLowerCase();
+}
+
 export function buildAccountSummaries(
   adSpend: AdSpendRow[],
   appointments: AppointmentRow[],
   settings?: AppSettings,
-  callData?: CallRow[],
   known?: SourceKnown,
+  /**
+   * ⭐ THE CURATED MAPPING FROM `ad_accounts`, and the reason this parameter exists at all:
+   * without it the Settings account table is WRITE-ONLY. See src/lib/accountRegistry.ts for
+   * the join key, why it is exact-only, and why a colliding name resolves to nothing.
+   * Optional and defaulting to a registry that answers nothing, so every existing caller
+   * and every test keeps the legacy behaviour unchanged.
+   */
+  registry: AccountRegistry = emptyAccountRegistry(),
 ): { accounts: AccountSummary[], unmatchedAppointments: AppointmentRow[] } {
   // `?? true` and not `|| true`: an explicit `false` must survive. `||` would turn every
   // "this source is dead" back into "known", which is exactly the bug being fixed.
   const spendKnown = known?.spend ?? true;
   const apptsKnown = known?.appts ?? true;
-  const callsKnown = known?.calls ?? true;
-  const accountMap = new Map<string, { spendRows: AdSpendRow[]; appts: AppointmentRow[]; originalName: string }>();
+  const accountMap = new Map<string, {
+    spendRows: AdSpendRow[]; appts: AppointmentRow[]; originalName: string; accountId: string | null;
+  }>();
 
-  // 1. Group ad spend by normalized account name
+  // 1. Group ad spend by ACCOUNT IDENTITY.
+  //
+  // ⭐ `accountId` FIRST, and this one line is the point of the Supabase cutover. Meta
+  // rewrites an account's display name — measured five times, e.g. `Publicity 1` ->
+  // `Washbroz X SocialWorks` — and the old sheet feed then carried BOTH names, so grouping
+  // on the name SPLIT one client into two accounts with two half-histories. `account_id` is
+  // Meta's primary key; it does not move.
+  //
+  // ⚠️ THE NAME FALLBACK IS NOT DEAD CODE. Rows built by hand (600+ tests, and any future
+  // source without an id) carry no `accountId`, and they must keep grouping exactly as they
+  // did. `|| 'Unknown'` is preserved on that path for the same reason it existed before.
   for (const row of adSpend) {
     const name = row.accountName || 'Unknown';
-    const normalizedName = name.trim().toLowerCase();
-    if (!accountMap.has(normalizedName)) {
-      accountMap.set(normalizedName, { spendRows: [], appts: [], originalName: name });
+    const key = accountIdentityKey(row);
+    if (!accountMap.has(key)) {
+      accountMap.set(key, {
+        spendRows: [], appts: [], originalName: name, accountId: (row.accountId || '').trim() || null,
+      });
     }
-    accountMap.get(normalizedName)!.spendRows.push(row);
+    accountMap.get(key)!.spendRows.push(row);
   }
 
   // 2. Build lookup maps — Campaign ID only (globally unique, zero false-match risk)
@@ -1370,16 +1051,91 @@ export function buildAccountSummaries(
     }
   }
 
-  // Build manual alias map from user-configured account aliases in Settings
+  /**
+   * TIER 2's LOOKUP: an Airtable client name -> an account grouping key.
+   *
+   * ⭐ TWO SOURCES, AND THE STABLE ONE WINS.
+   *
+   * ① THE LEGACY ALIAS STORE (`app_settings.accountAliases`), keyed
+   *    `airtableName -> sheetName`. Its right-hand side is the name the GOOGLE SHEET used.
+   *
+   *    🔴 AND IT WAS DEAD ON ARRIVAL AFTER THE CUTOVER — measured, 2026-08-11, on the live
+   *    store: **0 of its 62 entries could resolve.** The docblock here used to claim it
+   *    "still resolves for the ~50 accounts that were never renamed"; that was FALSE the
+   *    moment the grouping key stopped being a name. `accountMap` is now keyed by
+   *    `account_id`, so `accountMap.has('backyard paradiso')` is false for EVERY alias, and
+   *    `accountMap.has('10170221, usd')` is false even for the id-form ones. Tier 2 fell
+   *    through to the fuzzy tier for the whole product and nothing said so.
+   *
+   *    ⭐ WHY THAT IS WORSE THAN IT LOOKS: the aliases are the control the USER edits in
+   *    Settings. Silently ignoring them makes that screen write-only for attribution — the
+   *    same "a control whose only effect is to draw its own label" defect this branch has
+   *    been killing everywhere else. It survived because Tier 4 fuzzy-matching happened to
+   *    cover most accounts, so the breakage was invisible on exactly the accounts nobody
+   *    needed to check.
+   *
+   *    ⇒ THE RIGHT-HAND SIDE IS NOW TRANSLATED INTO THE CURRENT IDENTITY KEY by
+   *    `spendKeyForLabel` below, so a hand-made mapping resolves again.
+   *
+   * ② `ad_account_airtable_names`, keyed `airtable client name -> account_id`. THE STABLE
+   *    PATH. The left-hand side is Airtable's own string and the right-hand side is Meta's
+   *    primary key, so neither end moves when Meta rewrites a display name. Seeded from the
+   *    campaign-id bridge — 16 names over 13 accounts, each the strictly dominant account
+   *    across at least two campaign-id-evidenced appointments.
+   *
+   * ⚠️ ② IS APPLIED SECOND SO IT OVERWRITES ①. When both answer, the id-keyed row is the
+   * one that survives a rename, and preferring the mutable answer would reintroduce exactly
+   * the bug this table exists to remove.
+   */
+
+  /**
+   * A LABEL THE OLD WORLD USED -> THE KEY THIS RUN GROUPS BY.
+   *
+   * Three routes, strongest first, and every one of them is exact — no fuzz. Attribution
+   * decided here moves a client's whole appointment history, which is not a place to be
+   * 85% sure; the fuzzy tier already exists downstream and is allowed to be wrong.
+   *
+   * ⚠️ IT MUST RETURN A KEY THAT IS ACTUALLY IN `accountMap`, never merely a plausible one.
+   * Returning an unresolvable key sends the appointment to Tier 3 anyway, so a miss is
+   * harmless; returning a WRONG key silently moves one client's bookings onto another.
+   */
+  const spendKeyByName = new Map<string, string>();
+  for (const [key, data] of accountMap) {
+    const n = accountKey(data.originalName);
+    // ⚠️ PREFER THE DUPE, same rule as the registry: if two accounts answer to one Meta
+    // name, that name identifies neither, so it must resolve to nothing rather than to
+    // whichever row the iteration happened to reach first.
+    if (n) spendKeyByName.set(n, spendKeyByName.has(n) && spendKeyByName.get(n) !== key ? '' : key);
+  }
+  const spendKeyForLabel = (label: string | null | undefined): string | null => {
+    const raw = String(label ?? '').trim();
+    if (!raw) return null;
+    // ① the label IS the identity key already (an account id, or a name-keyed legacy row)
+    if (accountMap.has(accountKey(raw))) return accountKey(raw);
+    if (accountMap.has(raw)) return raw;
+    // ② an id-form label — "10170221, USD" — carries Meta's primary key inside it
+    const embedded = classifyAccountLabel(raw).metaAccountId;
+    if (embedded && accountMap.has(embedded)) return embedded;
+    // ③ the label matches the Meta display name this account currently reports
+    const byName = spendKeyByName.get(accountKey(raw));
+    return byName || null;
+  };
+
   const manualMappingToAccount = new Map<string, string>();
   for (const mapping of settings?.accountAliases || []) {
     const airtableName = (mapping.airtableName || mapping.sheetName || '').trim();
-    if (airtableName) {
-      manualMappingToAccount.set(
-        airtableName.toLowerCase(),
-        mapping.sheetName.trim().toLowerCase()
-      );
-    }
+    if (!airtableName) continue;
+    // Unresolvable labels keep their old value rather than being dropped: an account whose
+    // spend is absent from this window has no key to find, and the pre-cutover behaviour
+    // (a miss that falls through to Tier 3) is exactly right for it.
+    const resolved = spendKeyForLabel(mapping.sheetName) ?? mapping.sheetName.trim().toLowerCase();
+    manualMappingToAccount.set(airtableName.toLowerCase(), resolved);
+  }
+  for (const appt of appointments) {
+    const client = (appt.client || '').trim();
+    if (!client || appt.clientUnresolved) continue;
+    const accountId = registry.airtableNameToAccountId(client);
+    if (accountId) manualMappingToAccount.set(client.toLowerCase(), accountId);
   }
 
   // 3. Match appointments — 4-tier matching system
@@ -1466,81 +1222,29 @@ export function buildAccountSummaries(
     }
   }
 
-  // --- Dial counting from call center data ---
-  // Keys use normalizeName so "&" vs "and", punctuation differences, and legal suffixes all collapse
-  const dialMap = new Map<string, { dials: number; totalDuration: number }>();
-  for (const call of callData || []) {
-    const key = normalizeName(call.ghlLocationName || '');
-    if (!key) continue;
-    const entry = dialMap.get(key) || { dials: 0, totalDuration: 0 };
-    entry.dials++;
-    entry.totalDuration += call.callDuration;
-    dialMap.set(key, entry);
-  }
-
-  // Build lookup keys per account using normalizeName for consistency
-  const accountDialKeys = new Map<string, string[]>();
-  for (const [normalizedKey, data] of accountMap) {
-    const keys: string[] = [];
-    const addKey = (raw: string) => {
-      const n = normalizeName(raw);
-      if (n && !keys.includes(n)) keys.push(n);
-    };
-    addKey(data.originalName);
-    const alias = (settings?.accountAliases || []).find(a => a.sheetName.trim().toLowerCase() === normalizedKey);
-    if (alias) addKey(alias.airtableName || alias.sheetName || '');
-    for (const [clientKey, acctKey] of clientNameToAccount) {
-      if (acctKey === normalizedKey) addKey(clientKey);
-    }
-    accountDialKeys.set(normalizedKey, keys);
-  }
-
-  // Pass 1 — exact match (after normalization)
-  const claimedDialKeys = new Set<string>();
-  const accountDialTotals = new Map<string, { dials: number; totalDuration: number }>();
-  for (const [normalizedKey] of accountMap) {
-    const keys = accountDialKeys.get(normalizedKey) || [];
-    let dials = 0, totalDuration = 0;
-    for (const dk of keys) {
-      const entry = dialMap.get(dk);
-      if (entry) {
-        dials += entry.dials;
-        totalDuration += entry.totalDuration;
-        claimedDialKeys.add(dk);
-      }
-    }
-    accountDialTotals.set(normalizedKey, { dials, totalDuration });
-  }
-
-  // Pass 2 — fuzzy match any ghlLocationName that wasn't claimed above
-  const accountNameIndex = Array.from(accountMap.entries()).map(([key, data]) => ({
-    key,
-    normalized: normalizeName(data.originalName),
-  }));
-
-  for (const [dialKey, dialData] of dialMap) {
-    if (claimedDialKeys.has(dialKey)) continue;
-    const scores = accountNameIndex
-      .map(an => ({ key: an.key, score: levenshteinSimilarity(dialKey, an.normalized) }))
-      .sort((a, b) => b.score - a.score);
-    if (!scores.length || scores[0].score < 0.75) continue;
-    const secondScore = scores.length > 1 ? scores[1].score : 0;
-    if (scores[0].score - secondScore < 0.10) continue; // require a clear winner
-    const existing = accountDialTotals.get(scores[0].key) || { dials: 0, totalDuration: 0 };
-    existing.dials += dialData.dials;
-    existing.totalDuration += dialData.totalDuration;
-    accountDialTotals.set(scores[0].key, existing);
-  }
-
   // 4. Build final summaries
   const summaries: AccountSummary[] = [];
   const aliasMap = new Map((settings?.accountAliases || []).map(a => [a.sheetName.trim().toLowerCase(), a]));
   const thresholds = settings?.perfThresholds;
   const excludedCampaignIds = new Set((settings?.excludedCampaigns || []).map(id => id.trim()));
 
-  for (const [normalizedKey, data] of accountMap) {
+  for (const [, data] of accountMap) {
     const accountName = data.originalName;
-    const alias = aliasMap.get(normalizedKey);
+    /**
+     * ⚠️ LOOKED UP BY NAME, NOT BY THE MAP KEY — and this line is why. The grouping key is
+     * now an `account_id`, while `accountAliases` is keyed on the name the sheet used. Left
+     * as `aliasMap.get(normalizedKey)` this silently returned undefined for EVERY account,
+     * dropping program / media buyer / status back to their defaults across the whole app —
+     * with nothing on screen to say so, because "Done For You" and "Active" are what a miss
+     * looks like. The registry below still overrides where it has a curated answer, which is
+     * what made the breakage invisible in spot checks.
+     */
+    const alias = aliasMap.get(accountName.trim().toLowerCase());
+    /**
+     * The curated `ad_accounts` row. BY ID FIRST: the id is a key, the name is a label, and
+     * the five renamed accounts resolve only through the id.
+     */
+    const identity = registry.byAccountId(data.accountId) ?? registry.byMetaName(accountName);
 
     // Total spend/leads from ALL campaigns (shown to client — matches their Facebook bill)
     const totalSpend = data.spendRows.reduce((s, r) => s + r.spent, 0);
@@ -1785,15 +1489,25 @@ export function buildAccountSummaries(
     const costPerAppt = totalAppts > 0 ? performanceSpend / totalAppts : 0;
     const qualPercent = totalAppts > 0 ? (qualified / totalAppts) * 100 : 0;
 
-    // Dial data — pre-computed above via exact + fuzzy matching
-    const { dials: matchedDials, totalDuration: matchedDuration } =
-      accountDialTotals.get(normalizedKey) || { dials: 0, totalDuration: 0 };
-
     summaries.push({
       accountName,
-      program: alias?.program || 'Unknown',
-      mediaBuyer: alias?.mediaBuyer || 'Unassigned',
-      status: alias?.status || 'Active',
+      /**
+       * ⭐ THE NAME @andrew ASKED FOR, carried on the summary every screen already reads.
+       * `null` rather than a fallback to `accountName`: a caller that receives a string can
+       * no longer tell a curated client name from Meta's raw one, and that indistinguishability
+       * is precisely how the company/meta inversion got shipped in the first place.
+       */
+      companyName: identity?.company ?? null,
+      /**
+       * ⚠️ 'Unknown' IS A REAL ANSWER AND MUST SURVIVE. Five live accounts have no program,
+       * one of them (No Streaks) spent $7,008 in 2026 and last spent today. The Dashboard's
+       * own resolver defaulted a missing program to 'Done For You' — a refusal turned into a
+       * confident fact, which then decided which performance rule judged the media buyer's
+       * work. Nothing here invents one.
+       */
+      program: resolveProgram(identity, alias?.program) || 'Unknown',
+      mediaBuyer: resolveMediaBuyer(identity, alias?.mediaBuyer) || 'Unassigned',
+      status: resolveStatus(identity, alias?.status),
       spend: totalSpend,
       leads: totalLeads,
       performanceSpend,
@@ -1807,24 +1521,8 @@ export function buildAccountSummaries(
       closed,
       revenue,
       billed,
-      /**
-       * ⚠️ DO NOT DELETE AS UNUSED — the DASHBOARD stopped showing dials on 2026-08-05
-       * (@andrew: "we store them on relay instead"), so a grep from that page finds no
-       * consumer. IT HAS THREE LIVE ONES:
-       *   Targets.tsx:156  dialsPerLead     — a target @andrew set ("sweet spot 5-20")
-       *   Targets.tsx:158  dialBookingRate  — a target @andrew set ("above 8%")
-       *   CallCenter.tsx   every setter-performance figure on that page
-       * The display was removed; the metric was not. Deleting this silently zeroes two of
-       * his targets and empties /call-center, which is why the removal was scoped to the
-       * dashboard column and tile only. `src/pages/Targets.dials.test.tsx` goes RED if this
-       * stops feeding the targets — verified by deleting this field, not assumed.
-       */
-      totalDials: matchedDials,
-      dialToApptPercent: matchedDials > 0 ? (totalAppts / matchedDials) * 100 : 0,
-      avgCallDuration: matchedDials > 0 ? matchedDuration / matchedDials : 0,
       spendKnown,
       apptsKnown,
-      callsKnown,
       campaigns,
       /**
        * 🔴 THE PARTS DO NOT ALWAYS SUM TO THE WHOLE, AND THE PANEL MUST SAY SO.

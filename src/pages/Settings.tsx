@@ -1,18 +1,18 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useData } from '@/hooks/useData';
 import { saveSettings, saveAccountMappings, loadAccountMappings, loadAccountMappingsAsync, settingsAreUnverified } from '@/lib/config';
-import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, CLOSED_WON_DEFAULT } from '@/lib/dataService';
+import { fetchAirtableData, CLOSED_WON_DEFAULT } from '@/lib/dataService';
 import { fetchSelectChoices, tickedButMissing } from '@/lib/airtableChoices';
 import type { AppSettings, AccountMapping } from '@/lib/types';
 import { checkSettingsWrite } from '@/lib/settingsWriteGuard';
-import { DEFAULT_ADS_RAW_TAB } from '@/lib/sheetCompleteness';
-import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2, Search } from 'lucide-react';
-
-function isJunkAccount(name: string): boolean {
-  return /^[\d,\s]+(USD)?$/i.test(name.trim());
-}
-
-const STATUS_ORDER: Record<string, number> = { Active: 0, Paused: 1, Churned: 2 };
+import { isJunkCompanyName } from '@/lib/accountDisplay';
+import { CheckCircle, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
+import AccountsTable from '@/components/settings/AccountsTable';
+import FreshnessSection from '@/components/settings/FreshnessIndicator';
+import SettingsShell, { type SettingsSection } from '@/components/settings/SettingsShell';
+import { Combobox } from '@/components/ui/combobox';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 
 const REQUIRED_MAPPINGS = [
   'Client Name', 'Campaign Name', 'Campaign ID', 'Ad Set Name', 'Ad Set ID',
@@ -40,8 +40,71 @@ export function stableStringify(value: unknown): string {
   );
 }
 
+// ── Small field primitives. One shape for every input on the page, so nothing here is a
+// bespoke box with its own padding and its own focus treatment.
+
+/**
+ * ⚠️ A `<label>` WITH NO `for` AND NO NESTED CONTROL LABELS NOTHING — the same law
+ * AccountEditPanel's `Field` was rewritten for, and this second copy never got it. It
+ * emitted `<label htmlFor={undefined}>` unconditionally, and "Paused threshold" below
+ * passes no `htmlFor`, so that field's only name pointed at nothing: a screen reader read
+ * the number box as unlabelled while the page LOOKED labelled.
+ *
+ * When there is no id to point at, render a `<span>`. It carries the same weight visually
+ * and at least does not CLAIM to name a control.
+ */
+function Field({ label, hint, htmlFor, children, error }: {
+  label: string; hint?: React.ReactNode; htmlFor?: string; children: React.ReactNode; error?: React.ReactNode;
+}) {
+  const labelCls = 'block text-[13px] font-medium text-foreground';
+  return (
+    <div className="space-y-2 max-w-[520px]">
+      {htmlFor
+        ? <label htmlFor={htmlFor} className={labelCls}>{label}</label>
+        : <span className={labelCls}>{label}</span>}
+      {children}
+      {hint && <div className="text-xs text-muted-foreground leading-relaxed">{hint}</div>}
+      {error}
+    </div>
+  );
+}
+
+/**
+ * One text input, everywhere. `focus:border-ring` and NOT `ring-2 ring-offset-2`: a 4px
+ * halo outside the control is what makes a form read as a 2019 bootstrap admin, and it
+ * collides with whatever sits beside it.
+ */
+function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={cn(
+        'h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm',
+        'placeholder:text-muted-foreground transition-colors',
+        'hover:border-border focus:border-ring focus:outline-none',
+        props.className,
+      )}
+    />
+  );
+}
+
+/** A settings toggle row: label + description on the left, control on the right. */
+function ToggleRow({ label, description, checked, onChange }: {
+  label: string; description?: string; checked: boolean; onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-6 py-3.5 border-b border-divider last:border-b-0">
+      <div className="min-w-0">
+        <div className="text-sm text-foreground">{label}</div>
+        {description && <div className="mt-0.5 text-[13px] text-muted-foreground">{description}</div>}
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} className="shrink-0" />
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const { settings, setSettings, adSpend, accounts, callData, appointments, refresh, settingsOrigin, settingsLoaded } = useData();
+  const { settings, setSettings, adSpend, accounts, appointments, refresh, settingsOrigin, settingsLoaded } = useData();
   const [form, setForm] = useState<AppSettings>(settings);
   // 🔴 THE 22:18:48Z WIPE. `form` used to be seeded ONCE from `settings` and NEVER
   // re-synced when loadSettingsAsync resolved, so on a cold browser it held
@@ -113,9 +176,6 @@ export default function SettingsPage() {
     setHydrated(true);
   }, [settings, settingsLoaded, hydrated]);
   const [showToken, setShowToken] = useState(false);
-  const [sheetStatus, setSheetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [sheetPreview, setSheetPreview] = useState<Record<string, string>[]>([]);
-  const [sheetError, setSheetError] = useState('');
   const [airtableStatus, setAirtableStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [airtableFields, setAirtableFields] = useState<string[]>([]);
 
@@ -160,11 +220,7 @@ export default function SettingsPage() {
    * deliberate safety mechanism in the write path produced silence.
    */
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [callCenterStatus, setCallCenterStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [callCenterError, setCallCenterError] = useState('');
-  const [callCenterCount, setCallCenterCount] = useState(0);
   const [accountMappings, setAccountMappings] = useState<AccountMapping[]>(loadAccountMappings);
-  const [mappingSearch, setMappingSearch] = useState('');
   const isFirstRender = useRef(true);
 
   /**
@@ -202,8 +258,16 @@ export default function SettingsPage() {
   }, []);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Derive unique account names from loaded adSpend data
-  const uniqueSheetAccounts = useMemo(() => {
+  /**
+   * The distinct account names in the ad-spend feed.
+   *
+   * ⚠️ THESE ARE META'S CURRENT DISPLAY NAMES since the Supabase cutover, not the Google
+   * Sheet's names — the variable was called `uniqueAccountNames` and there is no sheet.
+   * They are still the right key for the legacy alias store below, because
+   * `buildAccountSummaries` looks that store up by the account's CURRENT name. The two must
+   * stay keyed the same way; if one moves to `accountId`, so does the other.
+   */
+  const uniqueAccountNames = useMemo(() => {
     const names = new Set<string>();
     for (const row of adSpend) {
       if (row.accountName) names.add(row.accountName);
@@ -211,19 +275,27 @@ export default function SettingsPage() {
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }, [adSpend]);
 
-// When unique accounts change, only ADD new accounts — never overwrite existing user-configured entries
+/**
+ * ⚠️ HEADLESS BUT LOAD-BEARING — it looks like dead code and is not.
+ *
+ * Nothing on this page RENDERS `accountMappings` any more: the account table above reads
+ * and writes `ad_accounts` in Supabase, keyed on account id. But the DASHBOARD still
+ * resolves account -> company/program/media-buyer from `settings.accountAliases`
+ * (dataService.ts), and this effect plus the autosave below are the only things that keep
+ * that store populated. Deleting them would silently change what the dashboard shows.
+ */
 useEffect(() => {
-  if (uniqueSheetAccounts.length === 0) return;
+  if (uniqueAccountNames.length === 0) return;
   setAccountMappings(prev => {
     const existing = new Map(prev.map(m => [m.sheetName.trim().toLowerCase(), m]));
     let changed = false;
     const updated = [...prev];
 
-    for (const name of uniqueSheetAccounts) {
+    for (const name of uniqueAccountNames) {
       const key = name.trim().toLowerCase();
       if (!existing.has(key)) {
         // Only add accounts that don't already exist — never touch existing ones
-        updated.push({ sheetName: name, airtableName: name, program: 'Done For You' as const, mediaBuyer: '', status: isJunkAccount(name) ? 'Churned' as const : 'Active' as const });
+        updated.push({ sheetName: name, airtableName: name, program: 'Done For You' as const, mediaBuyer: '', status: isJunkCompanyName(name) ? 'Churned' as const : 'Active' as const });
         changed = true;
       }
     }
@@ -231,30 +303,7 @@ useEffect(() => {
     // Return the same reference if nothing changed — prevents unnecessary re-renders and saves
     return changed ? updated : prev;
   });
-}, [uniqueSheetAccounts]);
-
-  // Sorted + filtered view of accountMappings for display (does not affect stored order)
-  const sortedMappings = useMemo(() => {
-    return accountMappings
-      .map((mapping, index) => ({ mapping, index }))
-      .sort((a, b) => {
-        const aJunk = isJunkAccount(a.mapping.sheetName);
-        const bJunk = isJunkAccount(b.mapping.sheetName);
-        if (aJunk !== bJunk) return aJunk ? 1 : -1;
-        const statusDiff = (STATUS_ORDER[a.mapping.status] ?? 2) - (STATUS_ORDER[b.mapping.status] ?? 2);
-        if (statusDiff !== 0) return statusDiff;
-        return a.mapping.sheetName.localeCompare(b.mapping.sheetName);
-      });
-  }, [accountMappings]);
-
-  const displayedMappings = useMemo(() => {
-    const q = mappingSearch.trim().toLowerCase();
-    if (!q) return sortedMappings;
-    return sortedMappings.filter(({ mapping }) =>
-      mapping.sheetName.toLowerCase().includes(q) ||
-      mapping.airtableName.toLowerCase().includes(q)
-    );
-  }, [sortedMappings, mappingSearch]);
+}, [uniqueAccountNames]);
 
   // Autosave: debounce form + accountMappings changes
   const performSave = useCallback(async (formToSave: AppSettings, mappingsToSave: AccountMapping[]) => {
@@ -371,17 +420,20 @@ useEffect(() => {
     return Array.from(names).sort();
   }, [accounts]);
 
-  // All setter names ever seen across call data + Airtable appointments
+  /**
+   * All setter names ever seen.
+   * ⚠️ WAS a union of call-centre agent names and Airtable setters. The call-centre source
+   * was removed on 2026-08-11 and its sheet had never been connected in production, so that
+   * half of the union contributed nothing on any real render. Airtable is now the only
+   * source, which is what it already was in practice.
+   */
   const allSetterNames = useMemo(() => {
     const names = new Set<string>();
-    for (const row of callData) {
-      if (row.agentName?.trim()) names.add(row.agentName.trim());
-    }
     for (const appt of appointments) {
       if (appt.setter?.trim()) names.add(appt.setter.trim());
     }
     return Array.from(names).sort();
-  }, [callData, appointments]);
+  }, [appointments]);
 
   const toggleSetter = useCallback((name: string) => {
     setForm(prev => {
@@ -409,27 +461,6 @@ useEffect(() => {
     });
   };
 
-  const updateAccountMapping = (index: number, patch: Partial<AccountMapping>) => {
-    setAccountMappings(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], ...patch };
-      return updated;
-    });
-  };
-
-  const testSheet = async () => {
-    setSheetStatus('loading');
-    setSheetError('');
-    try {
-      const data = await fetchGoogleSheetData(form);
-      setSheetPreview(data.slice(0, 3).map(r => r as any));
-      setSheetStatus('success');
-    } catch (e: any) {
-      setSheetError(e.message);
-      setSheetStatus('error');
-    }
-  };
-
   const testAirtable = async () => {
     setAirtableStatus('loading');
     setAirtableError('');
@@ -437,536 +468,380 @@ useEffect(() => {
       const result = await fetchAirtableData(form);
       setAirtableFields(result.fields);
       setAirtableStatus('success');
-    } catch (e: any) {
-      setAirtableError(e.message);
+    } catch (e) {
+      setAirtableError(e instanceof Error ? e.message : String(e));
       setAirtableStatus('error');
     }
   };
 
-  const testCallCenter = async () => {
-    setCallCenterStatus('loading');
-    setCallCenterError('');
-    try {
-      const data = await fetchCallCenterData(form);
-      setCallCenterCount(data.length);
-      setCallCenterStatus('success');
-    } catch (e: any) {
-      setCallCenterError(e.message || 'Failed to fetch call center data');
-      setCallCenterStatus('error');
-    }
-  };
-
-  return (
-    <div className="space-y-8 max-w-4xl">
-      <div className="flex items-center gap-3">
-        <h1 className="text-xl font-bold">Settings</h1>
-        {saved && <span className="text-success text-sm flex items-center gap-1 animate-in fade-in"><CheckCircle className="w-4 h-4" /> Saved</span>}
-        {/* The absence of a tick is not a signal — a user reads "nothing happened" as
-            "nothing needed to happen". A refused write has to SAY it was refused. */}
-        {saveError && (
-          <span role="alert" className="text-destructive text-sm flex items-start gap-1">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {saveError}
-          </span>
-        )}
-      </div>
-
-      {/* Section 1: Google Sheets */}
-      <section className="card-elevated p-6 space-y-4">
-        <h2 className="font-semibold text-base">Google Sheets Connection</h2>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Google Sheet URL</label>
-          <input
-            type="url"
-            value={form.googleSheetUrl}
-            onChange={e => updateForm({ googleSheetUrl: e.target.value })}
-            placeholder="https://docs.google.com/spreadsheets/d/..."
-            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Tab/Sheet Name</label>
-          <input
-            type="text"
-            value={form.googleSheetTab}
-            onChange={e => updateForm({ googleSheetTab: e.target.value })}
-            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Raw tab name (completeness check)</label>
-          <input
-            type="text"
-            value={form.adsRawTabName ?? ''}
-            onChange={e => updateForm({ adsRawTabName: e.target.value })}
-            placeholder={DEFAULT_ADS_RAW_TAB}
-            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-          {/* Says what it is FOR and what happens if it is wrong, because a name that
-              silently addresses the wrong tab is the fail-open this detector exists to
-              refuse — Google answers an unknown tab with the DEFAULT tab and HTTP 200. */}
-          <p className="mt-1 text-xs text-muted-foreground">
-            The tab your ad spend tab is generated FROM. Its row count is compared to the tab
-            above; a difference means the sheet's array formula has run out of range and rows
-            are being dropped. If this name is wrong the check reports &ldquo;could not be
-            verified&rdquo; rather than claiming your data is complete.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={testSheet} disabled={!form.googleSheetUrl || sheetStatus === 'loading'}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50">
-            {sheetStatus === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Test Connection'}
-          </button>
-          {sheetStatus === 'success' && <span className="flex items-center gap-1 text-success text-sm"><CheckCircle className="w-4 h-4" /> Connected</span>}
-          {sheetStatus === 'error' && <span className="flex items-center gap-1 text-destructive text-sm"><AlertCircle className="w-4 h-4" /> {sheetError}</span>}
-        </div>
-        {sheetStatus === 'success' && sheetPreview.length > 0 && (
-          <div className="overflow-x-auto">
-            <p className="text-xs text-muted-foreground mb-2">Preview (first 3 rows):</p>
-            <table className="text-xs">
-              <thead>
-                <tr className="border-b">
-                  {Object.keys(sheetPreview[0]).slice(0, 6).map(h => (
-                    <th key={h} className="py-1 px-2 text-left text-muted-foreground">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sheetPreview.map((row, i) => (
-                  <tr key={i} className="border-b border-border/50">
-                    {Object.values(row).slice(0, 6).map((v, j) => (
-                      <td key={j} className="py-1 px-2 font-mono-tabular">{String(v)}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* Section: Call Center Google Sheet */}
-      <section className="card-elevated p-6 space-y-4">
-        <h2 className="font-semibold text-base">Call Center Google Sheet</h2>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Google Sheet URL</label>
-          <input
-            type="url"
-            value={form.callCenterSheetUrl}
-            onChange={e => updateForm({ callCenterSheetUrl: e.target.value })}
-            placeholder="https://docs.google.com/spreadsheets/d/..."
-            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Tab/Sheet Name</label>
-          <input
-            type="text"
-            value={form.callCenterSheetTab}
-            onChange={e => updateForm({ callCenterSheetTab: e.target.value })}
-            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={testCallCenter} disabled={!form.callCenterSheetUrl || callCenterStatus === 'loading'}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50">
-            {callCenterStatus === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Test Connection'}
-          </button>
-          {callCenterStatus === 'success' && <span className="flex items-center gap-1 text-success text-sm"><CheckCircle className="w-4 h-4" /> {callCenterCount} rows loaded</span>}
-          {callCenterStatus === 'error' && <span className="flex items-center gap-1 text-destructive text-sm"><AlertCircle className="w-4 h-4" /> {callCenterError}</span>}
-        </div>
-      </section>
-
-      {/* Section: AI Assistant */}
-      <section className="card-elevated p-6 space-y-4">
-        <h2 className="font-semibold text-base">AI Assistant</h2>
-        {/*
-          The Anthropic API key input is GONE ON PURPOSE — do not restore it.
-          Anything typed here was saved into `app_settings`, a table readable by
-          the anon role, i.e. by anyone on the internet. Leaving an empty box here
-          would be worse than useless: a user seeing a blank key field on a broken
-          dashboard re-enters the key, and that write re-opens the exact hole.
-          The key is a server-side secret now. Rotation happens there.
-        */}
-        <div className="rounded-lg border border-muted bg-muted/30 p-3">
-          <p className="text-sm font-medium text-foreground">API key is managed server-side</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            The Anthropic key is no longer stored in application settings and cannot be
-            entered here. It lives in server-side secrets, where the browser cannot read it.
-          </p>
-        </div>
-      </section>
-
-      {/* Section 2: Airtable */}
-      <section className="card-elevated p-6 space-y-4">
-        <h2 className="font-semibold text-base">Airtable Connection</h2>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Base ID</label>
-          <input
-            type="text"
-            value={form.airtableBaseId}
-            onChange={e => updateForm({ airtableBaseId: e.target.value.trim() })}
-            placeholder="appXXXXXXXXXXXXXX"
-            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-          {/*
-            ⭐ THIS EXACT MISTAKE HAPPENED, 2026-08-05: a Personal Access Token was pasted into
-            the Base ID box. Nothing caught it — our credential guard matches KEY NAMES, and
-            `airtableBaseId` is not a credential key, so a token in the wrong field walks
-            straight through into a world-readable table. A name-based guard cannot see a
-            secret in the wrong box; this check looks at the VALUE's SHAPE instead.
-          */}
-          {form.airtableBaseId?.startsWith('pat') && (
-            <p className="text-xs text-destructive mt-1">
-              That looks like a Personal Access Token, not a Base ID — and it has just been
-              stored somewhere the browser can read. Move it to the token field below, put the
-              Base ID (starts with <code>app</code>) here, and rotate that token.
-            </p>
-          )}
-          {form.airtableBaseId && !form.airtableBaseId.startsWith('app') &&
-           !form.airtableBaseId.startsWith('pat') && (
-            <p className="text-xs text-warning mt-1">
-              Airtable Base IDs normally start with <code>app</code>. Double-check this value.
-            </p>
-          )}
-        </div>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Table Name</label>
-          <input
-            type="text"
-            value={form.airtableTableName}
-            onChange={e => updateForm({ airtableTableName: e.target.value })}
-            className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-          />
-        </div>
-        {/*
-          🎯 WHICH STATUSES COUNT AS A CLOSED DEAL — @andrew: "yeah make it mappable".
-          The COLUMN was already mappable; the VALUE was a hardcoded literal, so the rule
-          deciding the number he judges accounts on was one he could neither see nor change.
-          Rename the option in Airtable and there was nowhere to tell us.
-
-          The options are read from HIS base rather than maintained here — a list we keep is
-          the same defect one level up.
-        */}
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">
-            Which Lead Status values count as a closed deal
-          </label>
-          {leadStatusChoices === null ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Could not read the status options from Airtable. Closed deals are being counted
-              with the built-in default: <strong>Closed Won</strong>.
+  /**
+   * SECTION ORDER IS THE ARGUMENT. Accounts is first and is the default landing section
+   * because it is the entire reason this page gets opened. Freshness sits beside it because
+   * both answer "is this real?". Connections is last: it is plumbing, not a daily surface.
+   */
+  const sections: SettingsSection[] = [
+    {
+      id: 'accounts', label: 'Accounts', group: 'Data',
+      title: 'Accounts',
+      description: 'Which company each Meta ad account belongs to. Matched on account ID, so renaming an account in Meta does not break the link.',
+      render: () => <AccountsTable />,
+    },
+    {
+      id: 'freshness', label: 'Data freshness', group: 'Data',
+      title: 'Data freshness',
+      description: 'When the ad spend on every screen was last pulled from Meta, and what happened on the last few pulls.',
+      render: () => <FreshnessSection />,
+    },
+    {
+      id: 'team', label: 'Team', group: 'People',
+      title: 'Team',
+      description: 'Setters detected from Airtable appointments. Inactive setters are hidden from the Agents page.',
+      render: () => (
+        <div className="space-y-8">
+          {allSetterNames.length === 0 ? (
+            <p className="text-[13px] text-muted-foreground">
+              No setters found yet. They appear automatically once appointments load from Airtable.
             </p>
           ) : (
-            <div className="mt-2 space-y-1.5">
-              {leadStatusChoices.map(choice => {
-                const cur = form.closedWonStatuses ?? CLOSED_WON_DEFAULT;
-                const ticked = cur.some(s => s.trim().toLowerCase() === choice.trim().toLowerCase());
+            <div>
+              <div className="h-9 flex items-center border-b border-divider text-xs font-medium text-muted-foreground">
+                <span className="flex-1">Setter</span>
+                <span className="w-24 text-right">Active</span>
+              </div>
+              {allSetterNames.map(name => {
+                const isActive = !(form.inactiveSetters || []).includes(name);
                 return (
-                  <label key={choice} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={ticked}
-                      onChange={e => updateForm({
-                        closedWonStatuses: e.target.checked
-                          ? [...cur, choice]
-                          : cur.filter(s => s.trim().toLowerCase() !== choice.trim().toLowerCase()),
-                      })}
-                    />
-                    <span>{choice}</span>
-                  </label>
+                  <div key={name} className="flex items-center h-12 border-b border-divider last:border-b-0 hover:bg-row-hover transition-colors">
+                    <span className="flex-1 min-w-0 truncate text-sm">{name}</span>
+                    <div className="w-24 flex justify-end">
+                      <Switch checked={isActive} onCheckedChange={() => toggleSetter(name)} aria-label={`${name} active`} />
+                    </div>
+                  </div>
                 );
               })}
             </div>
           )}
-          {/* ⭐ A ticked status Airtable no longer has stops matching SILENTLY and the closed
-              count drops with nothing on screen to say why — the same rot as a saved-but-absent
-              column mapping. Named, not left to be discovered. */}
-          {missingStatuses.length > 0 && (
-            <p className="mt-2 text-xs text-warning">
-              {missingStatuses.length} selected {missingStatuses.length === 1 ? 'status is' : 'statuses are'}{' '}
-              no longer in Airtable: {missingStatuses.join(', ')}.{' '}
-              {missingStatuses.length === 1 ? 'It is' : 'They are'} not counting toward closed deals.
-            </p>
-          )}
-          {/* 🔴 THE ONE STATE WHERE THE CONTROL AND THE BEHAVIOUR DISAGREE — @apprentice.
-              `?? CLOSED_WON_DEFAULT` does not catch `[]`, so un-ticking everything renders
-              every box EMPTY while the system counts `Closed Won` via the fallback. A reader
-              who unticked all seven to mean "count nothing" sees a screen that agrees with
-              them and a number that does not — and only the number reveals it.
-              ⇒ The boxes still show the SETTING truthfully; this names the EFFECT. */}
-          {(form.closedWonStatuses?.length === 0) && (
-            <p className="mt-2 text-xs text-warning">
-              Nothing is selected, so closed deals are being counted with the built-in default:{' '}
-              <strong>Closed Won</strong>. There is no setting for &ldquo;count nothing as
-              won&rdquo; &mdash; an empty list would take every closed-deal figure to zero.
-            </p>
-          )}
-          <p className="mt-1 text-xs text-muted-foreground">
-            Un-ticking everything falls back to <strong>Closed Won</strong> rather than counting
-            nothing. A deal marked <strong>Closed Lost</strong> is never counted as won, even if
-            ticked here.
-          </p>
-        </div>
-        {/*
-          ⛔ OWNER-ORDERED, 2026-08-05. The token input was removed when the secret moved
-          server-side — but airtable-proxy was never deployed, so appointments went dark and
-          there was NO WAY TO PUT THE TOKEN BACK from the UI. The field returns.
-          The token is used ONLY by the direct fallback in fetchAirtableData, behind the
-          proxy. When airtable-proxy is deployed this input can go again.
-        */}
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Personal Access Token</label>
-          <div className="relative mt-1">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={form.airtableToken || ''}
-              onChange={e => updateForm({ airtableToken: e.target.value.trim() })}
-              placeholder="pat..."
-              className="w-full px-3 py-2 pr-10 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-            <button type="button" onClick={() => setShowToken(!showToken)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Stored in application settings, which are readable by anyone with the app URL.
-            Treat this token as public and rotate it if it leaks.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={testAirtable} disabled={!form.airtableBaseId || airtableStatus === 'loading'}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50">
-            {airtableStatus === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Test Connection'}
-          </button>
-          {airtableStatus === 'success' && <span className="flex items-center gap-1 text-success text-sm"><CheckCircle className="w-4 h-4" /> Connected</span>}
-          {airtableStatus === 'error' && <span className="flex items-center gap-1 text-destructive text-sm"><AlertCircle className="w-4 h-4" /> {airtableError}</span>}
-        </div>
-        {airtableStatus === 'success' && airtableFields.length > 0 && (
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Available columns:</p>
-            <div className="flex flex-wrap gap-1.5">
-              {airtableFields.map(f => (
-                <span key={f} className="px-2 py-1 rounded-md bg-accent text-xs font-medium">{f}</span>
-              ))}
+
+          {uniqueSetters.length > 0 && (
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-sm font-medium">Bonus rates</h3>
+                <p className="mt-0.5 text-[13px] text-muted-foreground">
+                  Paid per valid appointment. Used on the Agents page.
+                </p>
+              </div>
+              <div>
+                <div className="h-9 flex items-center border-b border-divider text-xs font-medium text-muted-foreground">
+                  <span className="flex-1">Setter</span>
+                  <span className="w-28 text-right">Per appointment</span>
+                </div>
+                {uniqueSetters.map(setterName => {
+                  const rateConfig = (form.setterBonusRates || []).find(r => r.setterName === setterName);
+                  const rate = rateConfig?.rate ?? 5;
+                  return (
+                    <div key={setterName} className="flex items-center h-12 border-b border-divider last:border-b-0 hover:bg-row-hover transition-colors">
+                      <span className="flex-1 min-w-0 truncate text-sm">{setterName}</span>
+                      <div className="w-28 flex items-center justify-end gap-1">
+                        <span className="text-[13px] text-muted-foreground">$</span>
+                        <input
+                          type="number"
+                          value={rate}
+                          min={0}
+                          onChange={e => updateSetterRate(setterName, parseFloat(e.target.value) || 0)}
+                          className="h-8 w-16 rounded-md border border-input bg-background px-2 text-right text-[13px] font-mono-tabular hover:border-border focus:border-ring focus:outline-none transition-colors"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
-      </section>
-
-      {/* Section 3: Column Mappings */}
-      {airtableFields.length > 0 && (
-        <section className="card-elevated p-6 space-y-4">
-          <h2 className="font-semibold text-base">Column Mappings (Airtable)</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {REQUIRED_MAPPINGS.map(key => (
-              <div key={key}>
-                <label className="text-xs font-medium text-muted-foreground">{key}</label>
-                <select
-                  value={form.columnMappings[key] || ''}
-                  onChange={e => updateMapping(key, e.target.value)}
-                  className="mt-1 w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
-                >
-                  <option value="">— Select —</option>
-                  {/**
-                    * 🔴 D2, SECOND HALF: A SAVED VALUE MISSING FROM THE LIST MUST STILL BE
-                    * AN OPTION. Even with the union fix, any mapping whose column is absent
-                    * from the current fetch — a renamed field, a table the user re-pointed —
-                    * would render as "— Select —" and the first interaction would BLANK a
-                    * working mapping. The select must never present a correct saved value
-                    * as if nothing were chosen.
-                    */}
-                  {form.columnMappings?.[key] && !airtableFields.includes(form.columnMappings[key]) && (
-                    <option value={form.columnMappings[key]}>
-                      {form.columnMappings[key]} (saved — not in the current Airtable fetch)
-                    </option>
-                  )}
-                  {airtableFields.map(f => (
-                    <option key={f} value={f}>{f}</option>
-                  ))}
-                </select>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Section 4: Account Mappings */}
-      {uniqueSheetAccounts.length > 0 && (
-        <section className="card-elevated p-6 space-y-4">
-          <h2 className="font-semibold text-base">Account Mappings</h2>
-          <p className="text-xs text-muted-foreground">
-            Map each Ad Account Name to the matching Airtable Name. Set program, media buyer, and status for Dashboard grouping.
-          </p>
-
-          {/* Search */}
-          <div className="relative w-56">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Filter accounts..."
-              value={mappingSearch}
-              onChange={e => setMappingSearch(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 w-full"
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'display', label: 'Display', group: 'Preferences',
+      title: 'Display',
+      description: 'What appears on the dashboard by default.',
+      render: () => (
+        <div className="space-y-6">
+          <div>
+            <ToggleRow
+              label="Show paused accounts"
+              description="Accounts with no spend for longer than the threshold below."
+              checked={form.showPausedAccounts}
+              onChange={v => updateForm({ showPausedAccounts: v })}
+            />
+            <ToggleRow
+              label="Show churned accounts"
+              description="Accounts marked churned in the account mapping."
+              checked={form.showChurnedAccounts}
+              onChange={v => updateForm({ showChurnedAccounts: v })}
             />
           </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <div style={{ minWidth: '760px' }}>
-              {/* Header */}
-              <div
-                className="grid gap-2 text-xs font-medium text-muted-foreground mb-2 px-1"
-                style={{ gridTemplateColumns: 'minmax(220px,1fr) minmax(220px,1fr) 144px 128px 112px' }}
-              >
-                <span>Ad Account Name</span>
-                <span>Airtable Name</span>
-                <span>Program</span>
-                <span>Media Buyer</span>
-                <span>Status</span>
-              </div>
-
-              {/* Rows */}
-              <div className="space-y-2">
-                {displayedMappings.map(({ mapping, index }) => (
-                  <div
-                    key={mapping.sheetName}
-                    className="grid gap-2 items-center"
-                    style={{ gridTemplateColumns: 'minmax(220px,1fr) minmax(220px,1fr) 144px 128px 112px' }}
-                  >
-                    <span className="px-3 py-2 text-sm rounded-lg border bg-muted/50 truncate" title={mapping.sheetName}>
-                      {mapping.sheetName}
-                    </span>
-                    <input
-                      type="text"
-                      value={mapping.airtableName}
-                      onChange={e => updateAccountMapping(index, { airtableName: e.target.value })}
-                      className="px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 min-w-0"
-                    />
-                    <select
-                      value={mapping.program || 'Done For You'}
-                      onChange={e => updateAccountMapping(index, { program: e.target.value as AccountMapping['program'] })}
-                      className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
-                    >
-                      <option value="Done For You">Done For You</option>
-                      <option value="Done With You">Done With You</option>
-                      <option value="Other">Other</option>
-                    </select>
-                    <input
-                      type="text"
-                      value={mapping.mediaBuyer || ''}
-                      onChange={e => updateAccountMapping(index, { mediaBuyer: e.target.value })}
-                      placeholder="Unassigned"
-                      className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20"
-                    />
-                    <select
-                      value={mapping.status || 'Active'}
-                      onChange={e => updateAccountMapping(index, { status: e.target.value as AccountMapping['status'] })}
-                      className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
-                    >
-                      <option value="Active">Active</option>
-                      <option value="Paused">Paused</option>
-                      <option value="Churned">Churned</option>
-                    </select>
-                  </div>
-                ))}
-                {displayedMappings.length === 0 && (
-                  <p className="text-sm text-muted-foreground py-2">No accounts match your filter.</p>
+          <Field label="Paused threshold" htmlFor="paused-threshold" hint="Days without spend before an account counts as paused.">
+            <div className="flex items-center gap-2">
+              <TextInput
+                id="paused-threshold"
+                type="number"
+                value={form.pausedThresholdDays}
+                min={1}
+                onChange={e => updateForm({ pausedThresholdDays: parseInt(e.target.value) || 1 })}
+                className="w-24 font-mono-tabular"
+              />
+              <span className="text-[13px] text-muted-foreground">days</span>
+            </div>
+          </Field>
+        </div>
+      ),
+    },
+    {
+      // ⚠️ THE RAIL LABEL AND THE HEADING ARE THE SAME WORDS. It was the only section of the
+      // five where they differed ("Connections" in the rail, "Airtable connection" on the
+      // page), so scroll-spy highlighted a word that was nowhere on screen.
+      // NB this really is Airtable: it is where APPOINTMENTS are read from, and it is not
+      // the account-mapping "airtableName" defect, which lived in the accounts table.
+      id: 'connections', label: 'Airtable', group: 'Advanced',
+      title: 'Airtable connection',
+      description: 'Where appointments are read from, and which of its columns mean what.',
+      render: () => (
+        <div className="space-y-6">
+          <Field
+            label="Base ID"
+            htmlFor="airtable-base"
+            error={
+              <>
+                {/*
+                  ⭐ THIS EXACT MISTAKE HAPPENED, 2026-08-05: a Personal Access Token was pasted into
+                  the Base ID box. Nothing caught it — our credential guard matches KEY NAMES, and
+                  `airtableBaseId` is not a credential key, so a token in the wrong field walks
+                  straight through into a world-readable table. A name-based guard cannot see a
+                  secret in the wrong box; this check looks at the VALUE's SHAPE instead.
+                */}
+                {form.airtableBaseId?.startsWith('pat') && (
+                  <p className="text-xs text-destructive">
+                    That looks like a Personal Access Token, not a Base ID — and it has just been
+                    stored somewhere the browser can read. Move it to the token field below, put the
+                    Base ID (starts with <code>app</code>) here, and rotate that token.
+                  </p>
                 )}
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+                {form.airtableBaseId && !form.airtableBaseId.startsWith('app') &&
+                 !form.airtableBaseId.startsWith('pat') && (
+                  <p className="text-xs text-warning-strong">
+                    Airtable Base IDs normally start with <code>app</code>. Double-check this value.
+                  </p>
+                )}
+              </>
+            }
+          >
+            <TextInput
+              id="airtable-base"
+              type="text"
+              value={form.airtableBaseId}
+              onChange={e => updateForm({ airtableBaseId: e.target.value.trim() })}
+              placeholder="appXXXXXXXXXXXXXX"
+            />
+          </Field>
 
-      {/* Section 5: Setters */}
-      {allSetterNames.length > 0 && (
-        <section className="card-elevated p-6 space-y-4">
-          <div>
-            <h2 className="font-semibold text-base">Setters</h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              Auto-detected from call data and appointments. Inactive setters are hidden from the Call Center and Agents pages.
+          <Field label="Table name" htmlFor="airtable-table">
+            <TextInput
+              id="airtable-table"
+              type="text"
+              value={form.airtableTableName}
+              onChange={e => updateForm({ airtableTableName: e.target.value })}
+            />
+          </Field>
+
+          {/*
+            ⛔ OWNER-ORDERED, 2026-08-05. The token input was removed when the secret moved
+            server-side — but airtable-proxy was never deployed, so appointments went dark and
+            there was NO WAY TO PUT THE TOKEN BACK from the UI. The field returns.
+          */}
+          <Field
+            label="Personal access token"
+            htmlFor="airtable-token"
+            hint="Stored in application settings, which are readable by anyone with the app URL. Treat this token as public and rotate it if it leaks."
+          >
+            <div className="relative">
+              <TextInput
+                id="airtable-token"
+                type={showToken ? 'text' : 'password'}
+                value={form.airtableToken || ''}
+                onChange={e => updateForm({ airtableToken: e.target.value.trim() })}
+                placeholder="pat..."
+                className="pr-10"
+              />
+              {/* Was a bare 16x16 icon: below the 24px WCAG 2.5.8 minimum, and the one
+                  control on this page you press while holding a token in the clipboard.
+                  The icon is unchanged; only the target grew. */}
+              <button type="button" onClick={() => setShowToken(!showToken)}
+                aria-label={showToken ? 'Hide token' : 'Show token'}
+                aria-pressed={showToken}
+                className="absolute right-1 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-row-hover hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
+                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </Field>
+
+          <div className="flex items-center gap-3 max-w-[520px]">
+            <button onClick={testAirtable} disabled={!form.airtableBaseId || airtableStatus === 'loading'}
+              className="h-9 px-3 text-[13px] font-medium rounded-md border border-input bg-background hover:bg-row-hover transition-colors disabled:opacity-50 flex items-center gap-2">
+              {airtableStatus === 'loading' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Test connection
+            </button>
+            {airtableStatus === 'success' && <span className="flex items-center gap-1.5 text-success text-[13px]"><CheckCircle className="w-3.5 h-3.5" /> Connected</span>}
+            {airtableStatus === 'error' && <span className="flex items-center gap-1.5 text-destructive text-[13px]"><AlertCircle className="w-3.5 h-3.5 shrink-0" /> {airtableError}</span>}
+          </div>
+
+          {/*
+            🎯 WHICH STATUSES COUNT AS A CLOSED DEAL — @andrew: "yeah make it mappable".
+            The COLUMN was already mappable; the VALUE was a hardcoded literal, so the rule
+            deciding the number he judges accounts on was one he could neither see nor change.
+            The options are read from HIS base rather than maintained here.
+          */}
+          <div className="space-y-2 max-w-[520px] pt-2">
+            <div className="text-[13px] font-medium text-foreground">
+              Which Lead Status values count as a closed deal
+            </div>
+            {leadStatusChoices === null ? (
+              <p className="text-xs text-muted-foreground">
+                Could not read the status options from Airtable. Closed deals are being counted
+                with the built-in default: <strong>Closed Won</strong>.
+              </p>
+            ) : (
+              <div>
+                {leadStatusChoices.map(choice => {
+                  const cur = form.closedWonStatuses ?? CLOSED_WON_DEFAULT;
+                  const ticked = cur.some(s => s.trim().toLowerCase() === choice.trim().toLowerCase());
+                  return (
+                    // h-12, not h-11: one page had 56 / 48 / 48 / 44px rows across four
+                    // tables. The two-line accounts row earns its 56; every single-line row
+                    // on this page is now 48.
+                    <label key={choice} className="flex items-center justify-between gap-4 h-12 border-b border-divider last:border-b-0 cursor-pointer">
+                      <span className="text-sm truncate">{choice}</span>
+                      <Switch
+                        checked={ticked}
+                        onCheckedChange={c => updateForm({
+                          closedWonStatuses: c
+                            ? [...cur, choice]
+                            : cur.filter(s => s.trim().toLowerCase() !== choice.trim().toLowerCase()),
+                        })}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {/* ⭐ A ticked status Airtable no longer has stops matching SILENTLY and the closed
+                count drops with nothing on screen to say why. Named, not left to be discovered. */}
+            {missingStatuses.length > 0 && (
+              <p className="text-xs text-warning-strong">
+                {missingStatuses.length} selected {missingStatuses.length === 1 ? 'status is' : 'statuses are'}{' '}
+                no longer in Airtable: {missingStatuses.join(', ')}.{' '}
+                {missingStatuses.length === 1 ? 'It is' : 'They are'} not counting toward closed deals.
+              </p>
+            )}
+            {/* 🔴 THE ONE STATE WHERE THE CONTROL AND THE BEHAVIOUR DISAGREE — @apprentice.
+                `?? CLOSED_WON_DEFAULT` does not catch `[]`, so un-ticking everything renders
+                every box EMPTY while the system counts `Closed Won` via the fallback. */}
+            {(form.closedWonStatuses?.length === 0) && (
+              <p className="text-xs text-warning-strong">
+                Nothing is selected, so closed deals are being counted with the built-in default:{' '}
+                <strong>Closed Won</strong>. There is no setting for &ldquo;count nothing as
+                won&rdquo;; an empty list would take every closed-deal figure to zero.
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Un-ticking everything falls back to <strong>Closed Won</strong> rather than counting
+              nothing. A deal marked <strong>Closed Lost</strong> is never counted as won, even if
+              ticked here.
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {allSetterNames.map(name => {
-              const isActive = !(form.inactiveSetters || []).includes(name);
-              return (
-                <div key={name} className="flex items-center justify-between px-3 py-2.5 rounded-lg border bg-muted/20">
-                  <span className="text-sm font-medium truncate">{name}</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={isActive}
-                    onClick={() => toggleSetter(name)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${isActive ? 'bg-primary' : 'bg-muted'}`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${isActive ? 'translate-x-4' : 'translate-x-0'}`}
-                    />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
-      {/* Section 5b: Setter Bonus Rates */}
-      {uniqueSetters.length > 0 && (
-        <section className="card-elevated p-6 space-y-4">
-          <div>
-            <h2 className="font-semibold text-base">Setter Bonus Rates</h2>
-            <p className="text-xs text-muted-foreground mt-1">Dollar amount paid per valid appointment for each setter. Used on the Agents page.</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {uniqueSetters.map(setterName => {
-              const rateConfig = (form.setterBonusRates || []).find(r => r.setterName === setterName);
-              const rate = rateConfig?.rate ?? 5;
-              return (
-                <div key={setterName} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border bg-muted/20">
-                  <span className="text-sm font-medium truncate">{setterName}</span>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-sm text-muted-foreground">$</span>
-                    <input
-                      type="number"
-                      value={rate}
-                      min={0}
-                      onChange={e => updateSetterRate(setterName, parseFloat(e.target.value) || 0)}
-                      className="w-16 px-2 py-1 text-sm text-right rounded-md border bg-background focus:outline-none focus:ring-2 focus:ring-ring/20 font-mono-tabular"
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
+          {airtableFields.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div>
+                <h3 className="text-sm font-medium">Column mappings</h3>
+                <p className="mt-0.5 text-[13px] text-muted-foreground">
+                  Which Airtable column carries each value the dashboard needs.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 max-w-[720px]">
+                {REQUIRED_MAPPINGS.map(key => {
+                  const current = form.columnMappings?.[key] || '';
+                  /**
+                   * 🔴 A SAVED VALUE MISSING FROM THE LIST MUST STILL BE AN OPTION. A mapping
+                   * whose column is absent from the current fetch — a renamed field, a table
+                   * the user re-pointed — would otherwise render as unselected and the first
+                   * interaction would BLANK a working mapping. The control must never present
+                   * a correct saved value as if nothing were chosen.
+                   */
+                  const missing = current && !airtableFields.includes(current);
+                  const options = missing ? [current, ...airtableFields] : airtableFields;
+                  // `key` is a human label ("Client Name"), and a space in an id makes
+                  // `htmlFor`/`aria-labelledby` reference NOTHING — the association fails
+                  // silently and looks exactly like the bug it is supposed to fix.
+                  const fieldId = `airtable-map-${key.replace(/[^A-Za-z0-9_-]+/g, '-')}`;
+                  return (
+                    <div key={key} className="space-y-1.5">
+                      {/* ⚠️ THE `<label>` NAMED NOTHING — no `for`, no nested control — so
+                          axe reported `button-name` (critical) on every row of this mapping
+                          grid. A `role="combobox"` takes no name from its content; see the
+                          `aria-label` docblock in ui/combobox.tsx. */}
+                      <label id={`${fieldId}-label`} htmlFor={fieldId} className="block text-xs font-medium text-muted-foreground">{key}</label>
+                      <Combobox
+                        id={fieldId}
+                        aria-labelledby={`${fieldId}-label`}
+                        value={current || null}
+                        onChange={v => updateMapping(key, v ?? '')}
+                        options={options}
+                        clearable
+                        clearLabel="Not mapped"
+                        placeholder="Not mapped"
+                        searchPlaceholder="Search columns"
+                        emptyLabel="No matching column."
+                      />
+                      {missing && (
+                        <p className="text-xs text-warning-strong">Saved, but not in the current Airtable fetch.</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
-      {/* Section 6: Account Groups */}
-      <section className="card-elevated p-6 space-y-4">
-        <h2 className="font-semibold text-base">Account Groups</h2>
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input type="checkbox" checked={form.showPausedAccounts} onChange={e => updateForm({ showPausedAccounts: e.target.checked })}
-            className="rounded border-input" />
-          <span className="text-sm">Show Paused Accounts</span>
-        </label>
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input type="checkbox" checked={form.showChurnedAccounts} onChange={e => updateForm({ showChurnedAccounts: e.target.checked })}
-            className="rounded border-input" />
-          <span className="text-sm">Show Churned Accounts</span>
-        </label>
-        <div>
-          <label className="text-sm font-medium text-muted-foreground">Paused Threshold (days)</label>
-          <input
-            type="number"
-            value={form.pausedThresholdDays}
-            onChange={e => updateForm({ pausedThresholdDays: parseInt(e.target.value) || 1 })}
-            min={1}
-            className="mt-1 w-24 px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none"
-          />
+          {/*
+            The Anthropic API key input is GONE ON PURPOSE — do not restore it. Anything typed
+            there was saved into `app_settings`, a table readable by the anon role, i.e. by
+            anyone on the internet. The key is a server-side secret now.
+          */}
+          <p className="text-xs text-muted-foreground max-w-[520px] pt-2">
+            The Anthropic key used by the AI assistant is held in server-side secrets and
+            cannot be entered here.
+          </p>
         </div>
-      </section>
-    </div>
+      ),
+    },
+  ];
+
+  return (
+    <SettingsShell
+      sections={sections}
+      header={
+        <div className="flex items-center gap-3 min-h-[28px]">
+          <h1 className="text-xl font-semibold tracking-[-0.015em]">Settings</h1>
+          {saved && <span className="text-success text-[13px] flex items-center gap-1 animate-in fade-in"><CheckCircle className="w-3.5 h-3.5" /> Saved</span>}
+          {/* The absence of a tick is not a signal — a user reads "nothing happened" as
+              "nothing needed to happen". A refused write has to SAY it was refused. */}
+          {saveError && (
+            <span role="alert" className="text-destructive text-[13px] flex items-start gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {saveError}
+            </span>
+          )}
+        </div>
+      }
+    />
   );
 }

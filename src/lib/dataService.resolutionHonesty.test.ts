@@ -63,7 +63,7 @@ const SPEND = [
 
 function run(rows: typeof POPULATION) {
   const { records, unresolvedLinks } = mapAirtableRecords(rows, {});
-  const { accounts, unmatchedAppointments } = buildAccountSummaries(SPEND, records, SETTINGS, []);
+  const { accounts, unmatchedAppointments } = buildAccountSummaries(SPEND, records, SETTINGS);
   return {
     records,
     unresolvedLinks,

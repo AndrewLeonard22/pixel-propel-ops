@@ -41,7 +41,7 @@ function accountWithBlankFields(n: number) {
   const appts = Array.from({ length: n }, () =>
     makeAppointmentRow({ client: "Blanks", showStatus: "", leadValid: "", closedRevenue: 0 }),
   );
-  return buildAccountSummaries(spend, appts, SETTINGS, []).accounts.find(a => a.accountName === "Blanks")!;
+  return buildAccountSummaries(spend, appts, SETTINGS).accounts.find(a => a.accountName === "Blanks")!;
 }
 
 describe("a collapse always says what collapsed", () => {
@@ -62,7 +62,7 @@ describe("a collapse always says what collapsed", () => {
     const appts = Array.from({ length: 40 }, (_, i) =>
       makeAppointmentRow({ client: "Mixed", showStatus: i === 39 ? "Showed" : "", leadValid: "", closedRevenue: 0 }),
     );
-    const account = buildAccountSummaries(spend, appts, SETTINGS, []).accounts.find(a => a.accountName === "Mixed")!;
+    const account = buildAccountSummaries(spend, appts, SETTINGS).accounts.find(a => a.accountName === "Mixed")!;
     const { container } = panel(account);
     const head = container.querySelector("thead")!;
     // ⭐ THE SINGLE FILLED ROW IS ROW 40 — OUTSIDE the 30 rows the table renders. If the
@@ -90,7 +90,7 @@ describe("a collapse always says what collapsed", () => {
       makeAdSpendRow({ accountName: "Wall", campaign: "Quiet A", campaignId: "c2", spent: 27, leads: 0 }),
       makeAdSpendRow({ accountName: "Wall", campaign: "Quiet B", campaignId: "c3", spent: 13, leads: 0 }),
     ];
-    const account = buildAccountSummaries(spend, [], SETTINGS, []).accounts.find(a => a.accountName === "Wall")!;
+    const account = buildAccountSummaries(spend, [], SETTINGS).accounts.find(a => a.accountName === "Wall")!;
     panel(account);
     expect(screen.getByText(/2 campaigns with no leads and no appointments/i)).toBeInTheDocument();
     // the spend they carry is stated, so folding them does not hide money

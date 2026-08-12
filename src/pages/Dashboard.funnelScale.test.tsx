@@ -49,7 +49,7 @@ function wideFunnelAccount() {
       }),
     );
   }
-  const built = buildAccountSummaries(spend, appts, SETTINGS, []);
+  const built = buildAccountSummaries(spend, appts, SETTINGS);
   return built.accounts.find(a => a.accountName === "Backyard Paradiso")!;
 }
 
@@ -117,7 +117,7 @@ describe("the conversion funnel is scaled stage-to-stage, not against leads", ()
     const appts = Array.from({ length: 12 }, () =>
       makeAppointmentRow({ client: "NoShows", showStatus: "No Show", closedRevenue: 0 }),
     );
-    const built = buildAccountSummaries(spend, appts, SETTINGS, []);
+    const built = buildAccountSummaries(spend, appts, SETTINGS);
     const account = built.accounts.find(a => a.accountName === "NoShows")!;
     const { container } = mount(account);
     const w = barWidths(container);
@@ -130,7 +130,7 @@ describe("the conversion funnel is scaled stage-to-stage, not against leads", ()
   it("a zero-appointment account renders zero-width bars and never NaN", () => {
     // @bird drives this account explicitly: it is where divide-by-zero hides.
     const spend = [makeAdSpendRow({ accountName: "Quiet", spent: 100, leads: 50 })];
-    const built = buildAccountSummaries(spend, [], SETTINGS, []);
+    const built = buildAccountSummaries(spend, [], SETTINGS);
     const account = built.accounts.find(a => a.accountName === "Quiet")!;
     const { container } = mount(account);
     const w = barWidths(container);

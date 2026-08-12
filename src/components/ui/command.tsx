@@ -105,7 +105,11 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none data-[disabled=true]:pointer-events-none data-[selected='true']:bg-accent data-[selected=true]:text-accent-foreground data-[disabled=true]:opacity-50",
+      // `cursor-pointer`, not the stock `cursor-default`: every one of these rows commits a
+      // value on click. An arrow cursor over a menu row says "text", which is the one thing
+      // it is not — and it is the only cue a mouse user gets that the row is live, since
+      // the highlight follows the KEYBOARD selection, not the pointer.
+      "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:cursor-not-allowed data-[selected='true']:bg-accent data-[selected=true]:text-accent-foreground data-[disabled=true]:opacity-50",
       className,
     )}
     {...props}

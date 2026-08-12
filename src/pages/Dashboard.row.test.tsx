@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { AccountRow } from "./Dashboard";
 import { buildAccountSummaries } from "@/lib/dataService";
-import { makeAdSpendRow, makeAppointmentRow, makeCallRow, makeSettings } from "@/test/factories";
+import { makeAdSpendRow, makeAppointmentRow, makeSettings } from "@/test/factories";
 
 /**
  * THE WIRING ARM — a different question from the badge arm, and @bird drew the line.
@@ -25,12 +25,11 @@ import { makeAdSpendRow, makeAppointmentRow, makeCallRow, makeSettings } from "@
  */
 const SETTINGS = makeSettings();
 
-function buildRow(known?: Parameters<typeof buildAccountSummaries>[4]) {
+function buildRow(known?: Parameters<typeof buildAccountSummaries>[3]) {
   const { accounts } = buildAccountSummaries(
     [makeAdSpendRow({ accountName: "Acme", spent: 500, leads: 20 })],
     [makeAppointmentRow({ client: "Acme" })],
     SETTINGS,
-    [makeCallRow({ ghlLocationName: "Acme" })],
     known,
   );
   return accounts[0];
@@ -95,13 +94,13 @@ describe("AccountRow — the flags are WIRED INTO THE CELLS, not merely stamped"
     expect(c.filter(t => t === "—")).toHaveLength(0);
   });
 
-  it("A DEAD CALL-CENTRE now touches NO CELL IN THIS ROW — the dials column is gone", () => {
-    // ⛔ REWRITTEN with the dials removal. The old arm asserted the DIALS cell reads "—";
-    // that cell no longer exists.
-    // ⭐ THE ASSERTION IS NOW THE STRONGER ONE: with dials off the dashboard, a dead
-    // call-centre must leave this row COMPLETELY UNMARKED — every remaining cell is
-    // Windsor- or Airtable-derived. If a future change re-couples them, this goes RED.
-    renderRow(buildRow({ spend: true, appts: true, calls: false }));
+  it("HEALTHY SOURCES MARK NO CELL — every remaining cell is Windsor- or Airtable-derived", () => {
+    // ⛔ REWRITTEN TWICE. It first asserted the DIALS cell reads "—"; then that a dead
+    // call-centre left the row unmarked. The call-centre source was deleted outright on
+    // 2026-08-11, so there is no dead-calls state left to stage. What survives is the
+    // part that still has teeth: no cell in this row may blank while both live sources
+    // answered.
+    renderRow(buildRow({ spend: true, appts: true }));
     const c = cells();
 
     expect(c[COL.spend]).toBe("$500.00");
@@ -115,7 +114,7 @@ describe("AccountRow — the flags are WIRED INTO THE CELLS, not merely stamped"
   });
 
   it("A DEAD WINDSOR blanks the spend-derived cells but not the appointment counts", () => {
-    renderRow(buildRow({ spend: false, appts: true, calls: true }));
+    renderRow(buildRow({ spend: false, appts: true }));
     const c = cells();
 
     expect(c[COL.spend]).toBe("—");
@@ -125,8 +124,8 @@ describe("AccountRow — the flags are WIRED INTO THE CELLS, not merely stamped"
     expect(c[COL.closed]).toBe("0");  // a SUM over a live source — an honest zero
   });
 
-  it("@bird's DRIVEN CASE: both appointment and call sources dead", () => {
-    renderRow(buildRow({ spend: true, appts: false, calls: false }));
+  it("@bird's DRIVEN CASE: the appointment source dead", () => {
+    renderRow(buildRow({ spend: true, appts: false }));
     const c = cells();
 
     // His f66eed2 row: spend and leads survive, everything downstream blanks.
@@ -145,8 +144,7 @@ describe("AccountRow — the flags are WIRED INTO THE CELLS, not merely stamped"
       [makeAdSpendRow({ accountName: "Acme", spent: 500, leads: 20 })],
       [], // ZERO appointments, and the source ANSWERED
       SETTINGS,
-      [makeCallRow({ ghlLocationName: "Acme" })],
-      { spend: true, appts: true, calls: true },
+      { spend: true, appts: true },
     );
     renderRow(accounts[0]);
     const c = cells();

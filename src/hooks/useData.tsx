@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary, CallRow } from '@/lib/types';
+import type { AppSettings, AdSpendRow, AppointmentRow, AccountSummary } from '@/lib/types';
 import { loadSettings, loadSettingsWithSource, isConfigured, type SettingsOrigin } from '@/lib/config';
-import { checkSheetCompleteness, DEFAULT_ADS_RAW_TAB, type CompletenessReport } from '@/lib/sheetCompleteness';
+import { checkMetaCompleteness, NOT_CHECKED, fetchMetaAdSpend, ALL_DATES, type CompletenessReport, type SpendWindow } from '@/lib/metaAdSpend';
 import { judgeRefresh, snapshotOf, type RefreshVerdict, type RefreshSnapshot } from '@/lib/refreshValidation';
-import { fetchGoogleSheetData, fetchAirtableData, fetchCallCenterData, buildAccountSummaries, detectExclusionState, type ExclusionReport } from '@/lib/dataService';
+import { fetchAirtableData, buildAccountSummaries, detectExclusionState, type ExclusionReport } from '@/lib/dataService';
+import { emptyAccountRegistry, fetchAccountRegistry, type AccountRegistry } from '@/lib/accountRegistry';
 import { buildHonestNumbersReport, type HonestNumbersReport } from '@/lib/honestNumbers';
 import { computeSetterPayouts } from '@/lib/payout';
 import {
@@ -26,9 +27,14 @@ interface DataContextType {
   adSpend: AdSpendRow[];
   appointments: AppointmentRow[];
   accounts: AccountSummary[];
+  /**
+   * The curated ad-account mapping (`ad_accounts`), keyed by normalised Meta account name.
+   * `known: false` means the read has not happened or failed — which is NOT the same as
+   * "there are no mapped accounts", and callers must not treat it as such.
+   */
+  accountRegistry: AccountRegistry;
   unmatchedAppointments: AppointmentRow[];
   airtableFields: string[];
-  callData: CallRow[];
   loading: boolean;
   error: string | null;
   lastUpdated: Date | null;
@@ -49,10 +55,19 @@ interface DataContextType {
   /** Underlying error text for 'local-unreachable'. Null otherwise — never invented. */
   settingsDetail: string | null;
   /**
-   * Is the ad spend feed COMPLETE, or is the sheet's array formula dropping rows?
-   * ⚠️ 'unverifiable' is a real state and NOT a synonym for healthy — see sheetCompleteness.
+   * Is the ad spend feed COMPLETE — did we receive every row the database holds for the
+   * window on screen?
+   * ⚠️ 'unverifiable' is a real state and NOT a synonym for healthy — see metaAdSpend.
    */
   completeness: CompletenessReport;
+  /** The date window the ad-spend query is currently filtered by, in SQL. */
+  spendWindow: SpendWindow;
+  /**
+   * Narrow (or widen) the ad-spend query's date range. Triggers a refetch, because the
+   * whole point is that the narrowing happens in SQL rather than over rows already in the
+   * browser. Passing `ALL_DATES` asks for everything and gets everything, paged.
+   */
+  setSpendWindow: (w: SpendWindow) => void;
   /**
    * ③ Was the last refresh accepted? A REJECTED refresh leaves the previous data on screen
    * — `accept: false` means the numbers below are the LAST GOOD ones, not the newest.
@@ -92,9 +107,9 @@ const defaultDataContext: DataContextType = {
   adSpend: [],
   appointments: [],
   accounts: [],
+  accountRegistry: emptyAccountRegistry(),
   unmatchedAppointments: [],
   airtableFields: [],
-  callData: [],
   loading: false,
   error: null,
   lastUpdated: null,
@@ -106,8 +121,9 @@ const defaultDataContext: DataContextType = {
   settingsDetail: null,
   // Not 'complete': before anything has been probed, claiming the feed is whole is a
   // definite statement made before we have looked.
-  completeness: { state: 'unverifiable', rawRows: null, derivedRows: null, droppedRows: 0,
-    reason: 'not checked yet' },
+  completeness: NOT_CHECKED,
+  spendWindow: ALL_DATES,
+  setSpendWindow: () => {},
   refreshVerdict: null,
   unresolvedClients: 0,
   // Derived from the SAME settings the rest of this default uses, rather than hand-written
@@ -128,9 +144,8 @@ const defaultDataContext: DataContextType = {
 const DataContext = createContext<DataContextType>(defaultDataContext);
 
 const FETCHERS: SourceFetchers = {
-  fetchWindsor: fetchGoogleSheetData,
+  fetchAdSpend: fetchMetaAdSpend,
   fetchAirtable: fetchAirtableData,
-  fetchCallCenter: fetchCallCenterData,
 };
 
 /**
@@ -149,7 +164,6 @@ export function isAppSettingsLike(v: unknown): v is AppSettings {
     typeof v === 'object' &&
     v !== null &&
     !('nativeEvent' in v) &&
-    typeof (v as AppSettings).googleSheetUrl === 'string' &&
     typeof (v as AppSettings).airtableBaseId === 'string'
   );
 }
@@ -158,18 +172,39 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [data, setData] = useState<SourceData>(EMPTY_SOURCE_DATA);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  /**
+   * The curated `ad_accounts` mapping behind the summaries above. Exposed so a screen can
+   * resolve an account it holds by NAME rather than re-fetching the table, and so the
+   * default value can honestly say `known: false` before anything has been read.
+   */
+  const [accountRegistry, setAccountRegistry] = useState<AccountRegistry>(emptyAccountRegistry());
   const [unmatchedAppointments, setUnmatchedAppointments] = useState<AppointmentRow[]>([]);
   const [sources, setSources] = useState<Record<SourceKey, SourceStatus>>(() => initialStatuses(loadSettings()));
   const [settingsOrigin, setSettingsOrigin] = useState<SettingsOrigin>('local-not-configured');
   const [settingsDetail, setSettingsDetail] = useState<string | null>(null);
-  const [completeness, setCompleteness] = useState<CompletenessReport>({
-    state: 'unverifiable', rawRows: null, derivedRows: null, droppedRows: 0, reason: 'not checked yet',
-  });
+  const [completeness, setCompleteness] = useState<CompletenessReport>(NOT_CHECKED);
   const [refreshVerdict, setRefreshVerdict] = useState<RefreshVerdict | null>(null);
   /** The snapshot of the last ACCEPTED refresh. A ref: the gate must not re-run a render. */
   const lastGoodRef = useRef<RefreshSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  /**
+   * ⭐ THE DATE WINDOW THE AD-SPEND QUERY IS FILTERED BY, IN SQL.
+   *
+   * Half the point of leaving the sheet: the CSV had to be downloaded whole and filtered in
+   * the browser, because a CSV cannot answer a WHERE clause. `ad_insights` can, so a page
+   * asking for one month sends `date >= .. AND date <= ..` and receives that month.
+   *
+   * ⚠️ `ALL_DATES` IS A REAL ANSWER, NOT A MISSING FILTER. The Dashboard's default range is
+   * All Time and that genuinely means every row; the fetcher PAGES for it rather than
+   * truncating. Narrowing is what the window buys, not correctness.
+   *
+   * A ref beside the state because `refresh` is created once and must read the CURRENT
+   * window, and because the completeness probe must be handed the window that was actually
+   * fetched rather than whatever the user selected while the request was in the air.
+   */
+  const [spendWindow, setSpendWindowState] = useState<SpendWindow>(ALL_DATES);
+  const spendWindowRef = useRef<SpendWindow>(ALL_DATES);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // "Configured" is now per-source. At the app level it means: is there ANY source we can
@@ -196,6 +231,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async (overrideSettings?: AppSettings) => {
     const s = isAppSettingsLike(overrideSettings) ? overrideSettings : settingsRef.current;
+    const fetchedWindow = spendWindowRef.current;
     const seq = ++requestSeq.current;
     inFlight.current += 1;
     setLoading(true);
@@ -213,7 +249,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     });
 
     try {
-      const { data: nextData, statuses } = await refreshSources(s, FETCHERS, sourcesRef.current, dataRef.current);
+      /**
+       * ⭐ THE CURATED ACCOUNT MAPPING IS FETCHED ON THE DATA PATH, not bolted on afterwards,
+       * because it decides the NAME, PROGRAM and MEDIA BUYER of every summary built below.
+       * Resolving it after the fact would mean one render with Meta's raw names and one with
+       * the client's, on every refresh.
+       *
+       * ⛔ It cannot fail the refresh. `fetchAccountRegistry` swallows its own errors and
+       * returns `known: false`, which falls the whole app back to the legacy alias store —
+       * stale names, but real ones. An ad_accounts outage must not blank the dashboard.
+       */
+      const [{ data: nextData, statuses }, registry] = await Promise.all([
+        refreshSources(s, FETCHERS, sourcesRef.current, dataRef.current, new Date(), fetchedWindow),
+        fetchAccountRegistry(),
+      ]);
 
       // A newer refresh started while this one was in the air. Its answer is the current
       // one; ours is stale by definition, so we drop it rather than overwrite.
@@ -230,7 +279,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
        * ⛔ AND IT NEVER BLANKS THE PAGE — on rejection we simply do not call setData, so the
        * previous numbers stay exactly where they are and the banner says they are stale.
        */
-      const nextAccounts = buildAccountSummaries(nextData.adSpend, nextData.appointments, s, nextData.callData).accounts;
+      const nextAccounts = buildAccountSummaries(nextData.adSpend, nextData.appointments, s, undefined, registry).accounts;
       const verdict = judgeRefresh(snapshotOf(nextData.adSpend, nextAccounts.length), lastGoodRef.current);
       setRefreshVerdict(verdict);
       if (!verdict.accept) {
@@ -248,21 +297,32 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       // per-account rows cannot disagree with the tiles above them. That disagreement is
       // the defect: @bird measured tiles reading "—" beside a table reading $0.00 on one
       // screen, because the honest state existed only at the render layer.
-      const result = buildAccountSummaries(nextData.adSpend, nextData.appointments, s, nextData.callData, {
-        spend: hasUsableData(statuses.windsor.state),
+      const result = buildAccountSummaries(nextData.adSpend, nextData.appointments, s, {
+        spend: hasUsableData(statuses.meta.state),
         appts: hasUsableData(statuses.airtable.state),
-        calls: hasUsableData(statuses.callCenter.state),
-      });
+      }, registry);
       setAccounts(result.accounts);
+      setAccountRegistry(registry);
 
       /**
        * ⛔ DELIBERATELY NOT AWAITED AND NOT IN THE Promise.all ABOVE. @fable: "it must NOT
        * block rendering. Incomplete data with an honest banner beats a blank page." Joining
        * this to the data path would let a completeness probe delay — or, via a rejection,
-       * take down — the numbers it is only supposed to describe. checkSheetCompleteness
+       * take down — the numbers it is only supposed to describe. checkMetaCompleteness
        * cannot throw, and the .catch is belt-and-braces on that promise.
+       *
+       * ⭐ WHAT IT NOW ASKS, and why it is stronger than the probe it replaces. The sheet
+       * detector compared the derived tab's row count to the raw tab's — two copies of one
+       * drifting artefact, which is why it stayed GREEN through the whole period the sheet
+       * was losing July 2026. This reconciles the rows we are COMPUTING TOTALS FROM against
+       * `count(*)` over the SAME window from the SAME authenticated source, so it catches
+       * the failure the old one structurally could not: a paging loop that stops early, or
+       * PostgREST's 1000-row default cap silently keeping 2% of the data.
+       *
+       * ⚠️ THE WINDOW MUST BE THE ONE THAT WAS FETCHED, not the one that is current. A
+       * narrower window compared against a wider fetch reports phantom extra rows.
        */
-      void checkSheetCompleteness(s.googleSheetUrl, s.adsRawTabName ?? DEFAULT_ADS_RAW_TAB)
+      void checkMetaCompleteness(nextData.adSpend.length, fetchedWindow)
         .then(setCompleteness)
         .catch(() => {});
       setUnmatchedAppointments(result.unmatchedAppointments);
@@ -276,6 +336,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (inFlight.current === 0) setLoading(false);
     }
   }, []);
+
+  /**
+   * ⚠️ THE REF IS SET BEFORE THE REFETCH, NOT BY AN EFFECT WATCHING THE STATE.
+   *
+   * `refresh` is created once and reads `spendWindowRef`, so a window written only to React
+   * state would not be visible to the request this call is starting — the query would run
+   * against the PREVIOUS range and the screen would show one range's numbers under another
+   * range's label. Writing the ref first makes the refetch and the label agree.
+   *
+   * An identical window is not re-fetched: the picker re-emits its value on re-render, and
+   * without this every render would start another 48,000-row query.
+   */
+  const setSpendWindow = useCallback((w: SpendWindow) => {
+    const cur = spendWindowRef.current;
+    if (cur.from === w.from && cur.to === w.to) return;
+    spendWindowRef.current = w;
+    setSpendWindowState(w);
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -350,9 +429,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       adSpend: data.adSpend,
       appointments: data.appointments,
       accounts,
+      accountRegistry,
       unmatchedAppointments,
       airtableFields: data.airtableFields,
-      callData: data.callData,
       loading,
       error,
       lastUpdated,
@@ -360,6 +439,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       settingsOrigin,
       settingsDetail,
       completeness,
+      spendWindow,
+      setSpendWindow,
       refreshVerdict,
       unresolvedClients: data.unresolvedClients,
       settingsLoaded,

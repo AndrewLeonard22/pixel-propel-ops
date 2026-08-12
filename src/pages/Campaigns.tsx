@@ -7,11 +7,22 @@ import PerformanceBadge from '@/components/common/PerformanceBadge';
 import { formatCurrency, formatNumber, formatPercent } from '@/lib/dataService';
 import type { CampaignSummary } from '@/lib/types';
 import { Search } from 'lucide-react';
+import { Combobox } from '@/components/ui/combobox';
+import { accountTitle } from '@/lib/accountDisplay';
 
 type SortKey = 'campaignName' | 'accountName' | 'spend' | 'leads' | 'cpl' | 'appointments' | 'leadPercent' | 'costPerAppt' | 'closed' | 'revenue';
 
 export default function Campaigns() {
   const { accounts, loading, error, configured, refresh, honestNumbers, settingsOrigin, settingsDetail} = useData();
+  /**
+   * ⭐ The campaign rows carry the Meta account NAME, not the client's. Resolving it here
+   * off the summaries the page already has (rather than re-fetching `ad_accounts`) keeps
+   * this column agreeing with the Accounts page by construction.
+   */
+  const companyByAccount = useMemo(
+    () => new Map(accounts.map(a => [a.accountName, accountTitle(a).label])),
+    [accounts],
+  );
   const [search, setSearch] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
   const [sortKey, setSortKey] = useState<SortKey>('spend');
@@ -59,14 +70,30 @@ export default function Campaigns() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input type="text" placeholder="Search campaigns..." value={search} onChange={e => setSearch(e.target.value)}
-            className="pl-9 pr-4 py-2 text-sm rounded-lg border bg-card focus:outline-none focus:ring-2 focus:ring-ring/20 w-56" />
+          <label htmlFor="campaign-search" className="sr-only">Search campaigns by name</label>
+          {/* `focus:border-ring` and NOT `ring-2`: a 4px halo outside the control collides
+              with its neighbour across the gap. Same 1px inset idiom as ui/combobox. */}
+          <input id="campaign-search" type="text" placeholder="Search campaigns..." value={search} onChange={e => setSearch(e.target.value)}
+            className="pl-9 pr-4 h-9 text-sm rounded-md border border-input bg-background transition-colors hover:border-border focus:outline-none focus-visible:border-ring w-56 min-w-0" />
         </div>
-        <select value={accountFilter} onChange={e => setAccountFilter(e.target.value)}
-          className="px-3 py-2 text-sm rounded-lg border bg-card focus:outline-none">
-          <option value="all">All Accounts</option>
-          {accounts.map(a => <option key={a.accountName} value={a.accountName}>{a.accountName}</option>)}
-        </select>
+        {/* 🔴 A RAW NATIVE `<select>` WAS STILL SHIPPING HERE — @andrew: "the dropdowns on
+            here look horrendous, look what modern software does". Dashboard.tsx carries a
+            comment saying this exact pattern was the defect and was fixed; Campaigns was
+            never touched, so the complaint was still live on a top-level page. It also had
+            `focus:outline-none` with nothing put back, so keyboard focus was invisible. */}
+        <Combobox
+          aria-label="Filter campaigns by account"
+          value={accountFilter}
+          onChange={v => setAccountFilter(v ?? 'all')}
+          // value = the match key (Meta's name), label = what the user calls the client.
+          options={[
+            { value: 'all', label: 'All accounts' },
+            ...accounts.map(a => ({ value: a.accountName, label: accountTitle(a).label })),
+          ]}
+          searchPlaceholder="Search accounts"
+          emptyLabel="No matching account."
+          className="w-56"
+        />
       </div>
 
       {loading ? <TableSkeleton rows={8} /> : sorted.length === 0 ? <EmptyState /> : (
@@ -91,7 +118,9 @@ export default function Campaigns() {
               {sorted.map((c, i) => (
                 <tr key={`${c.campaignId}-${i}`} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
                   <td className="py-3 px-2 font-medium">{c.campaignName}</td>
-                  <td className="py-3 px-2 text-muted-foreground">{c.accountName}</td>
+                  <td className="py-3 px-2 text-muted-foreground" title={c.accountName}>
+                    {companyByAccount.get(c.accountName) ?? c.accountName}
+                  </td>
                   <td className="py-3 px-2 text-right font-mono-tabular">{formatCurrency(c.spend)}</td>
                   <td className="py-3 px-2 text-right font-mono-tabular">{formatNumber(c.leads)}</td>
                   <td className="py-3 px-2 text-right font-mono-tabular">{formatCurrency(c.cpl)}</td>
