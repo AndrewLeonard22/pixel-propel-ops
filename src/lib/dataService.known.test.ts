@@ -20,10 +20,21 @@ import { makeAdSpendRow, makeAppointmentRow, makeSettings } from "@/test/factori
  *   That is absence rendered as a plausible fact, and the table is what a buyer reads.
  *
  * ⚠️ THE COMPATIBILITY PROPERTY IS LOAD-BEARING, NOT A COURTESY
- *   Targets.tsx:117 and TeamPerformance.tsx:89 call this with FOUR arguments. They filter
- *   arrays they already hold and have no notion of a fetch. If an omitted `known` defaulted
- *   to "unknown", both pages would blank every number — the exact mirror of the bug. So
- *   "absent means known" is asserted here as a rule, not left to inference.
+ *   If an omitted `known` defaulted to "unknown", every caller that passes plain arrays
+ *   would blank every number — the exact mirror of the bug. So "absent means known" is
+ *   asserted here as a rule, not left to inference.
+ *
+ *   ⛔ THE NAMED EXAMPLES THAT USED TO SIT HERE WERE STALE, AND A STALE EXAMPLE IN A RULE
+ *   INSTRUCTS THE RE-BREAK. This block said "Targets.tsx:117 and TeamPerformance.tsx:89 call
+ *   this with FOUR arguments … and have no notion of a fetch". That stopped being true at
+ *   the Supabase cutover: both pages now pass `known` AND `registry` explicitly, precisely
+ *   because omitting either asserts something the page cannot know. A reader taking the old
+ *   sentence at face value would have "restored consistency" by DROPPING those arguments —
+ *   which is how Media Buying came to print `Appts 0 · Revenue $0.00` beside a named buyer
+ *   during a live Airtable outage. See `dataService.teamKnown.test.ts` and
+ *   `pages/pages.apptsDead.test.tsx`.
+ *
+ *   The rule is about the DEFAULT, and it needs no example to be true.
  */
 const SPEND = [
   makeAdSpendRow({ accountName: "Acme", spent: 300, leads: 10 }),

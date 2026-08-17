@@ -245,6 +245,31 @@ export interface TeamMember {
   avgLeadPercent: number;
   closedDeals: number;
   revenueGenerated: number;
+  /**
+   * 🔴 WHICH SOURCES ACTUALLY ANSWERED — the same fact `AccountSummary` carries, and its
+   * absence here is how it got thrown away one line after being computed correctly.
+   *
+   * `buildAccountSummaries` stamps `spendKnown`/`apptsKnown` on every row. `buildTeamPerformance`
+   * then reduced those rows into `totalAppointments`, `closedDeals` and `revenueGenerated`
+   * and returned a shape with nowhere to put the flags, so a dead Airtable arrived at
+   * Media Buying as a confident zero. Measured during a real Airtable proxy outage, with
+   * the spend feed perfectly healthy:
+   *
+   *     Jez   Spend $217,441.02   Leads 9,908   Appts 0   Avg Lead % 0.0%   Revenue $0.00
+   *
+   * That is not a dashboard reading wrong. It is a per-person scorecard reading wrong ABOUT
+   * SOMEBODY, and every figure in it is a judgement someone gets paid on.
+   *
+   * ⚠️ REQUIRED, not optional like the `AccountSummary` pair. That pair is optional because
+   * `buildAccountSummaries` has many callers that predate the flags; this type has exactly
+   * ONE producer and ONE consumer, so `?` would buy nothing and would let the next consumer
+   * silently default a refusal back to "known" — the shape this whole file exists to kill.
+   *
+   * AGGREGATE SEMANTICS: unknown if ANY constituent account is unknown. A sum missing one
+   * contributor is not a smaller sum, it is an unknown sum.
+   */
+  spendKnown: boolean;
+  apptsKnown: boolean;
 }
 
 export type PerformanceLevel = 'good' | 'fair' | 'poor';

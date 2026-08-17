@@ -13,8 +13,15 @@ import { Combobox } from '@/components/ui/combobox';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months';
 
+/**
+ * The same glyph the Dashboard prints for "we looked and could not find out". Kept
+ * character-identical so a reader who has learned what it means on one page does not have
+ * to re-learn it on another.
+ */
+const UNKNOWN = '—';
+
 function MetricBar({
-  label, scope, value, displayValue, zones, scaleMax, description
+  label, scope, value, displayValue, zones, scaleMax, description, known = true
 }: {
   label: string;
   scope: string;
@@ -24,9 +31,25 @@ function MetricBar({
   scaleMax: number;
   description: string;
   scaleLabels: string[];
+  /**
+   * 🔴 FALSE MEANS THE SOURCE BEHIND `value` NEVER ANSWERED — not that it answered zero.
+   *
+   * Without this, a dead Airtable drove `value` to 0 and this component did three separate
+   * things with it, all of them assertions: printed `$0.00`, coloured it with the zone
+   * `0` lands in, and parked the marker at the far-left of the scale. For cost-per-appointment
+   * that meant a DEAD SOURCE SCORING ITSELF THE BEST POSSIBLE VALUE ON THE PAGE, in
+   * success-green, against "Target: under $180".
+   *
+   * Defaults TRUE so the two CPL bars — which contain no appointment and stay knowable —
+   * are unchanged.
+   */
+  known?: boolean;
 }) {
   const markerPos = Math.min(Math.max((value / scaleMax) * 100, 1), 99);
   const valueColor = (() => {
+    // ⛔ BEFORE the zone walk, not inside it. An unknown value has no zone; falling through
+    // the loop would hand it whichever colour `0` happens to land in, which is the grade.
+    if (!known) return 'text-muted-foreground';
     let cumulative = 0;
     const totalFlex = zones.reduce((s, z) => s + z.flex, 0);
     for (const zone of zones) {
@@ -42,20 +65,25 @@ function MetricBar({
     <div className="card-elevated p-5">
       <div className="flex items-baseline justify-between mb-1">
         <span className="text-sm font-semibold text-foreground">{label}</span>
-        <span className={`text-lg font-bold font-mono-tabular ${valueColor}`}>{displayValue}</span>
+        <span className={`text-lg font-bold font-mono-tabular ${valueColor}`}>{known ? displayValue : UNKNOWN}</span>
       </div>
       <p className="text-[11px] text-muted-foreground mb-3">{scope}</p>
       <div className="relative">
-        <div className="flex rounded-md overflow-hidden h-5">
+        {/* The zones stay: they are the BENCHMARK, which is a setting, not a measurement,
+            and is still true while the source is down. Only the marker goes, because the
+            marker is the measurement. */}
+        <div className={`flex rounded-md overflow-hidden h-5${known ? '' : ' opacity-40'}`}>
           {zones.map((z, i) => (
             <div key={i} className={`${z.color} opacity-80 flex items-center justify-center overflow-hidden`} style={{ flex: z.flex }}>
               <span className="text-[9px] font-medium text-white/90 whitespace-nowrap overflow-hidden">{z.label}</span>
             </div>
           ))}
         </div>
-        <div className="absolute top-0 h-5" style={{ left: `${markerPos}%`, transform: 'translateX(-50%)' }}>
-          <div className="w-0.5 h-full bg-foreground rounded-full" />
-        </div>
+        {known && (
+          <div className="absolute top-0 h-5" style={{ left: `${markerPos}%`, transform: 'translateX(-50%)' }}>
+            <div className="w-0.5 h-full bg-foreground rounded-full" />
+          </div>
+        )}
       </div>
       <p className="text-[11px] text-muted-foreground mt-2">{description}</p>
     </div>
@@ -187,11 +215,42 @@ export default function Targets() {
      * ⚠️ `dfyAppts` is DFY-only on BOTH sides of the division now, and the scope line under
      * the bar says so instead of the old, wrong "Funnel conversion".
      */
+    /**
+     * 🔴 TWO OF THE THREE HEADLINE FIGURES ON THIS PAGE ARE APPOINTMENT-DERIVED, AND THIS
+     * PAGE HAD NO WAY TO SAY SO.
+     *
+     * The guard below covers Windsor. Airtable was never consulted anywhere on this page, so
+     * during a real Airtable proxy outage — spend feed perfectly healthy — `dfyAppts`
+     * summed to 0 and the page rendered:
+     *
+     *     DFY Cost/Appt   $0.00   in text-success, under "Target: under $180"
+     *     Lead-to-Appt     0.0%   in text-destructive, under "Target: above 15%"
+     *
+     * The second is a wrong number. The FIRST IS WORSE THAN WRONG: a dead source awarded
+     * itself the best achievable score on the page and coloured it green. A cost-per-thing
+     * whose denominator is missing does not tend toward zero, it is undefined.
+     *
+     * ⛔ NOT A PAGE-LEVEL BAIL LIKE THE WINDSOR ONE. Both CPL bars are spend-over-leads with
+     * no appointment anywhere in them; they stay fully knowable off a live feed and
+     * suppressing them would be hiding real data to hide unreal data.
+     *
+     * ⚠️ ASKED OF `filteredAccounts`, NOT `dfyAccounts`. The question is "did Airtable
+     * answer", which is a fact about the FEED, not about the DFY subset — and `dfyAccounts`
+     * can be empty (a window with only DWY accounts in it), where `.some()` returns false
+     * and would report a dead source as known. `filteredAccounts` is non-empty by the guard
+     * at the top of this memo.
+     *
+     * `.some(=== false)` and not `.every(!== false)` for the same reason: `[].every()` is
+     * `true`, and a vacuous true here is a refusal re-read as a confident answer.
+     */
+    const apptsKnown = !filteredAccounts.some(a => a.apptsKnown === false);
+
     return {
       dfyAvgCPA: dfyAppts > 0 ? dfyPerfSpend / dfyAppts : 0,
       dfyAvgCPL: dfyPerfLeads > 0 ? dfyPerfSpend / dfyPerfLeads : 0,
       dwyAvgCPL: dwyPerfLeads > 0 ? dwyPerfSpend / dwyPerfLeads : 0,
       leadToAppt: dfyPerfLeads > 0 ? (dfyAppts / dfyPerfLeads) * 100 : 0,
+      apptsKnown,
       dwyExcluded: dwyAccounts.length,
       internalExcluded: activeAccounts.filter(a => a.program === 'Internal').length,
     };
@@ -253,11 +312,25 @@ export default function Targets() {
         />
       </div>
 
+      {/* ⭐ ABOVE THE NUMBERS IT IS ABOUT. Two of the three summary cards and two of the
+          three bars go to an em dash when this fires, and an em dash with no explanation is
+          only marginally better than a fabricated zero — the reader still cannot tell
+          "source down" from "we removed the metric". */}
+      {!hasUsableData(sources.airtable.state) && (
+        <ErrorBanner
+          message={`${sources.airtable.label} is unavailable. Cost per appointment and the lead-to-appointment rate are shown as ${UNKNOWN} rather than as zero — a cost per appointment with no appointments is undefined, not cheap. Cost per lead is unaffected.`}
+        />
+      )}
+
       {/* Top summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* ⚠️ THE COLOUR IS PART OF THE CLAIM. `$0.00 < 180` is true, so an unknown
+            cost-per-appointment used to render success-green — the best grade on the page,
+            awarded by a source that never answered. The known-check comes FIRST in the
+            ternary, ahead of the threshold comparison, for exactly that reason. */}
         <div className="card-elevated p-4">
           <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">DFY Cost/Appt</p>
-          <p className={`text-xl font-bold font-mono-tabular ${stats.dfyAvgCPA < 180 ? 'text-success' : stats.dfyAvgCPA <= 240 ? 'text-warning-strong' : 'text-destructive'}`}>{formatCurrency(stats.dfyAvgCPA)}</p>
+          <p className={`text-xl font-bold font-mono-tabular ${!stats.apptsKnown ? 'text-muted-foreground' : stats.dfyAvgCPA < 180 ? 'text-success' : stats.dfyAvgCPA <= 240 ? 'text-warning-strong' : 'text-destructive'}`}>{stats.apptsKnown ? formatCurrency(stats.dfyAvgCPA) : UNKNOWN}</p>
           <p className="text-[11px] text-muted-foreground mt-1">Target: under $180</p>
         </div>
         <div className="card-elevated p-4">
@@ -267,7 +340,7 @@ export default function Targets() {
         </div>
         <div className="card-elevated p-4">
           <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Lead-to-Appt</p>
-          <p className={`text-xl font-bold font-mono-tabular ${stats.leadToAppt >= 15 ? 'text-success' : stats.leadToAppt >= 5 ? 'text-warning-strong' : 'text-destructive'}`}>{formatPercent(stats.leadToAppt)}</p>
+          <p className={`text-xl font-bold font-mono-tabular ${!stats.apptsKnown ? 'text-muted-foreground' : stats.leadToAppt >= 15 ? 'text-success' : stats.leadToAppt >= 5 ? 'text-warning-strong' : 'text-destructive'}`}>{stats.apptsKnown ? formatPercent(stats.leadToAppt) : UNKNOWN}</p>
           <p className="text-[11px] text-muted-foreground mt-1">Target: above 15%</p>
         </div>
       </div>
@@ -279,6 +352,7 @@ export default function Targets() {
           scope={`${dfyScope} · target under $180`}
           value={stats.dfyAvgCPA}
           displayValue={formatCurrency(stats.dfyAvgCPA)}
+          known={stats.apptsKnown}
           zones={[
             { flex: 180, color: 'bg-success', label: 'Under $180' },
             { flex: 60, color: 'bg-warning', label: '$180–240' },
@@ -307,6 +381,7 @@ export default function Targets() {
           scope={`${dfyScope} · target above 15%`}
           value={stats.leadToAppt}
           displayValue={formatPercent(stats.leadToAppt)}
+          known={stats.apptsKnown}
           zones={[
             { flex: 5, color: 'bg-destructive', label: 'Under 5%' },
             { flex: 10, color: 'bg-warning', label: '5–15%' },

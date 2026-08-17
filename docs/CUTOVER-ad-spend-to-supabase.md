@@ -1,9 +1,11 @@
 # Cutover record — ad spend moves from the Google Sheet to `ad_insights`
 
-**Status: built and verified in the working tree. NOT committed, NOT deployed.**
-Production at `adsdata.socialworkspro.com` still serves the sheet. Measured in the live
-bundle `index-BpP_wZ45.js`: `docs.google.com/spreadsheets` 2, `export?format=csv` 1,
-`ad_insights` 0.
+**Status: COMMITTED (`280b971`). NOT deployed — production still serves the sheet.**
+Re-measured 2026-08-12 against the live bundle `index-BpP_wZ45.js` at
+`adsdata.socialworkspro.com`: `docs.google.com/spreadsheets` **2**, `export?format=csv` **1**,
+`ad_insights` **0**. A local `vite build` of `280b971` measures 0 / 0 / 2. The change is
+finished and proven in the repo; the deploy is a separate, owner-gated act. **See §10 — the
+brief's sheet baseline is NOT a wrong input, and §7/§8/§9 concluded that it was.**
 
 This file exists because **one consequence of the cutover is invisible from inside the app
 after it ships**, and a consequence nobody can see is a consequence nobody consented to.
@@ -40,10 +42,16 @@ The sheet figure drifts by tens of dollars between readings because the sheet is
 recent days. Both are expected. The 27.6% is not.
 
 > ⚠️ **Two numbers in `~/code/socialworks-ads/reconciliation-baseline.md` do not reproduce
-> and will make a correct cutover read as a failure.** Its sheet total of **$662,135.29** (and
-> the +$108,469 / +14.1% derived from it) cannot be obtained from either tab; the live sheet
-> is ~$604,025. And acceptance check #1 asks the TOTAL SPEND tile to read **$770,920.57**,
-> which it deliberately does not — see §4. Amend that file before anyone checks it literally.
+> against TODAY's sheet and will make a correct cutover read as a failure.** Its sheet total of
+> **$662,135.29** (and the +$108,469 / +14.1% derived from it) cannot be obtained from either
+> tab today; the live sheet is $604,025.09. And acceptance check #1 asks the TOTAL SPEND tile
+> to read **$770,920.57**, which it deliberately does not — see §4.
+>
+> ⛔ **DO NOT conclude from this that $662,135.29 was a bad measurement — §7/§8/§9 did, and
+> they were wrong.** It is exactly today's sheet plus the July 2026 the sheet has since
+> dropped: `$604,025.09 + $58,110.20 = $662,135.29`. **Read §10 before acting on this
+> paragraph.** The correct reading is that the sheet is still losing history, which makes it
+> unusable as a rollback target.
 
 ## 3. ⛔ WHAT LEAVES THE PRODUCT, AND WHY NOTHING ON SCREEN CAN SAY SO
 
@@ -504,3 +512,54 @@ and mutation-tested RED.
   `honestZeroWiring` flake. The third cause — concurrent `gates.mjs` runs — is closed by 9.2.
 * **The deleted `CallCenter.tsx` and 6 other files.** Pre-existing tree state from another
   session, not separable from this cutover and not mine to restore.
+
+---
+
+## 10. Fifth pass, 2026-08-12 — the $662,135.29 baseline is CORRECT, and four passes called it wrong
+
+Every pass before this one, including the reconciliation baseline itself, recorded the brief's
+sheet total of **$662,135.29** as unobtainable and therefore as a bad input. §9 wrote it off as
+"a wrong input, reproduced as wrong by three independent passes and by me."
+
+**That verdict was wrong, and it was wrong in the direction that matters.** The number was a
+correct reading of the sheet at the time the brief was written. The sheet has lost a month
+since. Measured tonight, tab `gid=0`, the tab `convertSheetUrlToCsv()` actually builds:
+
+| | |
+|---|---:|
+| live sheet total, 2025-01-01.. | $604,025.09 |
+| July 2026 on the sheet (2,187 rows in June, **0 in July**, 318 in August) | absent |
+| the brief's baseline | $662,135.29 |
+| **difference** | **$58,110.20** |
+
+`$604,025.09 + $58,110.20 = $662,135.29` — to the cent. The sheet's 2026 month coverage is
+`06: $53,946.28`, `07: nothing at all`, `08: $7,305.59` (only 8/8 onward). Its Windsor feed
+appends with `Date Preset: last_1d` (tab `gid=868626544`, destination `dest-11683`), so a
+scheduler that stops appending leaves a hole exactly this shape and never backfills it.
+
+### Why the distinction is not pedantry
+
+"The brief measured a number we cannot reproduce" and "the sheet is actively shedding history"
+are opposite findings.
+
+* The first says the input was untrustworthy and the sheet is a fine fallback.
+* The second says **the sheet is still losing data right now**, which is the strongest argument
+  for the cutover in this file, and it means the sheet is **not a viable rollback target** —
+  rolling back re-adopts a feed that has already silently dropped 38 days.
+
+Four passes reached the first conclusion because each asked only "does this number reproduce?"
+That question cannot distinguish a bad measurement from a good measurement of a changed world.
+The question that separates them is "what would have to be true for it to reproduce?", and its
+answer — one contiguous missing month, worth $58,110.20 — was one aggregation away the whole
+time.
+
+### What the headline is, against each baseline
+
+| baseline | spend then | now (`ad_insights`) | move |
+|---|---:|---:|---|
+| the brief's sheet snapshot | $662,135.29 | $770,618.10 | +$108,482.81 (+16.4%) — the brief predicted ~$108,469 |
+| the sheet as it stands today | $604,025.09 | $771,057.48 | **+$167,032.39 (+27.7%)** |
+
+Both are UP. The brief's expected delta reproduces against the sheet the brief actually saw, to
+within $14 of drift. The larger number is not a better result — it is the same cutover measured
+against a baseline that has since decayed further.

@@ -15,6 +15,13 @@ import { Combobox } from '@/components/ui/combobox';
 
 type DatePreset = 'all' | 'this_month' | 'last_month' | 'last_3_months' | 'custom';
 
+/**
+ * The same glyph the Dashboard prints for "we looked and could not find out". Kept
+ * character-identical so a reader who has learned what it means on one page does not have
+ * to re-learn it on another.
+ */
+const UNKNOWN = '—';
+
 export default function MediaBuying() {
   const { accounts, adSpend, appointments, settings, loading, error, configured, refresh, honestNumbers, sources, settingsOrigin, settingsDetail, accountRegistry} = useData();
 
@@ -99,6 +106,27 @@ export default function MediaBuying() {
 
   const team = useMemo(() => buildTeamPerformance(filteredAccounts), [filteredAccounts]);
 
+  /**
+   * 🔴 THE SECOND SOURCE THIS PAGE READS, AND THE ONE IT HAD NO GUARD FOR.
+   *
+   * The bail below covers Windsor. Airtable was never checked anywhere on this page, so
+   * during a real Airtable proxy outage — with the spend feed perfectly healthy — the
+   * leaderboard rendered `Appts 0 · Avg Lead % 0.0% · Closed 0 · Revenue $0.00` beside a
+   * named buyer. The aggregator had it right the whole time; the flag died in the reduce.
+   *
+   * ⛔ NOT A PAGE-LEVEL BAIL LIKE THE WINDSOR ONE. A dead Windsor leaves nothing knowable
+   * here, so blanking is honest. A dead Airtable leaves Spend, Leads and Avg CPL fully
+   * knowable from a live feed — blanking those would suppress real data to hide unreal
+   * data, which is a different lie. Per-cell, exactly as the Dashboard does it.
+   */
+  const spend = (m: { spendKnown: boolean }, render: () => string) => (m.spendKnown ? render() : UNKNOWN);
+  const appt = (m: { apptsKnown: boolean }, render: () => string) => (m.apptsKnown ? render() : UNKNOWN);
+  // Appointments OVER leads. Leads come from Windsor, appointments from Airtable, so this
+  // one needs BOTH — gating it on `apptsKnown` alone would print a rate built on a
+  // denominator nobody could vouch for.
+  const rate = (m: { spendKnown: boolean; apptsKnown: boolean }, render: () => string) =>
+    m.spendKnown && m.apptsKnown ? render() : UNKNOWN;
+
   // 🔴 EVERY NUMBER ON THIS PAGE TRAVERSES WINDSOR, AND NOTHING HERE CONSULTED IT.
   // @apprentice and @raccoon measured it: this page RE-DERIVES its own accounts via
   // buildAccountSummaries(filteredSpend, …), so a dead Windsor yields an EMPTY list and
@@ -168,6 +196,16 @@ export default function MediaBuying() {
       {/* wrapped — a bare reference is called with the click event, which refresh read as override settings and silently refused */}
       {error && <ErrorBanner message={error} onRetry={() => refresh()} />}
 
+      {/* ⭐ ABOVE THE NUMBERS IT IS ABOUT. Four of the ten leaderboard columns go blank when
+          this fires, and an em dash with no explanation is only marginally better than a
+          fabricated zero — the reader still cannot tell "source down" from "we removed the
+          column". This names the source and says which columns it took with it. */}
+      {!hasUsableData(sources.airtable.state) && (
+        <ErrorBanner
+          message={`${sources.airtable.label} is unavailable. Appointments, lead-to-appointment rate, closed deals and revenue are shown as ${UNKNOWN} rather than as zero. Spend, leads and cost per lead are unaffected.`}
+        />
+      )}
+
       {loading ? <TableSkeleton rows={4} /> : team.length === 0 ? <EmptyState message="No media buyer data for this period." /> : (
         <>
           {/* Buyer cards */}
@@ -184,12 +222,12 @@ export default function MediaBuying() {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div><span className="text-muted-foreground">Spend</span><p className="font-mono-tabular font-semibold">{formatCurrency(m.totalSpend)}</p></div>
-                  <div><span className="text-muted-foreground">Leads</span><p className="font-mono-tabular font-semibold">{formatNumber(m.totalLeads)}</p></div>
-                  <div><span className="text-muted-foreground">Appts</span><p className="font-mono-tabular font-semibold">{formatNumber(m.totalAppointments)}</p></div>
-                  <div><span className="text-muted-foreground">Avg CPL</span><p className="font-mono-tabular font-semibold">{formatCurrency(m.avgCPL)}</p></div>
-                  <div><span className="text-muted-foreground">Closed</span><p className="font-mono-tabular font-semibold">{formatNumber(m.closedDeals)}</p></div>
-                  <div><span className="text-muted-foreground">Revenue</span><p className="font-mono-tabular font-semibold">{formatCurrency(m.revenueGenerated)}</p></div>
+                  <div><span className="text-muted-foreground">Spend</span><p className="font-mono-tabular font-semibold">{spend(m, () => formatCurrency(m.totalSpend))}</p></div>
+                  <div><span className="text-muted-foreground">Leads</span><p className="font-mono-tabular font-semibold">{spend(m, () => formatNumber(m.totalLeads))}</p></div>
+                  <div><span className="text-muted-foreground">Appts</span><p className="font-mono-tabular font-semibold">{appt(m, () => formatNumber(m.totalAppointments))}</p></div>
+                  <div><span className="text-muted-foreground">Avg CPL</span><p className="font-mono-tabular font-semibold">{spend(m, () => formatCurrency(m.avgCPL))}</p></div>
+                  <div><span className="text-muted-foreground">Closed</span><p className="font-mono-tabular font-semibold">{appt(m, () => formatNumber(m.closedDeals))}</p></div>
+                  <div><span className="text-muted-foreground">Revenue</span><p className="font-mono-tabular font-semibold">{appt(m, () => formatCurrency(m.revenueGenerated))}</p></div>
                 </div>
               </div>
             ))}
@@ -220,13 +258,13 @@ export default function MediaBuying() {
                       <td className="py-3 px-3 font-mono-tabular text-muted-foreground">{i + 1}</td>
                       <td className="py-3 px-3 font-medium">{m.name}</td>
                       <td className="py-3 px-3 text-right font-mono-tabular">{m.accountsManaged}</td>
-                      <td className="py-3 px-3 text-right font-mono-tabular">{formatCurrency(m.totalSpend)}</td>
-                      <td className="py-3 px-3 text-right font-mono-tabular">{formatNumber(m.totalLeads)}</td>
-                      <td className="py-3 px-3 text-right font-mono-tabular">{formatNumber(m.totalAppointments)}</td>
-                      <td className="py-3 px-3 text-right font-mono-tabular">{formatCurrency(m.avgCPL)}</td>
-                      <td className="py-3 px-3 text-right font-mono-tabular">{formatPercent(m.avgLeadPercent)}</td>
-                      <td className="py-3 px-3 text-right font-mono-tabular">{formatNumber(m.closedDeals)}</td>
-                      <td className="py-3 px-3 text-right font-mono-tabular">{formatCurrency(m.revenueGenerated)}</td>
+                      <td className="py-3 px-3 text-right font-mono-tabular">{spend(m, () => formatCurrency(m.totalSpend))}</td>
+                      <td className="py-3 px-3 text-right font-mono-tabular">{spend(m, () => formatNumber(m.totalLeads))}</td>
+                      <td className="py-3 px-3 text-right font-mono-tabular">{appt(m, () => formatNumber(m.totalAppointments))}</td>
+                      <td className="py-3 px-3 text-right font-mono-tabular">{spend(m, () => formatCurrency(m.avgCPL))}</td>
+                      <td className="py-3 px-3 text-right font-mono-tabular">{rate(m, () => formatPercent(m.avgLeadPercent))}</td>
+                      <td className="py-3 px-3 text-right font-mono-tabular">{appt(m, () => formatNumber(m.closedDeals))}</td>
+                      <td className="py-3 px-3 text-right font-mono-tabular">{appt(m, () => formatCurrency(m.revenueGenerated))}</td>
                     </tr>
                   ))}
                 </tbody>

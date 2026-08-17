@@ -185,7 +185,7 @@ vi.mock('@/integrations/supabase/client', () => {
 
 const {
   fetchMetaAdSpend, checkMetaCompleteness, countMetaSpendRows, countBaseSpendRows,
-  assertWindow, PAGE_SIZE, ALL_DATES, completenessMessage,
+  assertWindow, PAGE_SIZE, MAX_PAGES, ALL_DATES, completenessMessage,
   AD_SPEND_VIEW, AD_SPEND_BASE,
 } = await import('./metaAdSpend');
 const { missingSettingsFor, isSourceConfigured } = await import('./sourceStatus');
@@ -860,5 +860,90 @@ describe('a stale page-0 count must not end the fetch short', () => {
     // One data request against the view, then one count against the view. No second page.
     expect(h.ranges).toHaveLength(1);
     expect(h.tables).toEqual([AD_SPEND_VIEW, AD_SPEND_VIEW]);
+  });
+});
+
+/**
+ * 🔴 THE ONE GUARD IN THIS MODULE WITH NO TEST BEHIND IT.
+ *
+ * Measured: replacing the `throw` at the bottom of the paging loop with `return rows`
+ * survived the ENTIRE suite — 792 tests, all green. That is a fail-open with a comment
+ * explaining why it must not fail open, which is the worst kind: the next reader sees a
+ * documented invariant and no instrument, and "simplifying" it costs nothing visible.
+ *
+ * WHAT REACHING `MAX_PAGES` MEANS. The loop stops on one of two FACTS — we hold what the
+ * source counted, or the server returned an empty page. Running out of requests means
+ * neither fact ever arrived: a server that keeps serving full pages forever, a count that
+ * keeps rising, an offset that is not advancing. Every one of those leaves the returned set
+ * of UNKNOWN completeness. `return rows` would hand that to the dashboard as the total.
+ *
+ * ⚠️ 200 REQUESTS IS FOUR TIMES A CLEAN RUN over 48,611 rows, so reaching it is a defect and
+ * not a large customer. The bound is not the thing under test — the BEHAVIOUR AT THE BOUND is.
+ */
+describe('🔴 MAX_PAGES — running out of requests is a refusal, not a result', () => {
+  it('THROWS rather than returning a set of unknown completeness', async () => {
+    // A server that never runs out and never counts: every page is exactly full of rows
+    // nobody has seen, so neither termination fact can ever arrive.
+    h.dataCount = 'auto';
+    h.pageRows = (from) => Array.from({ length: PAGE_SIZE }, (_, i) => ({
+      date: '2026-08-08', ad_id: `ad-${from + i}`, account_id: 'ACCT', account_name: 'Acme',
+      campaign_id: 'c1', campaign_name: 'C', adset_id: 'a1', adset_name: 'A',
+      ad_name: 'N', spend: '10', leads: 1,
+    }));
+
+    await expect(fetchMetaAdSpend(DEFAULT_SETTINGS, ALL_DATES)).rejects.toThrow(
+      /did not terminate/i,
+    );
+  });
+
+  it('the refusal SAYS what it is refusing — page bound, rows held, and why', async () => {
+    h.dataCount = 'auto';
+    h.pageRows = (from) => Array.from({ length: PAGE_SIZE }, (_, i) => ({
+      date: '2026-08-08', ad_id: `ad-${from + i}`, account_id: 'ACCT', account_name: 'Acme',
+      campaign_id: 'c1', campaign_name: 'C', adset_id: 'a1', adset_name: 'A',
+      ad_name: 'N', spend: '10', leads: 1,
+    }));
+
+    // A bare "something went wrong" would send whoever hits this reading the loop from
+    // scratch. The message carries the two numbers that identify which arm failed.
+    const err = await fetchMetaAdSpend(DEFAULT_SETTINGS, ALL_DATES).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain(String(MAX_PAGES));
+    expect((err as Error).message).toContain((MAX_PAGES * PAGE_SIZE).toLocaleString());
+    expect((err as Error).message).toMatch(/truncated/i);
+  });
+
+  it('it really did stop at the bound — exactly MAX_PAGES requests, not one more', async () => {
+    // Anti-vacuity for both arms above: a rejection thrown from anywhere else in the loop
+    // (a malformed row, the window assert) would satisfy `rejects.toThrow` just as well.
+    // This pins the rejection to the bound itself.
+    h.dataCount = 'auto';
+    h.pageRows = (from) => Array.from({ length: PAGE_SIZE }, (_, i) => ({
+      date: '2026-08-08', ad_id: `ad-${from + i}`, account_id: 'ACCT', account_name: 'Acme',
+      campaign_id: 'c1', campaign_name: 'C', adset_id: 'a1', adset_name: 'A',
+      ad_name: 'N', spend: '10', leads: 1,
+    }));
+
+    await fetchMetaAdSpend(DEFAULT_SETTINGS, ALL_DATES).catch(() => {});
+    expect(h.ranges).toHaveLength(MAX_PAGES);
+    // ...and the offset really was advancing, so this is "the data never ended" rather than
+    // "the loop was stuck on page 0" — a different bug that must not pass as this one.
+    expect(h.ranges[0][0]).toBe(0);
+    expect(h.ranges[MAX_PAGES - 1][0]).toBe((MAX_PAGES - 1) * PAGE_SIZE);
+  });
+
+  it('🔑 CONTROL: the same server that TERMINATES returns its rows and throws nothing', async () => {
+    // Without this, the three arms above are satisfiable by a fetcher that always throws.
+    const pages = 3;
+    h.dataCount = 'auto';
+    h.pageRows = (from) => (from >= pages * PAGE_SIZE ? [] : Array.from({ length: PAGE_SIZE }, (_, i) => ({
+      date: '2026-08-08', ad_id: `ad-${from + i}`, account_id: 'ACCT', account_name: 'Acme',
+      campaign_id: 'c1', campaign_name: 'C', adset_id: 'a1', adset_name: 'A',
+      ad_name: 'N', spend: '10', leads: 1,
+    })));
+
+    const rows = await fetchMetaAdSpend(DEFAULT_SETTINGS, ALL_DATES);
+    expect(rows).toHaveLength(pages * PAGE_SIZE);
+    expect(h.ranges.length).toBeLessThan(MAX_PAGES);
   });
 });

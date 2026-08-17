@@ -1555,6 +1555,23 @@ export function buildAccountSummaries(
 
 export function buildTeamPerformance(accounts: AccountSummary[]): TeamMember[] {
   const teamMap = new Map<string, { name: string; accounts: AccountSummary[] }>();
+  /**
+   * ⚠️ THE ORDER IS A CLAIM TOO, and it was the last appointment-derived number on the page
+   * still being fabricated after the cells were fixed. Sorting by `totalAppointments` when
+   * Airtable is dead compares 0 against 0 for everybody, so the sort is a no-op and the list
+   * renders in Map-insertion order — while the `#` column numbers it 1, 2, 3 under a heading
+   * that says "Leaderboard". Nobody reads that as "arbitrary"; they read it as a ranking,
+   * which is the fabricated judgement the em dashes exist to prevent.
+   *
+   * Falls back to SPEND, which is knowable from the live feed and is the other headline this
+   * page ranks on.
+   *
+   * ⛔ DECIDED ONCE, FOR THE WHOLE LIST, and not inside the comparator. A comparator that
+   * picks its key from the two rows in front of it is not transitive when known-ness is
+   * mixed (a>b on appointments, b>c on spend, c>a on spend is representable), and an
+   * intransitive comparator is undefined behaviour in `Array.prototype.sort`.
+   */
+  const rankByAppointments = !accounts.some(a => a.apptsKnown === false);
 
   for (const account of accounts) {
     const buyer = account.mediaBuyer || 'Unassigned';
@@ -1571,6 +1588,24 @@ export function buildTeamPerformance(accounts: AccountSummary[]): TeamMember[] {
     const closedDeals = tm.accounts.reduce((s, a) => s + a.closed, 0);
     const revenueGenerated = tm.accounts.reduce((s, a) => s + a.revenue, 0);
 
+    /**
+     * 🔴 THE FLAG THE REDUCES ABOVE WERE THROWING AWAY. Every `a.appointments` summed here
+     * came off a row that already knew whether Airtable had answered; the sum did not, so a
+     * dead source arrived at the leaderboard as `Appts 0 · Revenue $0.00` next to a person's
+     * name. See the docblock on `TeamMember`.
+     *
+     * ⚠️ `.some(=== false)` AND NOT `.every(!== false)`. They differ on the empty array —
+     * `[].every()` is `true`, i.e. "a buyer with no accounts knows everything". A bucket is
+     * only created by pushing an account into it so it cannot be empty today, but the
+     * vacuous-true reading is the one that fails OPEN, and this flag exists precisely so
+     * that a refusal cannot be re-read as a confident answer.
+     *
+     * ANY unknown contributor makes the SUM unknown: a total missing one account is not a
+     * smaller total, it is an unknown total.
+     */
+    const spendKnown = !tm.accounts.some(a => a.spendKnown === false);
+    const apptsKnown = !tm.accounts.some(a => a.apptsKnown === false);
+
     return {
       name: tm.name,
       accountsManaged: tm.accounts.length,
@@ -1581,8 +1616,12 @@ export function buildTeamPerformance(accounts: AccountSummary[]): TeamMember[] {
       revenueGenerated,
       avgCPL: totalLeads > 0 ? totalSpend / totalLeads : 0,
       avgLeadPercent: totalLeads > 0 ? (totalAppointments / totalLeads) * 100 : 0,
+      spendKnown,
+      apptsKnown,
     };
-  }).sort((a, b) => b.totalAppointments - a.totalAppointments);
+  }).sort((a, b) => (rankByAppointments
+    ? b.totalAppointments - a.totalAppointments
+    : b.totalSpend - a.totalSpend));
 }
 
 export function formatCurrency(val: number): string {
