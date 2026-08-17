@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useData } from '@/hooks/useData';
+import { ALL_DATES } from '@/lib/metaAdSpend';
 import { ConfigBanner, ErrorBanner, HonestNumbersBanner } from '@/components/common/Banners';
 import { KPISkeleton, TableSkeleton } from '@/components/common/LoadingSkeleton';
 import EmptyState from '@/components/common/EmptyState';
@@ -48,6 +49,12 @@ function AccountSection({ group, onSelect }: { group: AccountGroup; onSelect: (a
  * start of a month becomes the last day of the previous month and the query silently
  * returns the wrong window. The picker builds these Dates from local midnight, so local
  * getters are what round-trip them.
+ *
+ * ⛔ CURRENTLY UNCALLED, DELIBERATELY KEPT — NOT DEAD CODE. The date range stopped being
+ * pushed into SQL on 2026-08-17 (see the block above `setSpendWindow`, which records the
+ * measurement). This is the correct converter for when it goes back, and the timezone trap
+ * above is the expensive half of that work. Deleting it would drop the lesson and the next
+ * attempt would reach for `toISOString()`.
  */
 function toIsoDay(d: Date | undefined): string | undefined {
   if (!d || Number.isNaN(d.getTime())) return undefined;
@@ -779,23 +786,45 @@ export default function Dashboard() {
   const [selectedAccountName, setSelectedAccountName] = useState<string | null>(null);
 
   /**
-   * ⭐ PUSH THE DATE RANGE DOWN INTO SQL.
+   * ⛔ THE DATE RANGE IS **NOT** PUSHED DOWN INTO SQL, AND THIS IS NOT AN OVERSIGHT.
    *
-   * Half the reason for leaving the Google Sheet: a CSV must be downloaded whole and
-   * filtered here, so "This Month" cost the same 48,000-row transfer as All Time.
-   * `ad_insights` answers a WHERE clause, so the same choice now narrows the QUERY.
+   * It was, from the cutover until 2026-08-17. Pushing it down is the better design and the
+   * machinery for it is built, tested and kept (`SpendWindow`, `assertWindow`, the `gte`/`lte`
+   * in `fetchMetaAdSpend`, the window arm of the refresh gate). It cannot be switched on until
+   * APPOINTMENT ATTRIBUTION stops depending on the same rows.
    *
-   * ⚠️ THE CLIENT-SIDE FILTER BELOW STAYS, and it is not redundant. It is what keeps this
-   * page correct while the narrowed refetch is in the air — for that moment `adSpend` still
-   * holds the WIDER set, and without the second filter the tiles would show the old range's
-   * totals under the new range's label. It also still filters APPOINTMENTS, which come from
-   * Airtable and are not narrowed by this query at all. Belt and braces, on purpose: after
-   * the refetch lands the filter is simply a no-op over an already-correct set.
+   * 🔴 WHY, MEASURED THROUGH THE APP'S OWN PATH (`scripts/window-starves-attribution.mts`):
+   *
+   *     ALL_DATES      49,070 spend rows   52 accounts   UNMATCHED APPTS   57  (3 clients)
+   *     one day        84 spend rows       21 accounts   UNMATCHED APPTS  127  (10 clients)
+   *
+   * `buildAccountSummaries` builds `accountMap` and `campaignIdToAccount` **from the adSpend
+   * rows it is handed** (`dataService.ts`), and drops any appointment whose account is not in
+   * that map. Appointments are ALL-TIME — the docblock that used to sit here said so itself,
+   * "APPOINTMENTS ... are not narrowed by this query at all", and nobody followed the sentence
+   * through to the join. So narrowing the spend narrows the ATTRIBUTION UNIVERSE with it: an
+   * appointment belonging to a client who simply did not spend today has no account to attach
+   * to, and 70 of them fell into the unmatched bucket the moment a narrowed fetch was allowed
+   * to land.
+   *
+   * ⭐ IT WAS HIDDEN BY A BUG. Before 2026-08-17 the refresh gate rejected every narrowed
+   * refresh as a "collapse", so `adSpend` silently stayed at ALL_DATES and attribution kept
+   * its full universe. Fixing that gate (correctly) removed the accident that was holding this
+   * up. Two defects had been cancelling out.
+   *
+   * ⇒ TO RE-ENABLE: give `buildAccountSummaries` an all-time account and campaign→account
+   * universe (the `registry` already carries all 52 accounts; Tier 1 additionally needs a
+   * distinct campaign_id→account_id map that does not come from the windowed rows). Then flip
+   * this back and `Dashboard.spendWindow.test.tsx` will tell you whether it worked.
+   *
+   * The client-side filter below is what renders the chosen range, exactly as it did when the
+   * whole sheet was downloaded. Correctness does not depend on the narrowing; only transfer
+   * size does.
    */
   const { setSpendWindow } = useData();
   useEffect(() => {
-    setSpendWindow({ from: toIsoDay(dateRange.from), to: toIsoDay(dateRange.to) });
-  }, [dateRange, setSpendWindow]);
+    setSpendWindow(ALL_DATES);
+  }, [setSpendWindow]);
 
   /**
    * ⑥ RETURNS THE WHOLE RESULT NOW, NOT JUST `.accounts`.

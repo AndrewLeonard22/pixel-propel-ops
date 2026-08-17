@@ -4,16 +4,35 @@ import { makeSettings, makeAdSpendRow } from '@/test/factories';
 import type { SourceKey, SourceStatus } from '@/lib/sourceStatus';
 
 /**
- * 🔒 THE DATE RANGE REACHES SQL — THE WIRING ARM.
+ * 🔒 THE AD-SPEND QUERY STAYS UNBOUNDED — AND THIS FILE IS THE REASON IT IS ALLOWED TO BE.
  *
- * ⚠️ WHY A SEPARATE FILE, AND WHY IT IS A *WIRING* ARM RATHER THAN A PREDICATE ARM.
- * `SourceStatusBanner.origin.test.tsx` records the lesson at its own line 185: all 21
- * sheet-completeness assertions passed with the banner COMPLETELY DISCONNECTED, because
- * every one of them tested the predicate and none tested that anything called it. The
- * same trap is open here. `metaAdSpend.test.ts` proves `fetchMetaAdSpend` sends `gte`/`lte`
- * to the server; NOTHING there proves the Dashboard's date picker ever reaches it. Without
- * this file the SQL filter could be perfect and permanently unused — the app would download
- * all 48,000 rows for every view and still pass every other test in the suite.
+ * ⚠️ THIS FILE USED TO ASSERT THE OPPOSITE, and it was right to at the time: pushing the date
+ * range into SQL is the better design, it is why `ad_insights` replaced a CSV, and the
+ * machinery is built, tested and KEPT (`SpendWindow`, `assertWindow`, the `gte`/`lte` in
+ * `fetchMetaAdSpend`, the window arm of the refresh gate). It was switched off on 2026-08-17
+ * because it is not correct YET, and a law that survives the change it describes instructs the
+ * next reader to re-break the product.
+ *
+ * 🔴 WHAT NARROWING COSTS, measured through the app's own path
+ * (`scripts/window-starves-attribution.mts`, live data, same anon key the browser compiles):
+ *
+ *     ALL_DATES      49,070 spend rows   52 accounts   UNMATCHED APPTS   57  (3 clients)
+ *     one day             84 spend rows   21 accounts   UNMATCHED APPTS  127  (10 clients)
+ *
+ * `buildAccountSummaries` builds `accountMap` and `campaignIdToAccount` FROM THE ADSPEND ROWS
+ * IT IS HANDED, and drops any appointment whose account is missing from that map. Appointments
+ * are all-time. So narrowing the spend narrows the ATTRIBUTION UNIVERSE with it, and 70
+ * appointments belonging to clients who merely did not spend today fell into the unmatched
+ * bucket. Every number involved is correct; the JOIN is what breaks.
+ *
+ * ⭐ AND IT WAS MASKED BY A SECOND BUG. Until 2026-08-17 the refresh gate rejected every
+ * narrowed refresh as a "collapse" (it compared row counts across different windows), so
+ * `adSpend` silently stayed at ALL_DATES. Fixing that gate correctly is what exposed this.
+ * Two defects had been cancelling out, and the suite was green through both.
+ *
+ * ⇒ TO RE-ENABLE: give `buildAccountSummaries` an all-time account and campaign→account
+ * universe, then restore the narrowing and flip these assertions back. The starvation arm at
+ * the bottom is what will tell you whether you actually fixed it.
  */
 
 const useDataMock = vi.hoisted(() => vi.fn());
@@ -22,6 +41,7 @@ vi.mock('@/hooks/useData', () => ({ useData: useDataMock }));
 
 const { default: Dashboard } = await import('./Dashboard');
 const { ALL_DATES } = await import('@/lib/metaAdSpend');
+const { buildAccountSummaries } = await import('@/lib/dataService');
 
 const status = (over: Partial<SourceStatus> = {}): SourceStatus =>
   ({ label: 'src', state: 'valid', error: null, missingSettings: [], configured: true, ...over }) as SourceStatus;
@@ -51,58 +71,69 @@ function selectPreset(label: string) {
 
 beforeEach(() => { useDataMock.mockReset(); setSpendWindow.mockReset(); });
 
-describe('the date picker narrows the QUERY, not just the rows already downloaded', () => {
-  it('🔴 mounting at All Time asks for an unbounded window — "everything" is a real answer', () => {
+describe('the ad-spend query stays unbounded while attribution depends on its rows', () => {
+  it('🔴 mounting asks for an UNBOUNDED window — "everything" is a real answer', () => {
     mount();
     expect(setSpendWindow).toHaveBeenCalled();
     // Both ends undefined: no WHERE clause, and the fetcher pages rather than truncating.
-    expect(setSpendWindow.mock.calls[0][0]).toEqual({ from: undefined, to: undefined });
+    expect(setSpendWindow.mock.calls[0][0]).toEqual(ALL_DATES);
   });
 
-  it('🔴 THE POINT OF THE MIGRATION: picking a preset pushes ISO bounds down to SQL', async () => {
-    mount();
-    setSpendWindow.mockClear();
-    selectPreset('Today');
-
-    await waitFor(() => expect(setSpendWindow).toHaveBeenCalled());
-    const w = setSpendWindow.mock.calls.at(-1)![0];
-    // ISO `YYYY-MM-DD`, which is what `ad_insights.date` compares against. Anything else is
-    // refused by `assertWindow` rather than silently widening the query.
-    expect(w.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(w.to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    // "Today" is one calendar day, so both bounds are the same day.
-    expect(w.from).toBe(w.to);
-  });
-
-  it('🔑 the bounds are the LOCAL calendar day, never a UTC conversion', async () => {
+  it('🔴 THE REGRESSION GUARD: picking a preset must NOT narrow the query', async () => {
     /**
-     * ⚠️ THE BUG THIS EXISTS FOR. `ad_insights.date` is a calendar date with no timezone,
-     * and the picker builds its Dates from LOCAL midnight. Converting through
-     * `toISOString()` shifts the day backwards for every user west of Greenwich, so the
-     * start of a month becomes the last day of the previous month and the query returns a
-     * window nobody asked for — with a total that is internally consistent and wrong.
+     * This is the arm that would have caught 2026-08-17 before @andrew saw it. Restoring
+     * `setSpendWindow({from, to})` here turns this RED, and it must stay red until
+     * `buildAccountSummaries` no longer takes its account universe from the windowed rows.
      */
     mount();
     setSpendWindow.mockClear();
     selectPreset('Today');
 
-    await waitFor(() => expect(setSpendWindow).toHaveBeenCalled());
-    const now = new Date();
-    const p = (n: number) => String(n).padStart(2, '0');
-    const localToday = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
-    expect(setSpendWindow.mock.calls.at(-1)![0].from).toBe(localToday);
+    // The page still re-renders and may re-assert the window; whatever it sends must be
+    // unbounded. A bounded window is the defect, whichever call carries it.
+    await waitFor(() => expect(screen.getByText(/today/i)).toBeTruthy());
+    for (const [w] of setSpendWindow.mock.calls) {
+      expect(w.from).toBeUndefined();
+      expect(w.to).toBeUndefined();
+    }
   });
 
   it('🔴 ANTI-VACUITY CONTROL: an unchanged range does not restart the query', () => {
     /**
      * Without this the wiring is satisfiable by calling the setter on every render, which
-     * would start a fresh 48,000-row query several times per interaction — a "fix" that is
-     * worse than the browser-side filter it replaced. The de-duplication lives in
-     * `setSpendWindow` itself; here we prove the page does not fire it on re-render.
+     * would start a fresh 49,000-row query several times per interaction.
      */
     const { rerender } = mount();
     const before = setSpendWindow.mock.calls.length;
     rerender(<Dashboard />);
     expect(setSpendWindow.mock.calls.length).toBe(before);
+  });
+});
+
+/**
+ * ⭐ THE MECHANISM ITSELF, pinned as a unit so the reason above cannot rot into folklore.
+ * This is what makes the narrowing unsafe; when it stops being true, the narrowing can return.
+ */
+describe('why: a narrowed spend set starves appointment attribution', () => {
+  const APPT = {
+    client: 'Acme', campaignId: 'CAMP-1', date: '2026-08-01', dateISO: '2026-08-01',
+  } as never;
+
+  const spendFor = (campaignId: string) =>
+    [makeAdSpendRow({ accountName: 'Acme', accountId: 'ACCT-1', campaignId, spent: 10, leads: 1 })];
+
+  it('an appointment whose account HAS rows in the set is attributed', () => {
+    const r = buildAccountSummaries(spendFor('CAMP-1'), [APPT], SETTINGS);
+    expect(r.unmatchedAppointments).toHaveLength(0);
+  });
+
+  it('🔴 the SAME appointment goes UNMATCHED when its account is absent from the set', () => {
+    // Exactly what a date window does: the account still exists and still owns the booking,
+    // it simply has no row inside the window. 57 -> 127 on live data.
+    const otherAccountOnly = [
+      makeAdSpendRow({ accountName: 'Other', accountId: 'ACCT-9', campaignId: 'CAMP-9', spent: 10, leads: 1 }),
+    ];
+    const r = buildAccountSummaries(otherAccountOnly, [APPT], SETTINGS);
+    expect(r.unmatchedAppointments).toHaveLength(1);
   });
 });
