@@ -563,3 +563,68 @@ time.
 Both are UP. The brief's expected delta reproduces against the sheet the brief actually saw, to
 within $14 of drift. The larger number is not a better result — it is the same cutover measured
 against a baseline that has since decayed further.
+
+---
+
+## 11. Post-deploy, 2026-08-17 — the cutover shipped, and the refresh gate was window-blind
+
+The cutover of §1–§10 was **committed on 2026-08-12 and never deployed**; production kept
+serving the sheet for six more days. Measured on the live bundle before the deploy
+(`index-BpP_wZ45.js`): `docs.google.com` 2, `gviz` 1, `ad_insights` 0, and the stale-data
+banner still carried the retired remedy about "the derived tab's array formula range".
+
+That is what @andrew saw as *"Ad spend data through 2026-08-11 (6 days ago)"* beside
+*"Meta ad spend pulled 2.5 hours ago"* — **one screen, two feeds**: the numbers came from a
+sheet that stopped appending on 08-11, while the pull-status line already read the healthy
+Supabase pipeline. Neither statement was false. The screen was.
+
+Deployed 2026-08-17. Live bundle `index-BxZkxjBU.js` measures `docs.google.com` **0**,
+`gviz` **0**, `spreadsheets` **0**, no Google host of any kind, `ad_insights` **2**,
+`mlwoztsytapxjgfldyzv` **2**, `tclghhfozyfsdkqyaftc` **0**. Pipeline verified healthy through
+the browser's own publishable key: 49,066 rows, newest date 2026-08-17, `ad_pull_runs` ok at
+09:00 / 12:00 / 15:00 UTC.
+
+> ⭐ `origin/main`'s tracked `.env` still named the **dead** project `tclghhfozyfsdkqyaftc`
+> (§7 open risk 1, §9.7). The cutover commit carries the correction, so shipping it closed
+> that hole rather than leaving a checkout that renders $0.00.
+
+### 11.1 🔴 The refresh gate compared two different questions and called one a collapse
+
+Within minutes of the deploy the Dashboard showed, in red:
+
+```
+This refresh was REJECTED and the previous data is still shown:
+ad spend rows fell from 49,066 to 80; total spend fell from $781,058.26 to $454.16;
+accounts fell from 52 to 21.
+```
+
+The range chip read **Today**. Measured directly: 2026-08-17 alone is **80 rows, $454.16,
+21 accounts** — the rejected numbers were exactly right. `judgeRefresh` compared them against
+an All-Time baseline because `RefreshSnapshot` recorded three metrics and **not the window
+they answered for**.
+
+⭐ **No threshold could have fixed this.** Narrowing 20 months to one day IS a 99.8% drop and
+is supposed to be. Every metric was measured correctly and compared honestly, and the verdict
+was still false — a DIMENSION failure of exactly the kind `scripts/gates.mjs` prints a warning
+about, invisible to 812 passing tests.
+
+⚠️ **And it fired on every narrowing**, which is how a real guard dies: @andrew, on this class
+of banner, «annoying just remove these popups». The collapse this gate exists to catch (§8: one
+run returned $15,319.22 of $770,984.34, silently) would then sail past a reader who has learned
+the red box means nothing. The cost of a false positive here is the guard itself.
+
+**Fixed** by making the window part of the snapshot: `windowKey()`, a required
+`RefreshSnapshot.window`, and an early accept when the window changed — which re-baselines
+`lastGood` so the next refresh at the new range is compared properly. Full strength is retained
+WITHIN a window, which is where truncation actually lives. Required, not optional, so a future
+call site cannot omit it and reopen the hole in silence.
+
+Mutation-tested both ways: deleting the window check turns the production case **RED**;
+making the gate accept everything turns **7** tests red. Suite **818**, all gates green,
+all controls red.
+
+> ⚠️ The tiles were never wrong, even while the banner was. The Dashboard's client-side date
+> filter (`Dashboard.tsx`, the "belt and braces" note) narrowed the retained All-Time set to
+> the selected range, so $454.16 on screen was correct for Today throughout. The defect was a
+> false alarm over correct numbers, not a wrong number — which is precisely why it needed
+> fixing rather than silencing.
