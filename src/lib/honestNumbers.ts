@@ -69,16 +69,42 @@ export function detectExclusionState(
     };
   }
 
+  /**
+   * ⛔ SILENT, ON PURPOSE — AND THIS IS THE CONTRACT THIS FILE WAS ALWAYS WRITTEN AGAINST.
+   *
+   * `detectExclusionState` in `dataService.ts` names the three states this detector exists to
+   * separate, and says of the third: "the excluded campaigns spent nothing ← perfectly
+   * healthy, MUST NOT WARN". This branch was conflating that healthy state with stale ids,
+   * because from inside the function they look identical: in both, nothing matched.
+   *
+   * 🔴 MEASURED IN PRODUCTION 2026-08-17. With the Dashboard range set to Today, @andrew's two
+   * excluded campaigns — historical, like most campaigns — were simply not among the 80 rows in
+   * view, so this fired under the headline "Some numbers on this page are not what they appear"
+   * over numbers that were entirely correct. Its own sentence said as much: "These figures are
+   * the same as the unfiltered totals." Nothing was being hidden. Nothing was inflated. The
+   * excluded campaigns had no spend in the window, which is the healthy case, and it fires on
+   * EVERY narrowed range because "the data shown" shrinks with the date filter.
+   *
+   * ⭐ THE STATUS IS KEPT AND STILL DISTINGUISHED. `inert-no-match` remains a separate value
+   * from `inert-unconfigured` — that distinction is sabotage-proven below and is the whole
+   * reason this is not a boolean. What changes is only whether it INTERRUPTS the reader.
+   *
+   * ⚠️ WHAT IS NOW UNREPORTED, STATED RATHER THAN HIDDEN: a genuinely stale exclusion list —
+   * ids that match nothing ACROSS ALL TIME — is no longer announced. Telling that apart from a
+   * narrowed view needs the all-time campaign set, which this function is not given; it only
+   * ever sees the rows currently in view. Reporting it from here means crying wolf on every
+   * correct answer, and @andrew has now asked three times to be rid of exactly that. A warning
+   * that fires on healthy data does not just annoy: it teaches the eye to skip the box that
+   * also carries the truncation alarm, which is the one that guards real money (§8: one run
+   * returned $15,319.22 of $770,984.34, silently).
+   */
   if (matched.length === 0) {
     return {
       status: 'inert-no-match',
       configuredCount: configured.length,
       matchedCount: 0,
       spendUnfiltered: true,
-      warning:
-        `${configured.length} campaign${configured.length === 1 ? ' is' : 's are'} marked ` +
-        'excluded, but none of them appear in the data shown. These figures are the same ' +
-        'as the unfiltered totals.',
+      warning: null,
     };
   }
 

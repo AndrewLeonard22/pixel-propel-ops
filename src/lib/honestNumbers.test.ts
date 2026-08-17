@@ -41,16 +41,25 @@ describe('detectExclusionState — FIRES on the wipe, SILENT on health', () => {
     expect(s.matchedCount).toBe(1);
   });
 
-  it('⚠️ FIRES DIFFERENTLY: configured but none present — stale ids, not the wipe', () => {
+  /**
+   * 🔴 THE PRODUCTION CASE, 2026-08-17. This state used to raise "Some numbers on this page
+   * are not what they appear" over numbers that were correct. With the range set to Today,
+   * @andrew's two excluded campaigns were simply not among the 80 rows in view — the healthy
+   * case that `dataService.ts` names ③ and says MUST NOT WARN — so the banner was permanent.
+   *
+   * The DIAGNOSIS is still made and still distinct; only the interruption is gone.
+   */
+  it('⚠️ STILL DIAGNOSED, NO LONGER SHOUTED: configured but none present is not the wipe', () => {
     const s = detectExclusionState(
       makeSettings({ excludedCampaigns: ['999', '888'] }),
       CAMPAIGNS,
     );
+    // it must NOT claim nothing is configured — that would be the wrong diagnosis
     expect(s.status).toBe('inert-no-match');
     expect(s.configuredCount).toBe(2);
     expect(s.matchedCount).toBe(0);
-    // it must NOT claim nothing is configured — that would be the wrong diagnosis
-    expect(s.warning).toContain('2 campaigns are marked excluded');
+    // ...but the numbers in view are correct, so it must not interrupt the reader
+    expect(s.warning).toBeNull();
   });
 
   it('is sabotage-proven, and the poisons are the plausible wrong detectors', () => {
