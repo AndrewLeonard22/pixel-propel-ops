@@ -628,3 +628,48 @@ all controls red.
 > the selected range, so $454.16 on screen was correct for Today throughout. The defect was a
 > false alarm over correct numbers, not a wrong number — which is precisely why it needed
 > fixing rather than silencing.
+
+### 11.2 🔴 Fixing 11.1 exposed a second defect it had been masking
+
+Within the hour, unmatched appointments jumped **57 (3 clients) → 127 (10 clients)** with the
+range on Today. That was caused by the 11.1 fix, and it is the more interesting failure.
+
+`buildAccountSummaries` builds `accountMap` and `campaignIdToAccount` **from the adSpend rows
+it is handed** (`dataService.ts:1034-1052`) and drops any appointment whose account is missing
+from that map (`:1167`). Appointments are all-time. So narrowing the spend query narrows the
+**attribution universe** with it: a client who simply did not spend today has no account for
+its bookings to attach to. Measured through the app's own path, live, same anon key the
+browser compiles (`scripts/window-starves-attribution.mts`):
+
+| window | spend rows | accounts | unmatched appts | unique clients |
+|---|---:|---:|---:|---:|
+| `ALL_DATES` | 49,070 | 52 | **57** | 3 |
+| one day | 84 | 21 | **127** | 10 |
+
+⭐ **TWO DEFECTS HAD BEEN CANCELLING OUT, and the suite was green through both.** Until
+2026-08-17 the refresh gate rejected every narrowed refresh as a "collapse", so `adSpend`
+silently stayed at `ALL_DATES` and attribution never lost its universe. The window feature had
+therefore **never actually been in effect in production** — §7's mutation pass, the
+`spendWindow` wiring arm and 812 tests all passed over a narrowing that was being thrown away
+one layer downstream. Fixing the gate correctly is the only reason anyone found out.
+
+⇒ The lesson is not "be careful with guards". It is that **a guard which rejects a correct
+input is also holding something up**, and the thing it holds up is invisible precisely because
+the guard is doing it silently. Before repairing a false positive, ask what has been riding on
+it.
+
+**Fixed** by pinning the query to `ALL_DATES`. The narrowing is switched OFF, not deleted —
+`SpendWindow`, `assertWindow`, the `gte`/`lte` in `fetchMetaAdSpend` and the window arm of the
+refresh gate are kept and still tested. Correctness never depended on the narrowing; only
+transfer size did, and the client-side filter renders the chosen range exactly as it did when
+the whole sheet was downloaded.
+
+`Dashboard.spendWindow.test.tsx` now pins the **opposite** contract rather than being deleted,
+with the measurement in its docblock — a law that outlives the change it describes instructs
+the next reader to re-break the product. Mutation-tested: restoring the narrowing turns the
+regression guard **RED**. The starvation mechanism is additionally pinned as a unit test so the
+reason cannot decay into folklore.
+
+**To re-enable:** give `buildAccountSummaries` an all-time account and campaign→account
+universe. `registry` already carries all 52 accounts; Tier 1 additionally needs a distinct
+`campaign_id → account_id` map that does not come from the windowed rows.
