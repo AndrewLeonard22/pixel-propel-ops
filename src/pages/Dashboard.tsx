@@ -1348,10 +1348,22 @@ export default function Dashboard() {
         <DateRangePicker value={dateRange} onChange={setDateRange} includeAllTime />
       </div>
 
-      {/* Unmatched Appointments */}
-      {unmatchedAppointments.length > 0 && (
+      {/*
+        Unmatched Appointments — SCOPED TO THE SELECTED RANGE, like every other number here.
+
+        🔴 It read the raw `unmatchedAppointments` until 2026-08-17, so with the chip on
+        "Today" the panel listed bookings dated 6/29/2025 and 11/18/2025 while the TOTAL APPTS
+        tile two inches above counted only today. Two populations on one screen, and the older
+        one wearing the newer one's heading. `dateFilteredResult` has always computed this set
+        (its docblock says it exists because "the page had no date-filtered count of them") and
+        the tile already consumed it; only the panel was left behind.
+
+        ⚠️ NOT A WAY TO HIDE THEM. At All Time every unmatched booking is still listed, which
+        is what `Dashboard.unmatchedDateScope.test.tsx` runs as its anti-vacuity arm first.
+      */}
+      {dateFilteredResult.unmatchedAppointments.length > 0 && (
         <UnmatchedSection
-          appointments={unmatchedAppointments}
+          appointments={dateFilteredResult.unmatchedAppointments}
           accounts={accounts}
           settings={settings}
           setSettings={setSettings}
