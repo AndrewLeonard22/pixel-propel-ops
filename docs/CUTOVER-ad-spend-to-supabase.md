@@ -673,3 +673,45 @@ reason cannot decay into folklore.
 **To re-enable:** give `buildAccountSummaries` an all-time account and campaign→account
 universe. `registry` already carries all 52 accounts; Tier 1 additionally needs a distinct
 `campaign_id → account_id` map that does not come from the windowed rows.
+
+### 11.3 §3's open Meta-side check has now been RUN, and the answer is no
+
+§3 left an owner decision open: restoring per-account attribution for the three unmatched
+clients "needs a Meta-side check nobody has run". Run 2026-08-17 (`scripts/unmatched-why.mts`
+plus a direct Graph API probe).
+
+**The 57 unmatched appointments are 3 clients, and nothing in this codebase can attach them:**
+
+| client | appts | campaign ids | found in feed | ad ids | found in feed |
+|---|---:|---:|---:|---:|---:|
+| Green Plus Remodeling | 30 | 5 | **0** | 11 | **0** |
+| Pergola Guy | 24 | 2 | **0** | 6 | **0** |
+| Home Remodeling Pros Central PA | 3 | 1 | **0** | 1 | **0** |
+
+None has a row in `ad_accounts` or `ad_account_airtable_names`. Asked directly, **all six real
+campaign ids return Meta error 10, "Application does not have permission for this action"**,
+and no account visible to the token matches `green`, `pergola` or `remodel`.
+
+> ✅ **THE PROBE WAS CONTROLLED.** Error 10 could equally mean the APP lacks a permission
+> generally, which would make the conclusion worthless. The identical call against a campaign
+> that IS in the feed (`120226052780600185`) returns `✅ act 460916783395459 | CCS | Post
+> Engagements`. The refusal is specific to these campaigns, not to the call.
+
+⇒ Those clients' ads ran on ad accounts **outside this token's access**. It is a data
+availability fact, exactly as §9.10 judged, and **no code change reaches it** — someone must be
+granted access to those ad accounts on the Meta side, after which a backfill would attach the
+history. Until then the appointments stay counted in TOTAL APPTS, disclosed in the unmatched
+panel, and manually assignable.
+
+### 11.4 ✅ Coverage check: the pull is not missing any money
+
+Prompted by the above. The token can see **64** ad accounts; `ad_accounts` holds **52**. The
+12-account gap is real but **empty**: every one of them reports **$0.00 spend from 2025-01-01
+to 2026-08-17** (Clean Blast, Cornerstone Hydrowash, Florida Environmental X SocialWorks,
+jnspowerwashing, Light My Holidays, RCO Cleaning, Summer General Construction, Texas Christmas
+Lighting Pros, TRC Pressure Washing LLC, We Hang Christmas Lights, White Rock Pressure Washing,
+WW Jan 2024). And **0** accounts in `ad_accounts` have become invisible to the token.
+
+⇒ The 52 accounts being pulled are exactly the accounts with spend. This is the check that
+would have caught the old sheet's silent six-account disappearance, and it is worth re-running
+whenever a client's numbers look absent.
