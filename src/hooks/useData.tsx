@@ -280,7 +280,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
        * previous numbers stay exactly where they are and the banner says they are stale.
        */
       const nextAccounts = buildAccountSummaries(nextData.adSpend, nextData.appointments, s, undefined, registry).accounts;
-      const verdict = judgeRefresh(snapshotOf(nextData.adSpend, nextAccounts.length), lastGoodRef.current);
+      // `fetchedWindow`, NOT the current ref: the user can move the range while a request is
+      // in the air, and a snapshot labelled with a window it was not fetched for would compare
+      // two different questions while claiming they are the same one.
+      const verdict = judgeRefresh(snapshotOf(nextData.adSpend, nextAccounts.length, fetchedWindow), lastGoodRef.current);
       setRefreshVerdict(verdict);
       if (!verdict.accept) {
         // Statuses still update: the sources answered, and hiding that would replace one

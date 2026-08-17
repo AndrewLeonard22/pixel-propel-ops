@@ -1,4 +1,5 @@
 import type { AdSpendRow } from './types';
+import type { SpendWindow } from './metaAdSpend';
 
 /**
  * ③ THE VALIDATION GATE + LAST-KNOWN-GOOD.
@@ -25,6 +26,21 @@ export interface RefreshSnapshot {
   rowCount: number;
   totalSpend: number;
   accountCount: number;
+  /**
+   * ⭐ WHICH QUESTION THESE THREE NUMBERS ANSWER. Required, never optional: a snapshot that
+   * does not know its own window is exactly the defect below, and an optional field would let
+   * a future call site omit it and reopen the hole in silence.
+   */
+  window: string;
+}
+
+/**
+ * A canonical key for a date window, so two windows compare by VALUE and not by identity.
+ * NUL-separated for the same reason `spendRowKey` is: neither bound can contain it, so two
+ * distinct windows can never collide into one string.
+ */
+export function windowKey(w: SpendWindow | null | undefined): string {
+  return `${w?.from ?? ''}\u0000${w?.to ?? ''}`;
 }
 
 export interface RefreshVerdict {
@@ -38,12 +54,17 @@ export interface RefreshVerdict {
 /** A drop to less than half is the collapse signature. Stated, not hidden. */
 export const COLLAPSE_RATIO = 0.5;
 
-export function snapshotOf(adSpend: AdSpendRow[], accountCount: number): RefreshSnapshot {
+export function snapshotOf(
+  adSpend: AdSpendRow[],
+  accountCount: number,
+  window: SpendWindow,
+): RefreshSnapshot {
   const rows = Array.isArray(adSpend) ? adSpend : [];
   return {
     rowCount: rows.length,
     totalSpend: rows.reduce((s, r) => s + (Number(r?.spent) || 0), 0),
     accountCount,
+    window: windowKey(window),
   };
 }
 
@@ -56,6 +77,25 @@ export function snapshotOf(adSpend: AdSpendRow[], accountCount: number): Refresh
  */
 export function judgeRefresh(next: RefreshSnapshot, lastGood: RefreshSnapshot | null): RefreshVerdict {
   if (!lastGood) return { accept: true, reasons: [], next, lastGood };
+
+  /**
+   * ⛔ A DIFFERENT WINDOW IS A DIFFERENT QUESTION, AND THERE IS NO COMPARISON TO MAKE.
+   *
+   * 🔴 Measured in production 2026-08-17: the Dashboard range was set to **Today**, the fetch
+   * correctly returned 80 rows / $454.16 / 21 accounts, and this gate compared it against the
+   * All-Time baseline of 49,066 / $781,058.26 / 52 and rejected it in red — telling @andrew
+   * that "the older numbers are more likely to be right" about a question they do not answer.
+   *
+   * ⭐ NO THRESHOLD CAN FIX THAT. Narrowing 20 months to one day IS a 99.8% drop, and it is
+   * supposed to be. The defect was that the snapshot did not record which window it measured,
+   * so a correct measurement and an honest comparison still produced a false statement. The
+   * gate keeps its full strength WITHIN a window, which is where the collapse it exists to
+   * catch actually lives (§8: one run returned $15,319.22 of $770,984.34, silently).
+   *
+   * Accepting re-baselines `lastGood` to this window at the call site, so the very next
+   * refresh at the new range is compared properly rather than against the old range forever.
+   */
+  if (next.window !== lastGood.window) return { accept: true, reasons: [], next, lastGood };
 
   const reasons: string[] = [];
   const check = (name: string, was: number, now: number, fmt: (n: number) => string) => {

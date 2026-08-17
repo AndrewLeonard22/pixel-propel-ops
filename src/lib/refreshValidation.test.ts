@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeAdSpendRow } from '@/test/factories';
-import { judgeRefresh, snapshotOf, rejectionMessage, COLLAPSE_RATIO } from './refreshValidation';
+import { judgeRefresh, snapshotOf, rejectionMessage, COLLAPSE_RATIO, windowKey } from './refreshValidation';
+import { ALL_DATES } from './metaAdSpend';
 
 /**
  * ③ THE VALIDATION GATE + LAST-KNOWN-GOOD.
@@ -18,16 +19,30 @@ const rows = (n: number, spent: number) =>
 
 describe('snapshotOf', () => {
   it('measures the three metrics', () => {
-    expect(snapshotOf(rows(3, 100), 2)).toEqual({ rowCount: 3, totalSpend: 300, accountCount: 2 });
+    expect(snapshotOf(rows(3, 100), 2, ALL_DATES)).toMatchObject({ rowCount: 3, totalSpend: 300, accountCount: 2 });
   });
 
   it('survives a bad shape rather than throwing — a gate must not blank the page', () => {
-    expect(snapshotOf(undefined as never, 0)).toEqual({ rowCount: 0, totalSpend: 0, accountCount: 0 });
+    expect(snapshotOf(undefined as never, 0, ALL_DATES)).toMatchObject({ rowCount: 0, totalSpend: 0, accountCount: 0 });
+  });
+
+  it('records WHICH WINDOW the numbers answer for — two windows are two questions', () => {
+    expect(snapshotOf(rows(1, 1), 1, ALL_DATES).window)
+      .not.toBe(snapshotOf(rows(1, 1), 1, { from: '2026-08-17', to: '2026-08-17' }).window);
+  });
+
+  it('the same window produces the same key regardless of object identity', () => {
+    expect(snapshotOf(rows(1, 1), 1, { from: '2026-08-01', to: '2026-08-17' }).window)
+      .toBe(snapshotOf(rows(9, 9), 4, { from: '2026-08-01', to: '2026-08-17' }).window);
   });
 });
 
 describe('judgeRefresh', () => {
-  const GOOD = { rowCount: 38997, totalSpend: 655675.16, accountCount: 61 };
+  // Every case in THIS block is one window compared against itself: the collapse checks are
+  // only meaningful when both snapshots answer the same question. Cross-window behaviour is
+  // pinned separately below.
+  const W = windowKey(ALL_DATES);
+  const GOOD = { rowCount: 38997, totalSpend: 655675.16, accountCount: 61, window: W };
 
   it('🔑 THE FIRST REFRESH IS ALWAYS ACCEPTED — nothing to compare against', () => {
     // Refusing here would leave a new browser permanently empty: a guard that stops the
@@ -38,14 +53,14 @@ describe('judgeRefresh', () => {
   it('🔴 ANTI-VACUITY CONTROL: a NORMAL refresh is accepted and says nothing', () => {
     // Run first. Without it the gate is satisfiable by rejecting everything, which would
     // freeze the dashboard on its first payload forever.
-    const next = { rowCount: 39055, totalSpend: 656_900, accountCount: 61 };
+    const next = { rowCount: 39055, totalSpend: 656_900, accountCount: 61, window: W };
     const v = judgeRefresh(next, GOOD);
     expect(v.accept).toBe(true);
     expect(rejectionMessage(v)).toBeNull();
   });
 
   it('🔴 SPEND HALVING IS REJECTED — the case a single-refresh check cannot see', () => {
-    const next = { rowCount: 38997, totalSpend: 320_000, accountCount: 61 };
+    const next = { rowCount: 38997, totalSpend: 320_000, accountCount: 61, window: W };
     const v = judgeRefresh(next, GOOD);
 
     expect(v.accept).toBe(false);
@@ -69,7 +84,7 @@ describe('judgeRefresh', () => {
   });
 
   it('reports EVERY collapsed metric, not just the first', () => {
-    const v = judgeRefresh({ rowCount: 1, totalSpend: 1, accountCount: 1 }, GOOD);
+    const v = judgeRefresh({ rowCount: 1, totalSpend: 1, accountCount: 1, window: W }, GOOD);
     expect(v.reasons).toHaveLength(3);
   });
 
@@ -81,11 +96,69 @@ describe('judgeRefresh', () => {
   });
 
   it('🔑 GROWTH IS NEVER SUSPICIOUS — this gate is about LOSS', () => {
-    expect(judgeRefresh({ rowCount: 90_000, totalSpend: 2_000_000, accountCount: 200 }, GOOD).accept).toBe(true);
+    expect(judgeRefresh({ rowCount: 90_000, totalSpend: 2_000_000, accountCount: 200, window: W }, GOOD).accept).toBe(true);
   });
 
   it('a previous value of ZERO cannot collapse — no verdict from nothing', () => {
-    const empty = { rowCount: 0, totalSpend: 0, accountCount: 0 };
+    const empty = { rowCount: 0, totalSpend: 0, accountCount: 0, window: W };
     expect(judgeRefresh(empty, empty).accept).toBe(true);
+  });
+});
+
+/**
+ * ④ THE WINDOW IS PART OF THE QUESTION, AND THE GATE WAS BLIND TO IT.
+ *
+ * 🔴 MEASURED IN PRODUCTION 2026-08-17. @andrew set the Dashboard range to **Today**. The
+ * fetch correctly returned that day — 80 rows, $454.16, 21 accounts — and the gate compared
+ * it against the All-Time baseline of 49,066 / $781,058.26 / 52 and REJECTED it, in red,
+ * over numbers that were entirely correct:
+ *
+ *     "ad spend rows fell from 49,066 to 80 ... the older numbers are more likely to be right"
+ *
+ * ⭐ THE OLDER NUMBERS WERE NOT MORE LIKELY TO BE RIGHT. They answered a different question.
+ * This is a DIMENSION failure, not a threshold one: every metric was measured correctly and
+ * compared honestly, and the comparison still could not mean what it said, because nothing in
+ * `RefreshSnapshot` recorded WHICH WINDOW the numbers were for. No threshold can fix that —
+ * narrowing to one day out of 20 months is a 99.8% drop and SHOULD be.
+ *
+ * ⚠️ AND IT FIRES ON EVERY NARROWING, which is the failure mode that kills a real guard:
+ * @andrew on this exact class of banner — «annoying just remove these popups». A gate that
+ * cries wolf on correct data gets ignored, and then the truncation it exists to catch
+ * (§8 of the cutover doc: one run returned $15,319.22 of $770,984.34, silently) sails past a
+ * reader who has learned the red box means nothing.
+ */
+describe('judgeRefresh across date windows', () => {
+  const ALL = windowKey(ALL_DATES);
+  const TODAY = windowKey({ from: '2026-08-17', to: '2026-08-17' });
+  const ALL_TIME_GOOD = { rowCount: 49_066, totalSpend: 781_058.26, accountCount: 52, window: ALL };
+
+  it('🔑 THE PRODUCTION CASE: narrowing to Today is ACCEPTED, not called a collapse', () => {
+    const today = { rowCount: 80, totalSpend: 454.16, accountCount: 21, window: TODAY };
+    const v = judgeRefresh(today, ALL_TIME_GOOD);
+
+    expect(v.accept).toBe(true);
+    expect(v.reasons).toEqual([]);
+    expect(rejectionMessage(v)).toBeNull();
+  });
+
+  it('🔴 ANTI-VACUITY CONTROL: a collapse WITHIN ONE window is still rejected', () => {
+    // Run this beside the case above. Without it the fix is satisfiable by accepting
+    // everything, which would delete the guard rather than aim it.
+    const truncated = { rowCount: 15, totalSpend: 15_319.22, accountCount: 15, window: ALL };
+    const v = judgeRefresh(truncated, ALL_TIME_GOOD);
+
+    expect(v.accept).toBe(false);
+    expect(rejectionMessage(v)).toMatch(/ad spend rows fell from 49,066 to 15/);
+  });
+
+  it('WIDENING back to All Time is accepted too — a different question, either direction', () => {
+    const todayGood = { rowCount: 80, totalSpend: 454.16, accountCount: 21, window: TODAY };
+    expect(judgeRefresh(ALL_TIME_GOOD, todayGood).accept).toBe(true);
+  });
+
+  it('a window that did not change is compared exactly as before', () => {
+    const sameWindowCollapse = { rowCount: 40, totalSpend: 200, accountCount: 10, window: TODAY };
+    const todayGood = { rowCount: 80, totalSpend: 454.16, accountCount: 21, window: TODAY };
+    expect(judgeRefresh(sameWindowCollapse, todayGood).accept).toBe(false);
   });
 });
